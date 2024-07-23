@@ -1,1 +1,1 @@
-# bluehex
+# BlueHex
