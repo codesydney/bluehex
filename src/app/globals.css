@@ -1,26 +1,155 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ------------------------------------------------------------------
+ * Design tokens ported from the Code.Sydney site.
+ *
+ * That stylesheet sets the root font-size to 10px and expresses every
+ * dimension in rem against that. We keep the browser default 16px root here
+ * and carry the values across in px, so a `1.6rem` radius over there reads as
+ * `16px` here.
+ *
+ * `ink` is the high-contrast fill — near-black here — and `t-invert` is the
+ * text that sits on top of it. Every component reads these roles rather than
+ * literal colours, so re-theming is a token-level swap. Single scheme by
+ * design: the page stays light regardless of OS preference.
+ * ------------------------------------------------------------------ */
+@theme {
+  /* surfaces */
+  --color-page: #faf7f6;
+  --color-surface: #ffffff;
+  --color-surface-shade: #e0dddb;
+  --color-ink: #161616;
+  --color-ink-tint: #1c1c1c;
+
+  /* brand accents */
+  --color-accent: #9f8be7;
+  --color-lime: #ddf160;
+
+  /* text ramp */
+  --color-t-bright: #161616;
+  --color-t-medium: #303030;
+  --color-t-muted: #585858;
+  --color-t-faint: #b2aead;
+  --color-t-invert: #ffffff;
+  --color-t-invert-muted: #acacac;
+
+  /* strokes */
+  --color-stroke: #e0dddb;
+  --color-stroke-strong: #161616;
+
+  /* Radii. Named by role, not by a size letter: Tailwind already owns the
+     single-letter suffixes for sides, so a `--radius-l` token produces a
+     `rounded-l` that collides with the built-in left-side utility — the built-in
+     wins on the left corners and the token only lands on the right, which reads
+     as a half-rounded box. Same trap as naming a colour `base` and losing
+     `text-base`. Keep these names multi-letter and unlike any built-in. */
+  --radius-tight: 10px;
+  --radius-card: 26px;
+  --radius-block: 38px;
+  --radius-huge: 80px;
+
+  /* type */
+  --font-display: var(--font-funnel-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-funnel-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  body {
+    background-color: var(--color-page);
+    color: var(--color-t-bright);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.06;
+    text-wrap: balance;
+  }
+
+  /* Tracking is tight at display sizes and normal at body sizes, so it is set
+     per-heading rather than globally. */
+  ::selection {
+    background-color: var(--color-lime);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 3px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  /* Page gutter. Maxes out at 1600px with a 20px gutter that opens up to
+     40px past the tablet breakpoint. */
+  .container-x {
+    width: 100%;
+    max-width: 1600px;
+    margin-inline: auto;
+    padding-inline: 20px;
+  }
+
+  @media (min-width: 768px) {
+    .container-x {
+      padding-inline: 40px;
+    }
+  }
+
+  /* Display headline scale — fluid between the mobile and 1600px extremes so
+     the giant section titles never need per-breakpoint overrides. */
+  .display-1 {
+    font-size: clamp(3.25rem, 11vw, 11.5rem);
+    line-height: 0.92;
+    letter-spacing: -0.04em;
+  }
+
+  .display-2 {
+    font-size: clamp(2.5rem, 6.2vw, 5.5rem);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+  }
+
+  .display-3 {
+    font-size: clamp(1.9rem, 3.4vw, 2.9rem);
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+  }
+
+  /* Marquee band. The track carries two identical runs of the phrase list, so
+     travelling exactly half its width lands the second run where the first
+     began and the loop is seamless. */
+  .marquee-track {
+    animation: marquee-scroll 40s linear infinite;
+    will-change: transform;
+  }
+
+  @keyframes marquee-scroll {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* Motion is decorative here — the phrases are aria-hidden and repeat, so
+     stopping the track loses nothing. */
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-track {
+      animation: none;
+      transform: translateX(-8%);
+    }
+  }
 }
