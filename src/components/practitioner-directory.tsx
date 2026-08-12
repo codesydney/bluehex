@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Close, Search, Sparkle } from "@/components/icons";
 import { Badge, Card } from "@/components/ui";
 import type { Practitioner } from "@/lib/practitioners";
@@ -44,6 +44,7 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
   const [query, setQuery] = useState("");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [focusFilters, setFocusFilters] = useState<string[]>([]);
+  const searchBox = useRef<HTMLInputElement>(null);
 
   /* Focus areas are whatever the published profiles actually claim — there is
      no separate taxonomy to drift out of sync with. */
@@ -91,9 +92,13 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
         <label htmlFor="practitioner-search" className="sr-only">
           Search practitioners by name, skill, credential or location
         </label>
-        <div className="flex items-center gap-4 rounded-full bg-surface px-6 py-4 md:px-8 md:py-5">
+        {/* The focus ring lives on the pill rather than the input, so it traces
+            the rounded shape instead of boxing the text. Matches the global
+            :focus-visible treatment in globals.css. */}
+        <div className="flex items-center gap-4 rounded-full bg-surface px-6 py-4 outline-ink outline-offset-[3px] focus-within:outline-2 md:px-8 md:py-5">
           <Search className="size-5 shrink-0 text-t-faint md:size-6" />
           <input
+            ref={searchBox}
             id="practitioner-search"
             type="search"
             value={query}
@@ -106,7 +111,12 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
           {query ? (
             <button
               type="button"
-              onClick={() => setQuery("")}
+              /* Clearing unmounts this button, so hand focus back to the input
+                 rather than dropping the keyboard user out to the document. */
+              onClick={() => {
+                setQuery("");
+                searchBox.current?.focus();
+              }}
               aria-label="Clear search"
               className="grid size-8 shrink-0 place-items-center rounded-full text-t-muted transition-colors hover:bg-ink hover:text-t-invert"
             >
@@ -212,15 +222,17 @@ function FilterChip({
 function PractitionerCard({ person }: { person: Practitioner }) {
   return (
     <Card className="flex h-full flex-col gap-5">
+      {/* min-w-0 so a long name or role wraps instead of shoving the badge off
+          the card — profile text is user-supplied and unbounded. */}
       <div className="flex items-start justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-xl font-medium">{person.name}</h3>
           <p className="mt-1 text-sm text-t-muted">{person.role}</p>
           <p className="text-sm text-t-faint">{person.location}</p>
         </div>
         {/* The badge is only ever about the Bluehex check. Where someone is up
             to with certification shows per credential in the list below. */}
-        <Badge tone={person.verified ? "strong" : "quiet"}>
+        <Badge tone={person.verified ? "strong" : "quiet"} className="shrink-0">
           {person.verified ? "Verified" : "Self-listed"}
         </Badge>
       </div>
