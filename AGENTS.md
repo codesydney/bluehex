@@ -48,12 +48,19 @@ so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly.
 ## Skills
 
 `.claude/skills/` holds skills checked into the repo, so every contributor gets them
-without any local setup.
+without any local setup. Ask for one by name, e.g. `/code-tour`.
 
 - **`code-tour`** — a guided walk through one real flow, end to end, where the learner
   does the work and answers are withheld rather than handed over. Reach for it after
   code has landed faster than it was understood, which on this project is most weeks.
-  Ask for it by name: `/code-tour`.
+- **`pr-review`** — reviews a PR and posts the findings as inline comments anchored to
+  the lines they concern. Uses Codex for the review pass when it is installed and falls
+  back to Claude Code otherwise.
+- **`pr-review-resolve`** — the other half: works through the open threads, fixes what
+  holds, replies to every one, and resolves only what was actually addressed.
+
+Reviews belong on the pull request, not in a chat session. A finding nobody can find
+later did not happen.
 
 ## Working here, if you are new
 
