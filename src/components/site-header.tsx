@@ -1,21 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { ArrowUpRight, Close } from "@/components/icons";
 import { navigation, site } from "@/lib/site";
 
 /**
- * Fixed page header plus the full-screen menu overlay.
+ * Page header plus the full-screen menu overlay.
  *
  * This is the only interactive chrome on the site: the overlay toggles open,
- * locks background scroll while it is, and closes on Escape or on navigation.
- * Everything else is static markup.
+ * takes focus and locks the background while it is, and closes on Escape or on
+ * navigation. Everything else is static markup.
  */
 export function SiteHeader() {
-  const pathname = usePathname();
+  const headerRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   // The wordmark and the Say Hello button scroll away with the page and fade
   // as they go, matching the original site — there the header is absolutely
@@ -26,44 +27,81 @@ export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const onScroll = () => {
+      const next = window.scrollY > 24;
+
+      // The faded header becomes inert, and focus must never be left inside an
+      // inert subtree — it would strand the keyboard user on an element that no
+      // longer takes input. Hand focus to the menu button, which outlives the
+      // fade, before the state flips.
+      if (next && headerRef.current?.contains(document.activeElement)) {
+        menuButtonRef.current?.focus();
+      }
+
+      setScrolled(next);
+    };
 
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // The overlay is open only while the route it was opened from is still the
-  // current one, so navigating away — including via back/forward — closes it
-  // without an effect: the header does not unmount on a soft navigation, and
-  // resetting `open` from an effect would mean an extra render pass on every
-  // route change. Nav links also close it on click, since most of them are
-  // in-page anchors that leave the pathname untouched.
-  const [openedAt, setOpenedAt] = useState<string | null>(null);
-  const open = openedAt === pathname;
+  const [open, setOpen] = useState(false);
 
-  const setOpen = (next: boolean) => setOpenedAt(next ? pathname : null);
+  const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
     if (!open) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenedAt(null);
+      if (event.key === "Escape") close();
     };
+
+    // Nav links close the overlay on click, but history navigation does not go
+    // through them. Both events are needed: most of the nav is in-page anchors,
+    // so back/forward often changes only the hash, which fires `hashchange`
+    // without a `popstate`-driven route change.
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("popstate", close);
+    window.addEventListener("hashchange", close);
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKeyDown);
+
+    // The overlay covers the page, so everything behind it is hidden from sight
+    // but still in the tab order. Mark those siblings inert while it is open so
+    // the keyboard cannot escape into content nobody can see. The overlay and
+    // the menu button opt out by tagging themselves as menu layers.
+    const backdrop = Array.from(document.body.children).filter(
+      (element) => !element.hasAttribute("data-menu-layer") && !element.hasAttribute("inert"),
+    );
+    backdrop.forEach((element) => element.setAttribute("inert", ""));
+
+    const previouslyFocused = document.activeElement;
+    const menuButton = menuButtonRef.current;
+    overlayRef.current?.focus();
 
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("popstate", close);
+      window.removeEventListener("hashchange", close);
+      backdrop.forEach((element) => element.removeAttribute("inert"));
+
+      // Send focus back where it came from, so closing the menu does not dump
+      // the user at the top of the document.
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus();
+      } else {
+        menuButton?.focus();
+      }
     };
-  }, [open]);
+  }, [open, close]);
 
   return (
     <>
       <header
+        ref={headerRef}
         className={`absolute inset-x-0 top-0 z-30 origin-top transition-[opacity,transform] duration-300 ${
           scrolled ? "scale-y-125 opacity-0" : "scale-y-100 opacity-100"
         }`}
@@ -82,7 +120,9 @@ export function SiteHeader() {
               className="size-11 rounded-full"
               priority
             />
-            <span className="hidden text-base font-medium sm:inline">
+            {/* Screen readers keep the wordmark at every width — it is the only
+                accessible name this link has, and the logo is decorative. */}
+            <span className="sr-only text-base font-medium sm:not-sr-only sm:inline">
               {site.name}
               <span className="text-t-muted"> | {site.caption}</span>
             </span>
@@ -106,9 +146,10 @@ export function SiteHeader() {
 
       {/* Menu button. Fixed rather than part of the header, so it survives the
           header scrolling away and stays the way back to the navigation. */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-50">
+      <div data-menu-layer className="pointer-events-none fixed inset-x-0 top-0 z-50">
         <div className="container-x flex justify-end py-5">
           <button
+            ref={menuButtonRef}
             type="button"
             onClick={() => setOpen(!open)}
             aria-expanded={open}
@@ -128,11 +169,18 @@ export function SiteHeader() {
         </div>
       </div>
 
-      {/* Menu overlay */}
+      {/* Menu overlay. A modal in behaviour, so it says so: the backdrop goes
+          inert while it is open and focus moves in and back out again. */}
       <div
+        data-menu-layer
         id="site-menu"
+        ref={overlayRef}
         hidden={!open}
-        className="fixed inset-0 z-40 overflow-y-auto bg-surface"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Site menu"
+        tabIndex={-1}
+        className="fixed inset-0 z-40 overflow-y-auto bg-surface focus:outline-none"
       >
         <div className="container-x flex min-h-full flex-col justify-between pt-28 pb-12">
           <nav aria-label="Main">
@@ -142,7 +190,7 @@ export function SiteHeader() {
                   {group.href ? (
                     <Link
                       href={group.href}
-                      onClick={() => setOpen(false)}
+                      onClick={close}
                       className="display-3 font-display transition-colors hover:text-t-muted"
                     >
                       {group.label}
@@ -155,7 +203,7 @@ export function SiteHeader() {
                           <li key={item.href}>
                             <Link
                               href={item.href}
-                              onClick={() => setOpen(false)}
+                              onClick={close}
                               className="text-base text-t-muted transition-colors hover:text-t-bright"
                             >
                               {item.label}
