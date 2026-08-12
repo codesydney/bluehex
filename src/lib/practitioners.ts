@@ -25,16 +25,18 @@ export type Practitioner = {
   name: string;
   role: string;
   location: string;
+  /** Holds a Claude Certification. Comes from Anthropic, claimed by the person. */
   certified: boolean;
+  /**
+   * Bluehex has checked the credentials on this profile. Independent of
+   * `certified`: anyone can publish a profile before it has been checked, and a
+   * practitioner still working towards certification can have the Academy
+   * certificates they do hold verified. Only Bluehex sets this.
+   */
+  verified: boolean;
   bio: string;
   credentials: Credential[];
   focus: string[];
 };
 
 export const practitioners: Practitioner[] = [];
-
-/**
- * How many cards the directory preview holds. Any slot not filled by a real
- * practitioner renders as an open invitation instead.
- */
-export const directoryPreviewCount = 2;

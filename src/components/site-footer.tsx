@@ -5,7 +5,6 @@ import { site } from "@/lib/site";
 
 const footerNav = [
   { label: "Home", href: "/" },
-  { label: "What we do", href: "/#services" },
   { label: "Practitioners", href: "/#practitioners" },
   { label: "Contact", href: "/contact" },
 ];

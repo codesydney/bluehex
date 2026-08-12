@@ -22,9 +22,14 @@ identical instructions. Edit this file, never `CLAUDE.md`.
 
 ## Project
 
-Bluehex is the Claude consulting arm of Code.Sydney Pty Ltd. This repo is a Next.js
-(App Router) template. The current home page is a static placeholder — the goal right
-now is a walking skeleton deployed end to end, not features.
+Bluehex is the Claude consulting arm of Code.Sydney Pty Ltd. The site is a one-pager:
+a hero, then a directory of Claude practitioners that visitors search and filter to
+find someone to hire.
+
+The directory is the product. Anyone in the community can publish a profile listing
+their Claude credentials; Bluehex alone marks a profile **Verified**, meaning it has
+checked those credentials. That badge is the whole value proposition — treat anything
+touching it as load-bearing. Marketing copy beyond the hero is deliberately absent.
 
 ## Commands
 
@@ -72,9 +77,22 @@ can bias the review. Commit messages should describe the change and nothing else
 
 - `src/app/` — App Router routes, layout, and global styles. Pages are React Server
   Components by default.
-- `src/app/page.tsx` — the placeholder home page. Static, no data fetching.
+- `src/app/page.tsx` — the home page: hero, then the practitioner directory.
+- `src/components/` — shared chrome and UI primitives. `practitioner-directory.tsx` is
+  the one client component, because search and filters are local state.
+- `src/lib/` — data and configuration, no rendering. `site.ts` is the single source of
+  truth for naming, nav, contact details and legal links; `practitioners.ts` holds the
+  directory data and its types.
 
-There is no `src/lib/` yet. Keep the tree this thin until something needs otherwise.
+`practitioners.ts` ships an empty array on purpose. **Real people only** — no placeholder
+profiles. The directory renders an invitation card for the empty slots instead.
+
+`certified` and `verified` are two separate booleans and must stay that way. `certified`
+is the practitioner's own claim to hold a Claude Certification; `verified` means Bluehex
+checked the credentials. Either can be true without the other, and the badge reflects
+`verified` only.
+
+Keep the tree this thin until something needs otherwise.
 
 ## Database — planned, not built
 

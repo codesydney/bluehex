@@ -8,7 +8,7 @@ export const site = {
   name: "Bluehex",
   caption: "A Code.Sydney company",
   tagline:
-    "Claude specialists. One-to-one tutorials through to enterprise-grade consulting.",
+    "Claude practitioners from the Code.Sydney community. Find one, hire one.",
   /* Contact details carried over from the Code.Sydney site — Code.Sydney Pty
      Ltd is the legal entity trading as Bluehex, so these stay accurate. Swap
      the address/email here if Bluehex gets its own. */
@@ -46,8 +46,6 @@ export type NavGroup = {
  */
 export const navigation: NavGroup[] = [
   { label: "Home", href: "/" },
-  { label: "What we do", href: "/#services" },
   { label: "Practitioners", href: "/#practitioners" },
-  { label: "How it works", href: "/#how-it-works" },
   { label: "Contact", href: "/contact" },
 ];
