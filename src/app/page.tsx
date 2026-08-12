@@ -1,13 +1,10 @@
-import { db } from "@/lib/db";
+// Static for now. The Drizzle client in `src/lib/db.ts` is wired up but not queried
+// yet — there is no schema. Once tables exist, make this an async Server Component,
+// call `await connection()` from `next/server` to opt out of prerendering, then read
+// through `getDb()`.
+const TAGLINE = "The Claude consulting arm of Code.Sydney Pty Ltd.";
 
-// Server Component: read directly from SQLite on the server.
 export default function Home() {
-  const tagline = (
-    db.prepare("SELECT value FROM site_meta WHERE key = ?").get("tagline") as
-      | { value: string }
-      | undefined
-  )?.value;
-
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-6 p-8 text-center">
       <div className="flex items-center gap-3">
@@ -20,11 +17,11 @@ export default function Home() {
       </div>
 
       <p className="max-w-xl text-lg text-black/70 dark:text-white/70">
-        {tagline}
+        {TAGLINE}
       </p>
 
       <p className="text-sm text-black/40 dark:text-white/40">
-        Next.js + SQLite template · placeholder page
+        Next.js + Neon template · placeholder page
       </p>
     </main>
   );

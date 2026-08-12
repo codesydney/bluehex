@@ -7,3 +7,106 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+# Bluehex
+
+Guidance for AI coding agents working in this repository.
+
+`CLAUDE.md` is a symlink to this file, so Claude Code and any agent that reads
+`AGENTS.md` get identical instructions. Edit this file, never the symlink.
+
+> The block above is managed by `next dev` — it rewrites it in place between the
+> `nextjs-agent-rules` markers. Leave the markers intact and commit any regenerated
+> change with your work to keep the tree clean. It may also relocate the block to the
+> end of the file; move it back to the top and commit that.
+
+## Project
+
+Bluehex is the Claude consulting arm of Code.Sydney Pty Ltd. This repo is a Next.js
+(App Router) template. The current home page is a static placeholder — the goal right
+now is a walking skeleton deployed end to end, not features.
+
+## Commands
+
+This project uses **pnpm** (see `packageManager` in `package.json`). Don't use `npm`
+or `yarn` — they would create a competing lockfile.
+
+- `pnpm install` — install dependencies
+- `pnpm dev` — start the dev server (Turbopack) at http://localhost:3000
+- `pnpm build` — production build (also runs the TypeScript type-check)
+- `pnpm start` — serve the production build
+- `pnpm lint` — ESLint (flat config, `eslint-config-next`)
+
+There is no test runner configured yet. Note that `next build` no longer runs ESLint,
+so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly.
+
+## Toolchain pins
+
+Two dev dependencies are deliberately held behind `latest`. Don't bump them as a
+drive-by; both take `pnpm lint` down with a hard error:
+
+- **`typescript` is pinned to `^6.0.3`, not 7.** `typescript-eslint` 8.67.0 throws
+  `typescript-eslint does not support TS 7.0` on load. Tracked upstream at
+  [typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940).
+- **`eslint` is pinned to `^9`, not 10.** `eslint-plugin-react` 7.37.5 (the latest
+  release) calls the removed `context.getFilename()` and crashes under ESLint 10.
+
+Both unblock once `eslint-config-next` updates its bundled plugins. When retrying,
+bump them together and confirm `pnpm lint` exits 0 before committing.
+
+## Commit conventions
+
+**Do not add trailers to commit messages.** No `Co-Authored-By`, no
+`Generated with`, no tool attribution of any kind. Automated code review runs
+against this repository, and a trailer advertising which tool wrote the change
+can bias the review. Commit messages should describe the change and nothing else.
+
+## Stack
+
+- Next.js 16 (App Router, Turbopack), React 19
+- Tailwind CSS v4 (via `@tailwindcss/postcss`; no `tailwind.config` file — configured in CSS)
+- TypeScript 6, path alias `@/*` → `src/*`
+- No database, no test runner, no runtime environment variables
+
+## Architecture
+
+- `src/app/` — App Router routes, layout, and global styles. Pages are React Server
+  Components by default.
+- `src/app/page.tsx` — the placeholder home page. Static, no data fetching.
+
+There is no `src/lib/` yet. Keep the tree this thin until something needs otherwise.
+
+## Database — planned, not built
+
+The repo has **no database**: no driver, no ORM, no `DATABASE_URL`, no `src/lib/db.ts`.
+An earlier SQLite (`better-sqlite3`) setup was removed, and a Drizzle/Postgres one was
+scaffolded and then stripped back out to keep the skeleton thin. The notes below are the
+agreed plan for when it is reintroduced — treat them as the contract, not a description
+of current state.
+
+- **Target is Postgres**: local Postgres in development, [Neon](https://neon.com) when
+  deployed. Drizzle ORM for schema and queries.
+- **Use the `node-postgres` (`pg`) driver, not `@neondatabase/serverless`.** Neon's HTTP
+  driver cannot talk to local Postgres — it speaks Neon's own HTTP protocol, so a
+  `localhost` URL fails with `Error connecting to database: TypeError: fetch failed`.
+  `pg` speaks the standard wire protocol and works against both local Postgres and Neon's
+  pooled connection string. Only consider the HTTP driver if the app moves to the edge
+  runtime.
+- **Make the client lazy** — a `getDb()` function, not a top-level `export const db`.
+  The module gets imported during `next build`, so reading `DATABASE_URL` eagerly breaks
+  builds wherever that secret is absent (CI, preview deployments).
+- **Cache the client at module scope**, not only on `globalThis`. A `globalThis`-only
+  cache is typically skipped in production and leaks a new connection pool per call.
+- **Queries are async**, unlike the synchronous `better-sqlite3` setup. A Server Component
+  that reads from the database must be `async`, and should `await connection()` from
+  `next/server` first to opt out of prerendering. `export const dynamic` is on its way out
+  in Next 16 — prefer `connection()`.
+- Local Postgres on this machine follows a `<project>_dev` naming convention.
+- `DATABASE_URL` belongs in `.env.local` (git-ignored). Add a committed `.env.example`
+  template at the same time — `.gitignore` already has the `!.env.example` exception,
+  since the blanket `.env*` rule would otherwise swallow it.
+
+## Deployment
+
+Target is Vercel, deployed from the `main` branch of `codesydney/bluehex`. Pushes to
+`main` ship to production; pull requests get preview deployments. The build requires no
+environment variables.

@@ -1,10 +1,9 @@
-# pnpm blocks dependency build scripts by default. better-sqlite3 is a native
-# module whose install script builds/fetches its binary, so it has to be allowed.
-onlyBuiltDependencies:
-  - better-sqlite3
-
-# unrs-resolver (via eslint-import-resolver-typescript) ships prebuilt binaries
-# as optional deps; its build script is only a source-build fallback. Listing it
-# here acknowledges the block and keeps install output clean.
+# pnpm blocks dependency build scripts by default. unrs-resolver (pulled in by
+# eslint-import-resolver-typescript) resolves its binary through optional deps, so
+# its build script is only a source-build fallback and is safe to leave blocked.
+# Listing it here acknowledges that and keeps install output clean.
+#
+# If a native dependency is ever added and fails to load after an install, move it
+# to `onlyBuiltDependencies` so pnpm runs its build script.
 ignoredBuiltDependencies:
   - unrs-resolver
