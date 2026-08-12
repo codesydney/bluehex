@@ -11,8 +11,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 Guidance for AI coding agents working in this repository.
 
-`CLAUDE.md` is a symlink to this file, so Claude Code and any agent that reads
-`AGENTS.md` get identical instructions. Edit this file, never the symlink.
+`CLAUDE.md` is a one-line file containing `@AGENTS.md`, which Claude Code resolves
+as an import of this file — so Claude Code and any agent that reads `AGENTS.md` get
+identical instructions. Edit this file, never `CLAUDE.md`.
 
 > The block above is managed by `next dev` — it rewrites it in place between the
 > `nextjs-agent-rules` markers. Leave the markers intact and commit any regenerated
