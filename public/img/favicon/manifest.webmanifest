@@ -1,11 +1,11 @@
 {
-  "name": "Rayo - Digital Agency & Personal Portfolio HTML Template",
-  "short_name": "Rayo",
+  "name": "Bluehex",
+  "short_name": "Bluehex",
   "icons": [
     { "src": "/img/favicon/android-icon-192.png", "type": "image/png", "sizes": "192x192" },
     { "src": "/img/favicon/android-icon-512.png", "type": "image/png", "sizes": "512x512" }
   ],
-  "theme_color": "#efefef",
-  "background_color": "#efefef",
+  "theme_color": "#faf7f6",
+  "background_color": "#faf7f6",
   "display": "standalone"
 }
