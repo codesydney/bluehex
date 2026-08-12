@@ -71,6 +71,9 @@ reads the PR in six months.
 
 - The reply and resolve operations are GraphQL only — there is no REST equivalent for
   resolving. The script handles both.
+- `list` fetches the first 100 threads and 20 comments each, and warns loudly on stderr
+  when there are more. If you see that warning, work the PR page as well — the whole
+  point of this skill is that no thread goes unanswered.
 - A thread id is not a comment id. Get ids from `list`, never from a comment URL.
 - If the branch has moved since the review, threads may be `isOutdated`. Re-read the
   current code before acting; the finding may already be gone.

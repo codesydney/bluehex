@@ -15,6 +15,10 @@ moment the session ends.
 .claude/skills/pr-review/scripts/post-review.sh 15 findings.json summary.md
 ```
 
+Every object in `findings.json` needs `path`, `line` and `body`; `side` defaults to
+`RIGHT`. The script rejects the file if any are missing, because GitHub answers a bad
+comment with a 422 that takes the entire review down with it.
+
 ## Workflow
 
 ### 1. Find the PR
@@ -36,11 +40,19 @@ the diff does not show.
 Check availability in this order:
 
 1. `ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs` — plugin
-   installed. **Delegate to the `codex:codex-rescue` subagent** via the Agent tool, asking
-   for a review of the branch with file and line references.
+   likely installed. **Delegate to the `codex:codex-rescue` subagent** via the Agent tool,
+   asking for a review of the branch with file and line references.
 2. `command -v codex` — CLI but no plugin. Shell out to `codex exec` with the same brief.
-3. Neither — review it yourself. Say in the summary which engine ran; the reader should
-   know whether a second model saw this.
+3. Neither — review it yourself.
+
+**Fall through on failure, not just on absence.** The file check is evidence that the
+plugin is installed; it is not proof the subagent is registered under that name. If the
+delegation errors, drop to the next option rather than stopping — a check that passes
+while the thing it stands for is missing is the one failure the chain would otherwise
+not survive.
+
+Say in the summary which engine ran. The reader should know whether a second model
+actually saw this.
 
 ### 4. Verify every finding before posting
 

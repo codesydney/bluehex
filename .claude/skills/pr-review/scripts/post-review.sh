@@ -22,12 +22,21 @@ findings=$2
 summary=$3
 event=${4:-COMMENT}
 
+# $pr is interpolated into the REST path below. Quoting stops shell injection but not a
+# malformed value reshaping the path, so require digits.
+[[ $pr =~ ^[0-9]+$ ]] || { echo "pr must be a number, got '$pr'" >&2; exit 64; }
+
 for f in "$findings" "$summary"; do
   [ -r "$f" ] || { echo "cannot read $f" >&2; exit 66; }
 done
 
 jq -e 'type == "array"' "$findings" >/dev/null 2>&1 ||
   { echo "$findings must be a JSON array of comment objects" >&2; exit 65; }
+
+# A comment missing any of these is rejected by GitHub with a 422 that takes the whole
+# review down with it, so catch it here where the message can name the problem.
+jq -e 'all(.[]; has("path") and has("line") and has("body"))' "$findings" >/dev/null 2>&1 ||
+  { echo "every comment needs path, line and body" >&2; exit 65; }
 
 # Anchor every comment to the right-hand side unless it explicitly targets a removed line.
 payload=$(jq -n \
@@ -43,10 +52,16 @@ payload=$(jq -n \
 count=$(jq 'length' "$findings")
 echo "Posting $count inline comment(s) to PR #$pr as $event..." >&2
 
+# Keep stderr out of $response. Folding it in means any stderr chatter on an otherwise
+# successful POST breaks the jq parse below — after the review has already been created,
+# so a caller that retries on non-zero exit posts the whole review twice.
+errfile=$(mktemp)
+trap 'rm -f "$errfile"' EXIT
+
 if ! response=$(printf '%s' "$payload" |
-  gh api --method POST "repos/{owner}/{repo}/pulls/$pr/reviews" --input - 2>&1); then
-  echo "$response" >&2
-  case "$response" in
+  gh api --method POST "repos/{owner}/{repo}/pulls/$pr/reviews" --input - 2>"$errfile"); then
+  cat "$errfile" >&2
+  case "$(cat "$errfile")" in
     *422*) cat >&2 <<'EOT'
 
 422 usually means a comment is anchored to a line that is not in the diff.

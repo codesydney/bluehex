@@ -22,14 +22,23 @@ case $1 in
   list)
     [ $# -ge 2 ] || usage
     pr=$2
+    [[ $pr =~ ^[0-9]+$ ]] || { echo "pr must be a number, got '$pr'" >&2; exit 64; }
     filter='map(select(.isResolved | not))'
     [ "${3:-}" = "--all" ] && filter='.'
 
-    gh api graphql -f owner="$(repo_owner)" -f repo="$(repo_name)" -F pr="$pr" -f query='
+    # Assign on their own lines. Inside an argument list a failed command substitution
+    # does not trip `set -e`, so a gh auth failure would sail through as owner="".
+    owner=$(repo_owner)
+    repo=$(repo_name)
+    [ -n "$owner" ] && [ -n "$repo" ] ||
+      { echo "could not determine the repo — is gh authenticated, with a remote set?" >&2; exit 69; }
+
+    response=$(gh api graphql -f owner="$owner" -f repo="$repo" -F pr="$pr" -f query='
       query($owner:String!, $repo:String!, $pr:Int!) {
         repository(owner:$owner, name:$repo) {
           pullRequest(number:$pr) {
             reviewThreads(first:100) {
+              pageInfo { hasNextPage }
               nodes {
                 id isResolved isOutdated path line
                 comments(first:20) { nodes { author { login } body } }
@@ -37,7 +46,16 @@ case $1 in
             }
           }
         }
-      }' --jq ".data.repository.pullRequest.reviewThreads.nodes | $filter" |
+      }')
+
+    # Truncation has to be loud. The skill tells you to reply to every thread, and a
+    # thread this never printed is one you will never reply to.
+    [ "$(printf '%s' "$response" |
+        jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] &&
+      echo "WARNING: more than 100 threads on this PR — output is truncated." >&2
+
+    printf '%s' "$response" |
+      jq -r ".data.repository.pullRequest.reviewThreads.nodes | $filter" |
       jq -r '.[] |
         "── \(.path):\(.line // "?")\(if .isOutdated then "  [outdated]" else "" end)
    id: \(.id)
