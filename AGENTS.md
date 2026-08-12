@@ -40,6 +40,31 @@ or `yarn` — they would create a competing lockfile.
 There is no test runner configured yet. Note that `next build` no longer runs ESLint,
 so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly.
 
+## Skills
+
+`.claude/skills/` holds skills checked into the repo, so every contributor gets them
+without any local setup.
+
+- **`code-tour`** — a guided walk through one real flow, end to end, where the learner
+  does the work and answers are withheld rather than handed over. Reach for it after
+  code has landed faster than it was understood, which on this project is most weeks.
+  Ask for it by name: `/code-tour`.
+
+## Working here, if you are new
+
+Two things will waste your time otherwise:
+
+- **Most answers you find online will be for older versions.** Next.js 16, React 19 and
+  Tailwind v4 are all recent enough that search results, tutorials and model training
+  data are frequently wrong for this codebase — confidently wrong, which is worse. The
+  local docs in `node_modules/next/dist/docs/` are the source of truth. Being confused by
+  a stale answer is the environment, not you.
+- **This project uses pnpm.** Every tutorial you read will say `npm`. Using it creates a
+  competing lockfile and a confusing diff.
+
+Ask early. A question costs a minute; a day spent stuck on a stale Stack Overflow answer
+costs a day.
+
 ## Toolchain pins
 
 Two dev dependencies are deliberately held behind `latest`. Don't bump them as a
