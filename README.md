@@ -7,9 +7,17 @@ via [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3).
 
 ## Getting started
 
+This project uses [pnpm](https://pnpm.io). If you don't have it yet:
+
 ```bash
-npm install
-npm run dev
+npm install -g pnpm
+```
+
+Then install and run:
+
+```bash
+pnpm install
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). The placeholder home page reads

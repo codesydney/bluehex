@@ -14,10 +14,14 @@ Bluehex is the Claude consulting arm of Code.Sydney Pty Ltd. This repo is a Next
 
 ## Commands
 
-- `npm run dev` — start the dev server (Turbopack) at http://localhost:3000
-- `npm run build` — production build (also runs the TypeScript type-check)
-- `npm start` — serve the production build
-- `npm run lint` — ESLint (flat config, `eslint-config-next`)
+This project uses **pnpm** (see `packageManager` in `package.json`). Don't use `npm`
+or `yarn` — they would create a competing lockfile.
+
+- `pnpm install` — install dependencies
+- `pnpm dev` — start the dev server (Turbopack) at http://localhost:3000
+- `pnpm build` — production build (also runs the TypeScript type-check)
+- `pnpm start` — serve the production build
+- `pnpm lint` — ESLint (flat config, `eslint-config-next`)
 
 There is no test runner configured yet.
 
@@ -46,3 +50,6 @@ There is no test runner configured yet.
   Override the path with the `DATABASE_PATH` environment variable.
 - `better-sqlite3` is fully synchronous — no `await` on queries; queries block the
   request, which is expected and fine for this workload.
+- pnpm blocks dependency build scripts by default, so `better-sqlite3` is allow-listed
+  under `onlyBuiltDependencies` in `pnpm-workspace.yaml`. If its native binary ever
+  fails to load after an install, check that entry first.
