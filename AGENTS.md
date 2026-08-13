@@ -122,7 +122,9 @@ Nothing enforces the version locally — `pnpm install` only warns on the wrong 
   plugin — not just Node.
 - **Windows**: [nvm-windows deliberately does not read `.nvmrc`](https://github.com/coreybutler/nvm-windows/issues/556)
   and asdf has no native Windows support. Use WSL and follow the Linux setup, or pass
-  the file's contents by hand: `nvm install (Get-Content .nvmrc)`.
+  the file's contents by hand from an Administrator PowerShell — installing does not
+  switch, so both commands are needed:
+  `nvm install (Get-Content .nvmrc); nvm use (Get-Content .nvmrc)`.
 
 ## Commit conventions
 
