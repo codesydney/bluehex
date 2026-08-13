@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Build and lint
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit SHAs, not tags: a major-version tag can be
+      # retargeted. Comments record the version each SHA corresponds to; bump both
+      # together.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # pnpm/action-setup must come before setup-node, or the cache step finds no
+      # lockfile it understands. Omitting `version` makes the action read
+      # `packageManager` from package.json, so the pin cannot drift from local dev.
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+
+      # Read from `.nvmrc` rather than a literal, so this workflow cannot drift from
+      # local development or from any other workflow.
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `next build` no longer runs ESLint, so lint has to be its own CI step.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
