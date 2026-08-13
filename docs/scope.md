@@ -83,6 +83,23 @@ checklist, the profile shape, the `countryCode` and proof-URL fields and the
 published profiles themselves all carry over. The throwaway is the mail template,
 about half a day.
 
+**The profile model is designed once, before intake starts collecting.** Phase one
+does not depend on the phase-two system being built — the `Practitioner` type and
+the directory rendering already exist, so a profile can be taken by mail and
+committed today. It depends on the *schema* being settled, which is a different
+and much cheaper thing.
+
+The reason is asymmetric cost. Migrating twenty-five rows from a typed array into
+Postgres is a script. Going back to twenty-five people to ask for a field that was
+never collected is a fortnight of chasing humans, and it spends goodwill with
+exactly the people the directory is trying to attract. So phase one collects the
+full phase-two field set — including the claim email — even where it renders only
+part of it.
+
+This makes two items listed under "In scope now" prerequisites rather than
+independents: `countryCode` and the credential proof URL both want to exist before
+the first profile is taken in.
+
 Phase two is buffered hardest of anything here, deliberately. Authentication is the
 classic estimate-breaker: the happy path is quick, and the remaining eighty per cent
 — session edge cases, email deliverability, storage permissions, the moderation flow
