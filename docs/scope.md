@@ -63,36 +63,55 @@ small and well understood.
 
 ---
 
-## Needs a decision
+## The plan
 
-One question dominates the timeline. Everything else in this section is downstream
-of it.
+### How profiles get in
 
-### How do profiles get in?
+**Decided: self-service is the destination. Curated intake is phase one.**
 
-| Option | Effort | Elapsed | What it buys |
+These are not alternatives. Curated intake is the first step of the same path —
+the directory needs profiles in it during the two to three months self-service
+takes to build, or the site sits empty for a quarter while auth gets written.
+
+| Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
-| **A — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks credentials, commits it. No accounts, no secrets, no moderation queue. |
-| **B — Self-service** | 12–15d | ~2–2.5 months | Accounts, auth, sessions, profile CRUD, avatar upload, validation, approval queue, email verification, password reset, access policies. Ongoing security surface thereafter. |
+| **1 — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. No accounts, no secrets, no moderation queue. |
+| **2 — Self-service** | 13–17d | ~2–3 months | Accounts, auth, sessions, profile CRUD, avatar upload, validation, approval queue, email verification, password reset, access policies, and claiming of existing curated profiles. Carries a permanent security and maintenance obligation afterwards. |
 
-Option B is buffered hardest of anything here, and deliberately so. Authentication
-is the classic estimate-breaker: the happy path is quick and the remaining eighty
-per cent — session edge cases, email deliverability, storage permissions, the
-moderation flow nobody specs up front — is where the weeks go. It also does not
-end on delivery. It is the only item on this list that carries a permanent
-maintenance and security obligation afterwards.
+Almost none of phase one is discarded when phase two lands. The verification
+checklist, the profile shape, the `countryCode` and proof-URL fields and the
+published profiles themselves all carry over. The throwaway is the mail template,
+about half a day.
 
-Both end in the same place: a human at Bluehex reads the credentials and decides.
-Verification is manual either way — that is the product. Option B does not remove
-that work; it changes who types the profile in.
+Phase two is buffered hardest of anything here, deliberately. Authentication is the
+classic estimate-breaker: the happy path is quick, and the remaining eighty per cent
+— session edge cases, email deliverability, storage permissions, the moderation flow
+nobody specs up front — is where the weeks go.
 
-At the current population, A is cheaper per profile and produces cleaner data. B
-begins to pay for itself when profile *edits* become frequent enough that handling
-them by hand hurts.
+Both phases end in the same place: a human at Bluehex reads the credentials and
+decides. Verification is manual either way — that is the product. Self-service does
+not remove that work, it changes who types the profile in.
 
-**Recommendation:** A now, B on a trigger — 25 published profiles, or roughly five
-edit requests a month, whichever comes first. This is sequencing, not a decision
-against B.
+### Open design questions for phase two
+
+Not blocking phase one, but they shape the schema, so they want answering before
+the database lands.
+
+**How does a practitioner claim a curated profile?** Matching on email address is
+the obvious join, and probably the right one. Two constraints on it:
+
+- The claim must require **proven control of the address** — a verification link,
+  not merely typing the address into a form. A curated profile carries a Verified
+  badge, so an unproven claim is an account takeover of a credential.
+- Expect misses. People sign up with a different address than the one Bluehex holds,
+  and OAuth providers hand over whatever address the provider has, which may be a
+  private no-reply. A manual merge path is needed; at this volume that is acceptable,
+  since a human is already in the loop.
+
+**Who owns `verified`?** It must remain server-owned and unwritable by the profile
+owner, and material edits to credentials should drop it pending re-check. Without
+that, a profile can be verified on modest claims and then edited to carry larger
+ones, and the badge stops attesting to anything.
 
 ### Where profile data lives
 
@@ -101,7 +120,11 @@ against B.
 | Typed array in the repo | shipped | — | Current state. Every change is a reviewed commit — a real audit trail for a credential claim. |
 | Postgres table, no auth | 1.5–2d | ~1.5 weeks | Satisfies "the community needs a member database somewhere durable" without any of Option B above. Schema, client, migration, seed script, read path. First database in the project, so some of this is one-off setup cost. |
 
-These are independent of the intake question. A database does not require accounts.
+Settled by the decision above: self-service needs a database, so Postgres arrives
+with phase two at the latest. Bringing it forward is optional — the typed array is
+sufficient for phase one, and a reviewed commit per profile is a genuine audit trail
+for a credential claim. A database does not require accounts, so this can land early
+if the durable member record is wanted before phase two.
 
 ### Meetup banner
 
