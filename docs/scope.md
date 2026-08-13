@@ -76,7 +76,7 @@ takes to build, or the site sits empty for a quarter while auth gets written.
 | Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
 | **1 — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. No accounts, no secrets, no moderation queue. |
-| **2 — Self-service** | 13–17d | ~2–3 months | Accounts, auth, sessions, profile CRUD, avatar upload, validation, approval queue, email verification, password reset, access policies, and claiming of existing curated profiles. Carries a permanent security and maintenance obligation afterwards. |
+| **2 — Self-service** | 14–18d | ~2–3 months | Accounts, auth, sessions, profile CRUD, avatar upload, validation, approval queue, email verification, password reset, access policies, claiming of curated profiles, and an admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
 
 Almost none of phase one is discarded when phase two lands. The verification
 checklist, the profile shape, the `countryCode` and proof-URL fields and the
@@ -97,16 +97,30 @@ not remove that work, it changes who types the profile in.
 Not blocking phase one, but they shape the schema, so they want answering before
 the database lands.
 
-**How does a practitioner claim a curated profile?** Matching on email address is
-the obvious join, and probably the right one. Two constraints on it:
+**How does a practitioner claim a curated profile?** Email address is the join.
+A curated profile carries a pending claim email and no account; when someone signs
+up with a matching address, the profile links to their account.
 
-- The claim must require **proven control of the address** — a verification link,
-  not merely typing the address into a form. A curated profile carries a Verified
-  badge, so an unproven claim is an account takeover of a credential.
-- Expect misses. People sign up with a different address than the one Bluehex holds,
-  and OAuth providers hand over whatever address the provider has, which may be a
-  private no-reply. A manual merge path is needed; at this volume that is acceptable,
-  since a human is already in the loop.
+**Decided: no merge path.** Where the address does not match — the person signs up
+with a different one, or an OAuth provider hands over a private no-reply — an admin
+edits the claim email on the profile through a dashboard, and the account then
+matches. Reconciliation is a human action rather than code.
+
+Two things this depends on:
+
+- **Sign-up must verify the address.** The admin sets who may claim the profile;
+  proof of control comes from the standard verification mail, which phase two
+  includes anyway. Without it, setting the claim email is enough to hand a Verified
+  badge to whoever asks for it.
+- **Set the claim email before inviting the person to sign up.** If they sign up
+  first and create their own profile, there are two records for one person and the
+  email swap collides. That is a process rule, not a code path — at this volume it
+  is cheaper to sequence the invitation correctly than to build duplicate
+  resolution.
+
+Changing a claim email transfers ownership of a verified credential, so it is a
+privileged action worth recording who performed it, even if nothing reads the log
+for a long while.
 
 **Who owns `verified`?** It must remain server-owned and unwritable by the profile
 owner, and material edits to credentials should drop it pending re-check. Without
