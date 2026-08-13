@@ -55,7 +55,7 @@ Small, uncontested, no decision needed first.
 | --- | --- | --- | --- |
 | Country flag on profile cards | 0.25d | days | Add `countryCode` to `Practitioner`; SVG assets, not emoji — Windows has no flag glyphs. Good first ticket, and delegable. |
 | Prototype route with sample profiles | 0.5d | days | Not linked from the site, never in production. Doubles as the recruiting artifact — a candidate can see what their profile will look like. |
-| Credential proof URL | 0.25d | days | Optional field on `Credential` so a badge can link to evidence. |
+| Credential proof URL | 0.25d | days | Optional field on `Credential` so a badge can link to the evidence a human checked. The whole of the verification mechanism — see Settled, below. |
 | Practitioner intake path | 0.5d | days | A documented route from "person agrees" to "profile published" — mail link, PR template, and the checklist Bluehex verifies against. |
 
 **Subtotal: ~1.5 days effort, about a week elapsed.** No buffer applied — these are
@@ -127,23 +127,32 @@ deliberately.
 - **Broader talent marketplace.** Beyond a directory: engagement requests, matching,
   and hiring flow, eventually for work outside the Claude and Anthropic ecosystem.
   Current agreement is Claude-focused for roughly the next two years.
-- **Automated credential verification.** See the spike below. Only becomes real work
-  if a public verification API exists.
 
 Estimating a two-year direction produces arguments about invented numbers. When one
 of these is picked up it gets broken down and sized then.
 
 ---
 
-## Open spikes
+## Settled
 
-Short investigations that resolve an estimate. Each one can delete a line item
-rather than size it.
+Questions closed rather than scheduled. Recorded so they do not come back as open
+items later.
 
-| Spike | Cost | Question |
-| --- | --- | --- |
-| Credly badges | 0.5h | Are Anthropic Academy certificates mirrored to Credly? Credly has a public verification API; Skilljar's is tenant-scoped and belongs to Anthropic, so it is closed to Bluehex. If there is no Credly mirror, automated verification is not possible and the line item closes. |
-| ~~Meetup feed~~ | done | Resolved 2026-08-14 — public iCal feed confirmed live. |
+**Meetup feed** — resolved 2026-08-14. The group's public iCal feed is live and needs
+no authentication, so the banner requires no API, no secret and no Pro subscription.
+
+**Automated credential verification — cut.** Claude credentials are issued through
+Skilljar, whose API is tenant-scoped to Anthropic and therefore closed to Bluehex.
+Mirroring to Credly was the only remaining route to an automated check and is not
+being pursued.
+
+Verification stays **manual, by design**. A practitioner supplies proof, a human at
+Bluehex checks it, and `verified` is set by hand. This is not a stopgap awaiting
+automation. The badge means Bluehex looked — that is the entire product, and a human
+looking is what makes it worth anything. Automating it would remove the only step
+that gives it value.
+
+There are no open spikes.
 
 ---
 
