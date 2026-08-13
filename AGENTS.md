@@ -91,6 +91,22 @@ drive-by; both take `pnpm lint` down with a hard error:
 Both unblock once `eslint-config-next` updates its bundled plugins. When retrying,
 bump them together and confirm `pnpm lint` exits 0 before committing.
 
+### Dependency releases are held for 7 days
+
+`pnpm-workspace.yaml` sets `minimumReleaseAge: 10080` (minutes), so pnpm will not resolve
+a version published less than 7 days ago. If `pnpm add` or `pnpm update` gives you an
+older version than you expected — pnpm prints `(x.y.z is available)` when it does — that
+is the setting working, not a stale cache. Pinning an exact version younger than the floor
+does not fall back, it fails: `ERR_PNPM_NO_MATCHING_VERSION`, which reads like the version
+does not exist until you get to the publish date further down the error. pnpm 11 makes
+that fallback configurable via `minimumReleaseAgeStrict`; pnpm 10 has no such option.
+
+On pnpm 10 the floor fires only where a new version would *enter* the lockfile, so CI's
+`--frozen-lockfile` install is unaffected. That is a property of the version rather than
+of the flag — pnpm 11 re-applies the floor to every entry in the loaded lockfile unless
+`trustLockfile` is set, so revisit this when the major changes. To take a fix sooner, add
+the package to `minimumReleaseAgeExclude` rather than removing the floor.
+
 ### Node 24
 
 `.nvmrc` holds the version and every workflow reads it via `node-version-file`, so the
