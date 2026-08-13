@@ -155,18 +155,27 @@ Fail soft: an undocumented upstream feed must not be able to take the homepage d
 
 ---
 
-## Direction — not scheduled, not estimated
+## Marketplace scope — bounded
 
-Agreed as where this is heading, with no date and no number attached. These are
-excluded from planning until something above is finished and one of them is chosen
-deliberately.
+The broader marketplace ambition is bounded to **profiles, an approval process, and
+authentication**. That is the whole of it — and it is phase two above, so drawing the
+boundary added no work and no time. The item was already in the plan under a
+different name.
 
-- **Broader talent marketplace.** Beyond a directory: engagement requests, matching,
-  and hiring flow, eventually for work outside the Claude and Anthropic ecosystem.
-  Current agreement is Claude-focused for roughly the next two years.
+Explicitly **not** being built, and not to be inferred from the word "marketplace":
 
-Estimating a two-year direction produces arguments about invented numbers. When one
-of these is picked up it gets broken down and sized then.
+- Engagement or hire requests, and messaging between visitors and practitioners
+- Matching, ranking or recommendation
+- Payments, invoicing, contracts or escrow
+- Ratings and reviews
+- Availability, rates or booking
+
+Any of these can be proposed later, and would be broken down and sized then. None is
+scheduled and none should be assumed. Naming the exclusions is what makes the
+boundary hold: an ambition described only by what it contains keeps growing, because
+nothing in the description ever says stop.
+
+Positioning stays Claude and Anthropic focused for roughly the next two years.
 
 ---
 
