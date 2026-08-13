@@ -7,6 +7,71 @@ A [Next.js](https://nextjs.org) (App Router) starter, deployed on
 
 ## Getting started
 
+### Node
+
+The Node version is pinned in [`.nvmrc`](./.nvmrc), and `engines.node` in
+`package.json` states the same major. The deploy workflow reads `.nvmrc`, so matching it
+locally means you build on exactly the version CI builds on. Vercel reads `engines.node`
+and runs the latest release of that major, so production agrees on the major but not
+necessarily the patch. `pnpm install` warns if you are on the wrong major but does not
+stop you.
+
+**Linux and macOS — [nvm](https://github.com/nvm-sh/nvm)**
+
+On macOS first install the Xcode command line tools (`xcode-select --install`), and if
+you have never created one, `touch ~/.zshrc` — the installer needs a profile file to
+write to. Then:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.6/install.sh | bash
+```
+
+Open a new shell, then from the repository root:
+
+```bash
+nvm install   # reads .nvmrc, installs that version if missing, and switches to it
+```
+
+On later visits `nvm use` is enough.
+
+**Windows — [nvm-windows](https://github.com/coreybutler/nvm-windows)**
+
+Run these from an **Administrator** PowerShell. nvm-windows switches versions by
+rewriting a symlink, which Windows only permits elevated, so `install` and `use` both
+fail in an ordinary shell.
+
+```powershell
+winget install CoreyButler.NVMforWindows
+```
+
+nvm-windows [deliberately does not read `.nvmrc`](https://github.com/coreybutler/nvm-windows/issues/556),
+so pass the file's contents yourself from the repository root:
+
+```powershell
+nvm install (Get-Content .nvmrc)
+nvm use (Get-Content .nvmrc)
+```
+
+If you would rather not do that every time, use WSL and follow the Linux instructions.
+
+**asdf**
+
+asdf ignores `.nvmrc` until you opt in. Once, per machine:
+
+```bash
+echo 'legacy_version_file = yes' >> ~/.asdfrc
+```
+
+The `nodejs` plugin then reads `.nvmrc` in this repository. Note the setting applies to
+all your asdf plugins, not just Node. Then from the repository root:
+
+```bash
+asdf plugin add nodejs   # skip if you already have it
+asdf install             # reads .nvmrc and installs that version
+```
+
+### pnpm
+
 This project uses [pnpm](https://pnpm.io). If you don't have it yet:
 
 ```bash
@@ -62,5 +127,5 @@ Both unblock once `eslint-config-next` updates its bundled plugins.
 ## Contributing
 
 Repository conventions and architecture notes for both humans and AI coding agents
-live in [`AGENTS.md`](./AGENTS.md). `CLAUDE.md` is a symlink to it, so there is a
-single source of truth — edit `AGENTS.md`.
+live in [`AGENTS.md`](./AGENTS.md). `CLAUDE.md` is a one-line file importing it, so
+there is a single source of truth — edit `AGENTS.md`.
