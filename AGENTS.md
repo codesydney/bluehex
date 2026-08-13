@@ -91,6 +91,16 @@ drive-by; both take `pnpm lint` down with a hard error:
 Both unblock once `eslint-config-next` updates its bundled plugins. When retrying,
 bump them together and confirm `pnpm lint` exits 0 before committing.
 
+### Dependency releases are held for 7 days
+
+`pnpm-workspace.yaml` sets `minimumReleaseAge: 10080` (minutes), so pnpm will not resolve
+a version published less than 7 days ago. If `pnpm add` or `pnpm update` gives you an
+older version than you expected — pnpm prints `(x.y.z is available)` when it does — that
+is the setting working, not a stale cache. It fires only where a new version would *enter*
+the lockfile; CI's `--frozen-lockfile` install resolves from the lockfile and is
+unaffected. To take a fix sooner, add the package to `minimumReleaseAgeExclude` rather
+than removing the floor.
+
 ### Node 24
 
 `.nvmrc` holds the version and every workflow reads it via `node-version-file`, so the
