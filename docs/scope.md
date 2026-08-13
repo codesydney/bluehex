@@ -75,8 +75,20 @@ takes to build, or the site sits empty for a quarter while auth gets written.
 
 | Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
-| **1 — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. No accounts, no secrets, no moderation queue. |
-| **2 — Self-service** | 14–18d | ~2–3 months | Accounts, auth, sessions, profile CRUD, avatar upload, validation, approval queue, email verification, password reset, access policies, claiming of curated profiles, and an admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
+| **1 — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. No database, no accounts, no secrets. |
+| **2a — Supabase and the read path** | 2–3d | ~2 weeks | Supabase project, local development database, Drizzle schema and migrations, lazy client, env plumbing across CI and Vercel, seed of the curated profiles, directory reading from the database. No auth. |
+| **2b — Authentication** | 4–5d | ~3 weeks | Accounts, sessions, sign-up with email verification, password reset, route protection, access policies. |
+| **2c — Profile writes** | 8–10d | ~6 weeks | Profile CRUD, avatar upload, validation, claiming of curated profiles, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
+
+**Total for phase two: 14–18 days**, unchanged — this is a re-split of the same work,
+not a re-estimate.
+
+The order is a dependency chain, not a preference. Profile *reads* need no auth and
+can come first, which puts the directory on real data early and de-risks everything
+after it. Profile *writes* cannot precede auth: every mutation needs an authenticated
+actor, profiles carry an account foreign key that does not exist until the user table
+does, and access policies are written against the authenticated user. Building writes
+first means rewriting every mutation and every policy afterwards.
 
 Almost none of phase one is discarded when phase two lands. The verification
 checklist, the profile shape, the `countryCode` and proof-URL fields and the
@@ -146,16 +158,21 @@ ones, and the badge stops attesting to anything.
 
 ### Where profile data lives
 
-| Option | Effort | Elapsed | Notes |
-| --- | --- | --- | --- |
-| Typed array in the repo | shipped | — | Current state. Every change is a reviewed commit — a real audit trail for a credential claim. |
-| Postgres table, no auth | 1.5–2d | ~1.5 weeks | Satisfies "the community needs a member database somewhere durable" without any of Option B above. Schema, client, migration, seed script, read path. First database in the project, so some of this is one-off setup cost. |
+Phase one runs on the typed array already in the repo, where every change is a
+reviewed commit — a real audit trail for a credential claim. Phase 2a moves it to
+Supabase Postgres.
 
-Settled by the decision above: self-service needs a database, so Postgres arrives
-with phase two at the latest. Bringing it forward is optional — the typed array is
-sufficient for phase one, and a reviewed commit per profile is a genuine audit trail
-for a credential claim. A database does not require accounts, so this can land early
-if the durable member record is wanted before phase two.
+Two things to settle when 2a starts:
+
+- **`AGENTS.md` is stale on this.** It states Neon as the deployed target, which was
+  true before Supabase was chosen. Correcting it is part of 2a, not a follow-up —
+  every agent working in this repository reads it as the contract.
+- **The driver guidance still holds.** `node-postgres` (`pg`) rather than an
+  HTTP-only driver, so the same connection code works against a local database and
+  against Supabase's pooled connection string. The lazy `getDb()` pattern in
+  `AGENTS.md` also carries over unchanged, and matters more here than it looks: the
+  module is imported during `next build`, so reading `DATABASE_URL` eagerly breaks
+  the build anywhere the secret is absent — CI and preview deployments included.
 
 ### Meetup banner
 
