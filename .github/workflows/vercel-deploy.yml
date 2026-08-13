@@ -1,0 +1,67 @@
+name: Vercel Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+# Never let two production deploys race. A queued run supersedes the one waiting,
+# but an in-flight deploy is allowed to finish rather than leaving a half-shipped build.
+concurrency:
+  group: vercel-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit SHAs, not tags: a major-version tag can be
+      # retargeted, and this job holds VERCEL_TOKEN. Comments record the version each
+      # SHA corresponds to; bump both together.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # pnpm/action-setup must come before setup-node, or the cache step finds no
+      # lockfile it understands. Omitting `version` makes the action read
+      # `packageManager` from package.json, so the pin cannot drift from local dev.
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
+
+      # Must be a Node major Vercel actually runs (24.x, 22.x, 20.x — 24 is the default).
+      # `vercel deploy --prebuilt` ships what is built here without rebuilding, so a
+      # mismatch between this and the runtime is caught nowhere. #20 moves this number
+      # into one place shared with package.json and the CI workflow.
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # No lint or build check here on purpose: CI on pull requests is #3, and making it
+      # block a merge is #18. Until both land, nothing stops a red commit reaching
+      # production — `vercel build` runs `next build`, which no longer runs ESLint.
+      # Pinned exactly, not `@latest`: with `--prebuilt` the CLI generates the build
+      # output that ships, so a CLI release can change what is deployed with no diff
+      # here. Bump deliberately, in its own PR. Chosen a week or more after publication
+      # rather than the newest release, for the reason in #21.
+      - name: Install Vercel CLI
+        run: npm install --global vercel@58.7.1
+
+      - name: Pull Vercel environment information
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      # This runs the Next.js production build; a build failure fails the deploy here.
+      - name: Build project artifacts
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy project artifacts to Vercel
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
