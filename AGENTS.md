@@ -91,6 +91,39 @@ drive-by; both take `pnpm lint` down with a hard error:
 Both unblock once `eslint-config-next` updates its bundled plugins. When retrying,
 bump them together and confirm `pnpm lint` exits 0 before committing.
 
+### Node 24
+
+`.nvmrc` holds the version and every workflow reads it via `node-version-file`, so the
+major is never copied into a workflow. `engines.node` in `package.json` states the same
+major because that is the one Vercel honours — it overrides the version chosen in Project
+Settings. Those two files are the only places the number appears; change both together.
+
+`.nvmrc` pins an exact version (`24.19.0`), not a bare major. A bare `24` works for nvm
+and `setup-node`, but asdf reads legacy version files literally and would look for a
+version called "24", failing with `Run 'asdf install nodejs 24'` even when a 24.x release
+is installed. Resolving a partial version under asdf needs
+`ASDF_NODEJS_LEGACY_FILE_DYNAMIC_STRATEGY=latest_installed` exported in every shell; an
+exact version needs nothing. `engines.node` stays a major range because Vercel selects a
+major, not a patch.
+
+Node 24 because Vercel builds and runs 24.x, 22.x and 20.x only, 24 is its default, and
+[20 is disabled in Project Settings from 1 October 2026](https://vercel.com/changelog/node-js-20-is-being-deprecated).
+This matters more than it looks: the deploy workflow builds with `vercel deploy --prebuilt`,
+so the artifacts are compiled on the runner and shipped as-is. A build/runtime mismatch
+produces a green deploy, not a red build.
+
+Nothing enforces the version locally — `pnpm install` only warns on the wrong major, since
+`engine-strict` is off. Reading `.nvmrc` takes one of:
+
+- **nvm**: `nvm use` reads it natively.
+- **asdf** (what this project's author uses): add `legacy_version_file = yes` to
+  `~/.asdfrc`, which lets the `nodejs` plugin read `.nvmrc` and `.node-version`. It is a
+  per-machine setting, so each contributor sets it once, and it applies to every asdf
+  plugin — not just Node.
+- **Windows**: [nvm-windows deliberately does not read `.nvmrc`](https://github.com/coreybutler/nvm-windows/issues/556)
+  and asdf has no native Windows support. Use WSL and follow the Linux setup, or pass
+  the file's contents by hand: `nvm install (Get-Content .nvmrc)`.
+
 ## Commit conventions
 
 **Do not add trailers to commit messages.** No `Co-Authored-By`, no

@@ -7,6 +7,60 @@ A [Next.js](https://nextjs.org) (App Router) starter, deployed on
 
 ## Getting started
 
+### Node
+
+The Node version is pinned in [`.nvmrc`](./.nvmrc), and `engines.node` in
+`package.json` states the same major. CI and Vercel both read those files, so matching
+them locally means your machine builds what production builds. `pnpm install` warns if
+you are on the wrong major but does not stop you.
+
+**Linux and macOS — [nvm](https://github.com/nvm-sh/nvm)**
+
+On macOS first install the Xcode command line tools (`xcode-select --install`), and if
+you have never created one, `touch ~/.zshrc` — the installer needs a profile file to
+write to. Then:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.6/install.sh | bash
+```
+
+Open a new shell, then from the repository root:
+
+```bash
+nvm install   # reads .nvmrc, installs that version if missing, and switches to it
+```
+
+On later visits `nvm use` is enough.
+
+**Windows — [nvm-windows](https://github.com/coreybutler/nvm-windows)**
+
+```powershell
+winget install CoreyButler.NVMforWindows
+```
+
+nvm-windows [deliberately does not read `.nvmrc`](https://github.com/coreybutler/nvm-windows/issues/556),
+so pass the file's contents yourself from the repository root:
+
+```powershell
+nvm install (Get-Content .nvmrc)
+nvm use (Get-Content .nvmrc)
+```
+
+If you would rather not do that every time, use WSL and follow the Linux instructions.
+
+**asdf**
+
+asdf ignores `.nvmrc` until you opt in. Once, per machine:
+
+```bash
+echo 'legacy_version_file = yes' >> ~/.asdfrc
+```
+
+The `nodejs` plugin then reads `.nvmrc` in this repository. Note the setting applies to
+all your asdf plugins, not just Node.
+
+### pnpm
+
 This project uses [pnpm](https://pnpm.io). If you don't have it yet:
 
 ```bash
@@ -62,5 +116,5 @@ Both unblock once `eslint-config-next` updates its bundled plugins.
 ## Contributing
 
 Repository conventions and architecture notes for both humans and AI coding agents
-live in [`AGENTS.md`](./AGENTS.md). `CLAUDE.md` is a symlink to it, so there is a
-single source of truth — edit `AGENTS.md`.
+live in [`AGENTS.md`](./AGENTS.md). `CLAUDE.md` is a one-line file importing it, so
+there is a single source of truth — edit `AGENTS.md`.
