@@ -135,10 +135,18 @@ lockfile. Two things follow, and neither is a broken install:
 - Asking for an exact version younger than 7 days fails with
   `ERR_PNPM_NO_MATCHING_VERSION` — which reads like the version does not exist. It does;
   the rest of the error gives the real reason and its publish date.
+- `pnpm dlx` is not covered. It resolves outside the project, so it will happily fetch a
+  version `pnpm add` just refused. Only what is in `pnpm-lock.yaml` is under the floor.
 
 If a fix genuinely needs to land inside that window, add the package to
 `minimumReleaseAgeExclude` rather than removing the floor. The full reasoning is in
 [`AGENTS.md`](./AGENTS.md#dependency-releases-are-held-for-7-days).
+
+That last point is why `vercel` is a devDependency here. The deploy workflow builds with
+`vercel build` and ships with `vercel deploy --prebuilt`, so the CLI produces the artifacts
+that go to production — keeping it in the lockfile is what puts it under the floor. It is
+also why `pnpm install` pulls more than a one-page site looks like it should: the CLI is
+about 250 MB of the tree, and you get it whether or not you ever deploy.
 
 ## Contributing
 

@@ -1,11 +1,17 @@
-# pnpm blocks dependency build scripts by default. unrs-resolver (pulled in by
-# eslint-import-resolver-typescript) resolves its binary through optional deps, so
-# its build script is only a source-build fallback and is safe to leave blocked.
-# Listing it here acknowledges that and keeps install output clean.
+# pnpm blocks dependency build scripts by default. Both entries below resolve their
+# native binary through optional platform packages, so the build script is only a
+# source-build fallback and is safe to leave blocked. Listing them here acknowledges
+# that and keeps install output clean.
+#
+# - unrs-resolver, pulled in by eslint-import-resolver-typescript.
+# - esbuild, pulled in by vercel. Confirmed by transforming a file through esbuild's
+#   API with the script blocked: it loads the binary from its platform package
+#   (@esbuild/linux-x64 on the runner, @esbuild/darwin-arm64 on a Mac) and works.
 #
 # If a native dependency is ever added and fails to load after an install, move it
 # to `onlyBuiltDependencies` so pnpm runs its build script.
 ignoredBuiltDependencies:
+  - esbuild
   - unrs-resolver
 
 # Refuse to resolve a package version until it has been published for 7 days. The unit

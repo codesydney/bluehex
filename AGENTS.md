@@ -107,6 +107,24 @@ of the flag — pnpm 11 re-applies the floor to every entry in the loaded lockfi
 `trustLockfile` is set, so revisit this when the major changes. To take a fix sooner, add
 the package to `minimumReleaseAgeExclude` rather than removing the floor.
 
+**`pnpm dlx` ignores the floor.** This is the one that will catch you. `pnpm add` refuses a
+version published four hours ago; `pnpm dlx` on the same package, same version, same
+directory downloads it without a word. It is not that `dlx` fails to find
+`pnpm-workspace.yaml` — passing the setting explicitly as
+`pnpm --config.minimumReleaseAge=10080 dlx` does not help either. `dlx` resolves in a
+temporary context the floor has no reach into. So reaching for `dlx` to bring a tool under
+the policy looks like it works and does not. The only way a version is covered is by being
+in `pnpm-lock.yaml`.
+
+That is why the **Vercel CLI is a devDependency** rather than a `npm install --global` in
+the deploy workflow, and why the workflow calls it as `pnpm exec vercel`. With
+`vercel deploy --prebuilt` the CLI compiles the artifacts that ship — Vercel does not
+rebuild them — so a CLI release changes production output with no diff in this repo. It is
+a build-time dependency, not a tool, and it publishes several times a week. Being in the
+lockfile puts it under the floor and turns every bump into a reviewable diff. The cost,
+accepted knowingly: it is roughly 250 MB and 280 packages that every contributor installs
+whether or not they ever deploy.
+
 ### Node 24
 
 `.nvmrc` holds the version and every workflow reads it via `node-version-file`, so the

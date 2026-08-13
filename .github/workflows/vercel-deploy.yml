@@ -46,25 +46,28 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # This installs the Vercel CLI too — it is a devDependency, not a separate global
+      # `npm install`. That is deliberate. With `--prebuilt` the CLI generates the build
+      # output that ships, so a CLI release changes what is deployed with no diff in this
+      # repo; it is a build-time dependency, not a tool. As a devDependency its version
+      # lives in pnpm-lock.yaml, which is where the release floor in pnpm-workspace.yaml
+      # applies and where a bump arrives as a reviewable diff. A global npm install was
+      # outside both, and held to the floor only by a comment asking the next person to
+      # check publication dates by hand.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # No lint or build check here on purpose: CI on pull requests is #3, and making it
-      # block a merge is #18. Until both land, nothing stops a red commit reaching
-      # production — `vercel build` runs `next build`, which no longer runs ESLint.
-      # Pinned exactly, not `@latest`: with `--prebuilt` the CLI generates the build
-      # output that ships, so a CLI release can change what is deployed with no diff
-      # here. Bump deliberately, in its own PR. Chosen a week or more after publication
-      # rather than the newest release, for the reason in #21.
-      - name: Install Vercel CLI
-        run: npm install --global vercel@58.7.1
-
+      # `pnpm exec`, not a bare `vercel`, so this runs the version in the lockfile rather
+      # than whatever a runner image happens to have on PATH.
       - name: Pull Vercel environment information
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        run: pnpm exec vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       # This runs the Next.js production build; a build failure fails the deploy here.
+      # That is also the only check in this job: CI on pull requests is #3 and making it
+      # block a merge is #18, so until both land nothing stops a red commit reaching
+      # production — `next build` no longer runs ESLint.
       - name: Build project artifacts
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: pnpm exec vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy project artifacts to Vercel
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: pnpm exec vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
