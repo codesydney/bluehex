@@ -13,10 +13,20 @@ ignoredBuiltDependencies:
 # npm releases are usually pulled within hours, so a resolution delay keeps that window
 # out of this lockfile entirely.
 #
-# This only fires where a new version would *enter* the lockfile: `pnpm add` and
-# `pnpm update` on a contributor's machine. CI installs with --frozen-lockfile, which
-# resolves from the lockfile rather than the registry, so nothing about this shows up in
-# a workflow log.
+# On pnpm 10 this only fires where a new version would *enter* the lockfile: `pnpm add`
+# and `pnpm update` on a contributor's machine. CI installs with --frozen-lockfile and
+# never re-checks what is already locked, so nothing about this shows up in a workflow
+# log. That is a property of pnpm 10, not of --frozen-lockfile — pnpm 11 adds a
+# verification pass that re-applies this floor to every entry in the loaded lockfile
+# unless `trustLockfile` is set. Re-read this comment when the major changes.
+#
+# Two outcomes, not one. Usually you simply get an older version and pnpm says so:
+# `(x.y.z is available)`. But when nothing in the requested range clears the floor,
+# resolution fails with ERR_PNPM_NO_MATCHING_VERSION instead of falling back — most
+# likely when pinning an exact, freshly published version. The error reads like the
+# version does not exist; the rest of it gives the real reason and the publish date.
+# pnpm 11 makes the fallback configurable via `minimumReleaseAgeStrict`; pnpm 10 has no
+# such option, so on our pin the failure is the only behaviour.
 #
 # The cost is that security patches are delayed by up to 7 days too. If one ever needs to
 # land immediately, add the package to `minimumReleaseAgeExclude` rather than removing

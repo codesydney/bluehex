@@ -124,6 +124,22 @@ both newer majors break `pnpm lint`:
 
 Both unblock once `eslint-config-next` updates its bundled plugins.
 
+Separately, `pnpm-workspace.yaml` sets a 7-day floor on how recently a version may have
+been published before pnpm will install it (`minimumReleaseAge`). Compromised npm releases
+are usually caught and pulled within hours, so waiting a week keeps that window out of our
+lockfile. Two things follow, and neither is a broken install:
+
+- `pnpm add` and `pnpm update` may hand you an older version than the newest one. pnpm
+  says so, in parentheses: `(x.y.z is available)`. `pnpm outdated` asks the registry
+  directly, so it will keep listing versions the floor is currently declining to take.
+- Asking for an exact version younger than 7 days fails with
+  `ERR_PNPM_NO_MATCHING_VERSION` — which reads like the version does not exist. It does;
+  the rest of the error gives the real reason and its publish date.
+
+If a fix genuinely needs to land inside that window, add the package to
+`minimumReleaseAgeExclude` rather than removing the floor. The full reasoning is in
+[`AGENTS.md`](./AGENTS.md#dependency-releases-are-held-for-7-days).
+
 ## Contributing
 
 Repository conventions and architecture notes for both humans and AI coding agents
