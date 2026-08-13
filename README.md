@@ -135,8 +135,10 @@ lockfile. Two things follow, and neither is a broken install:
 - Asking for an exact version younger than 7 days fails with
   `ERR_PNPM_NO_MATCHING_VERSION` — which reads like the version does not exist. It does;
   the rest of the error gives the real reason and its publish date.
-- `pnpm dlx` is not covered. It resolves outside the project, so it will happily fetch a
-  version `pnpm add` just refused. Only what is in `pnpm-lock.yaml` is under the floor.
+- `pnpm dlx` is not covered. It resolves in a throwaway project that never reads
+  `pnpm-workspace.yaml`, so it will happily run a version `pnpm add` just refused. Passing
+  `--config.minimumReleaseAge=10080` to `pnpm` applies the floor to a one-off `dlx`, but
+  only what is in `pnpm-lock.yaml` gets it automatically.
 
 If a fix genuinely needs to land inside that window, add the package to
 `minimumReleaseAgeExclude` rather than removing the floor. The full reasoning is in

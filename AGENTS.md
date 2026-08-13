@@ -107,14 +107,23 @@ of the flag — pnpm 11 re-applies the floor to every entry in the loaded lockfi
 `trustLockfile` is set, so revisit this when the major changes. To take a fix sooner, add
 the package to `minimumReleaseAgeExclude` rather than removing the floor.
 
-**`pnpm dlx` ignores the floor.** This is the one that will catch you. `pnpm add` refuses a
-version published four hours ago; `pnpm dlx` on the same package, same version, same
-directory downloads it without a word. It is not that `dlx` fails to find
-`pnpm-workspace.yaml` — passing the setting explicitly as
-`pnpm --config.minimumReleaseAge=10080 dlx` does not help either. `dlx` resolves in a
-temporary context the floor has no reach into. So reaching for `dlx` to bring a tool under
-the policy looks like it works and does not. The only way a version is covered is by being
-in `pnpm-lock.yaml`.
+**`pnpm dlx` does not read this file.** This is the one that will catch you. `pnpm add`
+refuses a version published four hours ago; `pnpm dlx` on the same package, same version,
+same directory runs it without a word. `dlx` resolves in a throwaway project of its own,
+and `pnpm-workspace.yaml` does not travel there. So reaching for `dlx` to bring a tool
+under the policy looks like it works and does not.
+
+The setting does apply if you hand it over on the command line —
+`pnpm --config.minimumReleaseAge=10080 dlx <pkg>@<version>` is refused exactly as
+`pnpm add` would refuse it. Useful for a one-off, but it is a step nobody is obliged to
+take, so it is not a substitute for the version being in `pnpm-lock.yaml`. The lockfile is
+what makes the floor automatic rather than opt-in.
+
+If you go to check any of this yourself, test with a package that has a binary. `dlx` on a
+package with none fails with `ERR_PNPM_DLX_NO_BIN`, which arrives *after* resolution and
+masks whether the floor fired; and a second `dlx` run reuses the first one's cache, so it
+prints no resolution line at all. Both together will convince you the floor was ignored
+when it was not.
 
 That is why the **Vercel CLI is a devDependency** rather than a `npm install --global` in
 the deploy workflow, and why the workflow calls it as `pnpm exec vercel`. With
