@@ -141,6 +141,8 @@ connection, that is usually all that happened.
 | `pnpm db:reset` | Drop the database and re-apply every migration from scratch |
 | `pnpm db:types` | Regenerate `src/lib/database.types.ts` after a schema change |
 
+`db:reset` and `db:types` both read the running stack, so `pnpm db:start` first.
+
 Schema changes are migrations, created with
 `pnpm exec supabase migration new <name>` and committed. Changing the schema through
 Studio leaves no diff and no history, so the next person's `pnpm db:reset` silently
