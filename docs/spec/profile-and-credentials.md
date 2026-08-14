@@ -53,9 +53,22 @@ schema could not seed the profiles that exist today.
 records who performed it and when, because the action transfers a profile that may
 already carry the Verified badge.
 
-It has to be an RPC rather than a `PATCH` whichever way this went: `user_id` is not in
-`bluehex_admin`'s update grant list, and #35's guard trigger pins it for everyone else.
-That is convenient — the RPC is where the provenance gets written anyway.
+#35's guard trigger pins `user_id` for everyone else, so no practitioner can hand a
+profile to anyone — but **the RPC is currently the documented path, not the only one.**
+`bluehex_admin` holds an unqualified `update` on `practitioners`, so an admin can `PATCH`
+`user_id` directly and leave `owner_assigned_at/by` null. That is the same shape #35
+accepted for `status` ("an admin *can* also `PATCH` it directly; the RPC is the path that
+records who did it"), and it is inherited from that decision rather than chosen here.
+
+**Open, and worth deciding before the migration:** whether ownership transfer deserves
+stronger treatment than `status` got. It is the one admin action that hands over a profile
+that may already carry the badge, and unlike `status` there is no way to tell after the
+fact that it happened if the provenance columns were skipped. Closing it means
+column-scoping `bluehex_admin`'s update grant to exclude `user_id` and the two
+`owner_assigned_*` columns — which costs a third `security definer` function, since
+`assign_profile_owner()` would then need a privilege its caller lacks. Left open
+deliberately: the cost is real and the exposure is an admin acting carelessly rather than
+a practitioner acting maliciously.
 
 **Deferred: practitioner self-claim.** A `claim_email` column, a "we have a profile for
 you" prompt after sign-up, and an RPC matching the caller's *verified* email against it.
@@ -298,11 +311,23 @@ This is also load-bearing rather than tidy: **an unclaimed profile has no `user_
 no `auth.users` row, so no address anywhere.** Without this table Bluehex cannot contact
 a person it wrote up itself, and curated intake does not work at all.
 
-`contact_email` is **not null**, which makes "the enquiry button goes somewhere" a schema
-invariant rather than a hope. Self-service defaults it to the account email; curated
-intake uses whatever address the person replied from. The constraint lands on Bluehex's
-workflow — a curated profile cannot be created before they have an address — and that is
-the right place for it.
+`contact_email` is **not null**, so a contact row cannot exist without an address. Note
+what that does *not* buy: `not null` constrains rows that exist, and nothing here requires
+a contact row to exist at all. The foreign key points child → parent, so a profile can be
+inserted — and approved, and published — with no `practitioner_contacts` row behind it.
+"The enquiry button goes somewhere" is still a workflow guarantee rather than a schema
+one; what the constraint rules out is an enquiry button pointing at an empty string.
+
+**Open:** whether to close that gap in the schema or in the application. A deferrable
+constraint, an `insert_profile_with_contact()` RPC, or a check on approval would each do
+it; so would accepting it and asserting the property in a test, which is what the Testing
+section currently assumes. Worth settling before the migration rather than discovering
+which one happened.
+
+Self-service defaults the address to the account email; curated intake uses whatever
+address the person replied from. The constraint lands on Bluehex's workflow — a curated
+profile cannot be created before they have an address — and that is the right place for
+it.
 
 Kept separate from `auth.users.email` deliberately: one is a login identity, the other
 is where work enquiries should go, and practitioners will reasonably want them to differ.
@@ -341,8 +366,65 @@ claim, so it stays out of the attested set.
 
 ## Program design
 
-Three tables. The roles, the access token hook and the `admins` table come unchanged
-from `docs/profile-lifecycle.md` and are not repeated here.
+Three tables, and the prerequisites they sit on. Those prerequisites are **repeated here
+rather than referenced**, because the only other copy is in `docs/profile-lifecycle.md`,
+which opens with "Do not implement from this file" and is scheduled for deletion once its
+assertions land as tests. A binding spec cannot delegate its first statements to a
+document that forbids implementing from it.
+
+The decision behind this block — why a Postgres role rather than a flag or the service
+role key — is `docs/adr/0001-admins-are-a-postgres-role.md`. It is unchanged; only the
+DDL has moved.
+
+**Statement order is load-bearing.** The role must exist before any `grant … to
+bluehex_admin` below it, and `custom_access_token_hook` must exist before
+`[auth.hook.custom_access_token]` is enabled anywhere — enabling the hook without the
+function takes down every sign-in and sign-up with `500 unexpected_failure`. The
+`config.toml` line and this migration are one commit.
+
+### Prerequisites: the role, the admin list, and the hook
+
+```sql
+-- the role ------------------------------------------------------------------
+-- PostgREST logs in as `authenticator` and switches to the role named in the
+-- token's `role` claim. It can only switch to roles it is a member of.
+create role bluehex_admin nologin;
+grant bluehex_admin to authenticator;
+grant authenticated to bluehex_admin;   -- an admin is also an ordinary user
+grant usage on schema public to bluehex_admin;
+
+-- admin identity -------------------------------------------------------------
+create table public.admins (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table public.admins enable row level security;
+-- no grants to anon/authenticated/bluehex_admin: not part of the API surface
+grant select on public.admins to supabase_auth_admin;
+create policy admins_read_auth_admin on public.admins
+  for select to supabase_auth_admin using (true);
+
+-- the hook -------------------------------------------------------------------
+-- Runs inside GoTrue as `supabase_auth_admin` when a token is minted.
+create function public.custom_access_token_hook(event jsonb)
+returns jsonb language plpgsql stable
+set search_path = ''
+as $$
+begin
+  if exists (
+    select 1 from public.admins a
+     where a.user_id = (event->>'user_id')::uuid
+  ) then
+    event := jsonb_set(event, '{claims,role}', '"bluehex_admin"');
+  end if;
+  return event;
+end;
+$$;
+grant usage on schema public to supabase_auth_admin;
+grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
+revoke execute on function public.custom_access_token_hook(jsonb)
+  from public, anon, authenticated, bluehex_admin;
+```
 
 ### `practitioners`
 
@@ -459,7 +541,8 @@ grant insert (user_id, name, headline, location, country_code, bio, focus)
   on public.practitioners to authenticated;
 grant update (name, headline, location, country_code, bio, focus)
   on public.practitioners to authenticated;
-grant delete on public.practitioners to authenticated;
+-- deliberately no `delete`: leaving is `withdraw_profile()`, erasure is an admin
+-- action on request. See Deletion.
 
 grant select, delete on public.practitioners to bluehex_admin;
 grant insert, update on public.practitioners to bluehex_admin;   -- incl. user_id
@@ -483,7 +566,13 @@ grant select, insert, update, delete
 
 -- practitioner_contacts ------------------------------------------------------
 -- nothing to anon, ever
-grant select, insert, update on public.practitioner_contacts to authenticated;
+grant select (practitioner_id, contact_email, contact_phone, contact_note,
+              created_at, updated_at)
+  on public.practitioner_contacts to authenticated;
+grant insert (practitioner_id, contact_email, contact_phone, contact_note)
+  on public.practitioner_contacts to authenticated;
+grant update (contact_email, contact_phone, contact_note)
+  on public.practitioner_contacts to authenticated;
 grant select, insert, update, delete on public.practitioner_contacts to bluehex_admin;
 ```
 
@@ -493,8 +582,23 @@ Note what `anon` never gets: `user_id`, `status`, `review_note`, any provenance 
 
 ### Policies
 
-`practitioners` keeps #35's four policies unchanged. The two new tables follow the
-parent:
+`practitioners` keeps five of #35's six policies — `practitioners_read_approved`,
+`practitioners_read_own`, `practitioners_admin_all`, `practitioners_insert_own` and
+`practitioners_update_own`, all unchanged. **`practitioners_delete_own` is dropped**,
+along with the `delete` grant to `authenticated`: it was the mechanism behind #35's
+"self-removal is a `delete` on your own row", which this document supersedes with
+`withdraw_profile()` and admin-performed erasure. Leaving it in would give a practitioner
+two exits with very different consequences — the reversible one behind an RPC, the
+irreversible one behind a plain HTTP verb — and no signposting between them.
+
+`grant delete on public.practitioner_credentials to authenticated` **stays**, and the
+asymmetry is deliberate: removing a credential you entered by mistake is ordinary
+editing of your own claim, not erasure of a record Bluehex has attested to. The
+`credentials_guard` clearing rule already covers the case where it is used to launder a
+verified row — deleting and re-adding gets you an unverified credential, which is the
+same outcome as editing one.
+
+The two new tables follow the parent:
 
 ```sql
 -- credentials: visible when the parent profile is, writable when the parent is yours
@@ -526,7 +630,12 @@ is no recursion.
 
 ### Triggers
 
-Three, and the third is the only privileged one.
+Three, and the third is the only privileged one *among the triggers* — `withdraw_profile()`
+under Deletion is the other `security definer` in the design, which makes two overall.
+
+Written out rather than described, because the two mistakes these are here to prevent are
+both invisible in prose: a `before insert or update` trigger that reads `OLD`, and an
+`update of` clause read as though it fired on change.
 
 1. **`practitioners_guard`** — `before update`, as in #35, minus the badge rules. Pins
    `status`, `review_note`, the provenance columns and `user_id` to their old values for
@@ -537,16 +646,98 @@ Three, and the third is the only privileged one.
    It also forces `status = 'withdrawn'` when `user_id` transitions to null, which is the
    other half of that same path.
 
-2. **`credentials_guard`** — `before insert or update`. Pins `verified`, `verified_at`
-   and `verified_by` for non-admins, and clears them when `source`, `label`, `earned_at`
-   or `evidence_url` changes. **`evidence_public` is deliberately excluded** — it changes
-   the claim's visibility, not the claim.
+2. **`credentials_guard`** — `before insert or update`. **The two operations do different
+   things and the trigger has to branch**: `OLD` is not assigned during a `before insert`,
+   so the pin-to-`OLD` shape that `practitioners_guard` uses would raise
+   `55000 record "old" is not assigned yet` on every credential a practitioner ever adds.
+   On insert it forces the attestation columns to their unattested values; on update it
+   pins them to `OLD` and applies the clearing rule.
+
+   ```sql
+   create function public.credentials_guard()
+   returns trigger language plpgsql
+   set search_path = ''
+   as $$
+   begin
+     new.updated_at := now();
+
+     if current_user in ('bluehex_admin', 'service_role', 'postgres', 'supabase_admin')
+     then
+       return new;
+     end if;
+
+     if tg_op = 'INSERT' then
+       -- no OLD to pin to: a credential is born unverified
+       new.verified    := false;
+       new.verified_at := null;
+       new.verified_by := null;
+       return new;
+     end if;
+
+     new.verified    := old.verified;
+     new.verified_at := old.verified_at;
+     new.verified_by := old.verified_by;
+
+     -- an edit to the claim invalidates the check of it; `evidence_public` is
+     -- deliberately absent — it changes the claim's visibility, not the claim
+     if new.source     is distinct from old.source
+        or new.label      is distinct from old.label
+        or new.earned_at  is distinct from old.earned_at
+        or new.evidence_url is distinct from old.evidence_url then
+       new.verified    := false;
+       new.verified_at := null;
+       new.verified_by := null;
+     end if;
+
+     return new;
+   end;
+   $$;
+
+   create trigger credentials_guard
+     before insert or update on public.practitioner_credentials
+     for each row execute function public.credentials_guard();
+   ```
 
 3. **`practitioners_rename_clears_credentials`** — `after update of name`,
    `security definer`. Sets `verified = false` on every credential of the renamed
-   profile. This is the one privileged function in the design: `name` is attested — the
-   badge asserts *this person* holds these — and a practitioner has no privilege to write
-   `verified` on a credential row. Narrow: it only ever sets the flag false.
+   profile. `name` is attested — the badge asserts *this person* holds these — and a
+   practitioner has no privilege to write `verified` on a credential row, so this is the
+   one place the parent-to-child clear can happen. Narrow: it only ever sets the flag
+   false.
+
+   **The `when` clause is load-bearing, not decoration.** `update of name` fires when
+   `name` appears in the statement's `SET` list, *whether or not the value changed* — and
+   `supabase.from('practitioners').update(form)` round-trips the whole form object, so
+   without the guard every bio edit would clear every badge on the profile. That is the
+   failure this document's own incentive argument exists to avoid, arriving through the
+   back door.
+
+   ```sql
+   create function public.practitioners_rename_clears_credentials()
+   returns trigger language plpgsql security definer
+   set search_path = ''
+   as $$
+   begin
+     update public.practitioner_credentials
+        set verified = false, verified_at = null, verified_by = null
+      where practitioner_id = new.id
+        and verified;
+     return null;
+   end;
+   $$;
+
+   create trigger practitioners_rename_clears_credentials
+     after update of name on public.practitioners
+     for each row when (old.name is distinct from new.name)
+     execute function public.practitioners_rename_clears_credentials();
+   ```
+
+**Both functions pin `search_path`**, and the `security definer` one qualifies every name
+inside it. A `security definer` function runs as its owner — `postgres`, since migrations
+run as `postgres` — and resolves unqualified names through whatever `search_path` is live
+at call time. PostgREST does not let a client set it per request, so this is hardening
+rather than a live hole, but Supabase's linter raises it as `function_search_path_mutable`
+and it costs one line.
 
 ### RPCs
 
@@ -589,7 +780,11 @@ the most valuable one in the suite and it transfers directly.
   the new one unverified — the incentive property the whole design turns on.
 - Editing a credential's `label`, `source`, `earned_at` or `evidence_url` clears *that*
   credential's verification. Editing `evidence_public` does **not**.
-- Renaming a profile clears verification on **every** credential.
+- Renaming a profile clears verification on **every** credential. And the negative case,
+  which is the one that actually bites: saving a profile whose `name` is **unchanged** —
+  the whole form object round-tripped, `name` included — leaves every credential verified.
+  `update of name` fires on targeting rather than on change, so this asserts the trigger's
+  `when (old.name is distinct from new.name)` clause is present.
 - Editing `bio`, `headline`, `focus` or `location` clears nothing, and leaves `status`
   untouched.
 - `anon` selecting `evidence_url` is refused; selecting `evidence_url_public` returns
@@ -611,6 +806,11 @@ the most valuable one in the suite and it transfers directly.
 - `withdraw_profile()` affects only the caller's own row, and a practitioner cannot use
   it to withdraw somebody else.
 - Erasing a profile removes its credentials and its contact row.
+- **A practitioner cannot erase their own profile.** `DELETE /practitioners?id=eq.<own>`
+  is refused at the privilege layer — there is no `delete` grant to `authenticated` and no
+  `practitioners_delete_own` policy. Leaving is `withdraw_profile()`; erasure is an admin
+  action. This is the assertion that would have caught the grant being inherited from #35
+  after the premise for it was removed.
 
 **Reading the results.** PostgREST answers `401` for `anon` and `403` for a signed-in
 caller on the same `permission denied`. The status code reports who asked, not what was
