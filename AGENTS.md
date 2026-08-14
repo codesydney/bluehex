@@ -206,33 +206,34 @@ Keep the tree this thin until something needs otherwise.
 
 ## Database — planned, not built
 
-The repo has **no database**: no driver, no ORM, no `DATABASE_URL`, no `src/lib/db.ts`.
+The repo has **no database**: no client, no ORM, no `DATABASE_URL`, no `src/lib/db.ts`.
 An earlier SQLite (`better-sqlite3`) setup was removed, and a Drizzle/Postgres one was
 scaffolded and then stripped back out to keep the skeleton thin. The notes below are the
 agreed plan for when it is reintroduced — treat them as the contract, not a description
 of current state.
 
-- **Target is Postgres**: local Postgres in development, [Neon](https://neon.com) when
-  deployed. Drizzle ORM for schema and queries.
-- **Use the `node-postgres` (`pg`) driver, not `@neondatabase/serverless`.** Neon's HTTP
-  driver cannot talk to local Postgres — it speaks Neon's own HTTP protocol, so a
-  `localhost` URL fails with `Error connecting to database: TypeError: fetch failed`.
-  `pg` speaks the standard wire protocol and works against both local Postgres and Neon's
-  pooled connection string. Only consider the HTTP driver if the app moves to the edge
-  runtime.
-- **Make the client lazy** — a `getDb()` function, not a top-level `export const db`.
-  The module gets imported during `next build`, so reading `DATABASE_URL` eagerly breaks
-  builds wherever that secret is absent (CI, preview deployments).
+- **Target is [Supabase](https://supabase.com)** — Postgres, plus the auth that comes
+  with it. Local development runs the Supabase CLI stack; deployed is a hosted Supabase
+  project. This supersedes an earlier Neon plan, and the reason is auth: the product
+  needs end-user accounts, and buying that rather than building it is the entire
+  justification. Neon was cheaper and otherwise preferred, so if the auth requirement
+  ever disappears the decision should be revisited rather than inherited.
+- **No ORM — query through the Supabase client.** Authorization is row level security, and the Supabase client carries the user's JWT on every request so `auth.uid()` resolves in policy. Note what the constraint actually is: Postgres enforces RLS against the *connected role*, and has no idea whether the SQL arrived via an ORM. What bites is a pooled server-side connection carrying no per-user identity — policies then either do not apply at all (the `postgres` role in a Supabase connection string bypasses RLS) or apply to the wrong identity, unless every request installs the caller's claims for itself. That is silent when it goes wrong, and it forces a second authorization model in application code. Direct SQL is still the right tool where RLS was never the control, such as a migration or a background job. Types come from `supabase gen types typescript`, not from a schema declared in TypeScript.
+- **Migrations live in the repository.** Create them with the Supabase CLI and commit
+  them. Schema changes made through the dashboard leave no diff and no history, and this
+  is the easiest thing in this section to get wrong once the dashboard is open in a tab.
+- **Make the client lazy** — a `getClient()` function, not a top-level `export const db`. The module gets imported during `next build`, so reading environment variables eagerly breaks builds wherever a required variable is absent (CI, preview deployments).
 - **Cache the client at module scope**, not only on `globalThis`. A `globalThis`-only
-  cache is typically skipped in production and leaks a new connection pool per call.
-- **Queries are async**, unlike the synchronous `better-sqlite3` setup. A Server Component
-  that reads from the database must be `async`, and should `await connection()` from
-  `next/server` first to opt out of prerendering. `export const dynamic` is on its way out
-  in Next 16 — prefer `connection()`.
-- Local Postgres on this machine follows a `<project>_dev` naming convention.
-- `DATABASE_URL` belongs in `.env.local` (git-ignored). Add a committed `.env.example`
-  template at the same time — `.gitignore` already has the `!.env.example` exception,
-  since the blanket `.env*` rule would otherwise swallow it.
+  cache is typically skipped in production and leaks a new client per call.
+- **Queries are async**, unlike the synchronous `better-sqlite3` setup, so a Server Component that reads from the database must be `async`. Most of them will not also need `await connection()`. Per `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/connection.md`, `connection()` exists for a component that produces per-request output *without* touching a request-time API — its worked example is a synchronous `better-sqlite3` query, which is precisely the setup being replaced here. A Supabase server client reads cookies to resolve the session, and `cookies()` is a request-time API, so the render is already request-bound and `connection()` adds nothing. Reach for it only on a read that touches neither cookies nor headers, such as an anonymous public query — plausibly the directory listing itself. `export const dynamic` is on its way out in Next 16, so `connection()` is still the tool when one is needed.
+- **Two keys, and the difference decides where code may run.** The anon/publishable key is shipped to the browser by design and is not a secret: `NEXT_PUBLIC_*` is where it belongs, and there is no reason to proxy reads through a server action to hide it. The service role key bypasses RLS outright — every policy on the table is decorative for any code holding it — so it is server-only: never `NEXT_PUBLIC_*`, never imported by a client component or by a module a client component can reach, and reserved for the admin write path rather than used as an escape hatch when a policy is inconvenient. Both belong in `.env.local` (git-ignored). Add a committed `.env.example` template at the same time — `.gitignore` already has the `!.env.example` exception, since the blanket `.env*` rule would otherwise swallow it.
+- **`verified` must never be writable by the practitioner.** Self-service puts an untrusted writer next to Bluehex's own attestation for the first time. The policy: a practitioner may write their own row, with `verified` not among the columns they can set, and only an admin or the service role sets it. **RLS alone cannot express that**, so the policy needs a mechanism named or it does not exist. A policy's `USING` clause sees the existing row and `WITH CHECK` sees the proposed one, but a policy has no `OLD` to compare against — "this row is yours to update, but this column must not change" is not sayable. The natural `for update using (auth.uid() = user_id)` reads exactly like the paragraph above, passes review, and lets any practitioner `PATCH` themselves `{"verified": true}`. Use both of these, since neither is sufficient alone:
+  - **Column privileges** — what Supabase calls column level security. `revoke update on practitioners from authenticated`, then `grant update (…) on practitioners to authenticated` naming each practitioner-writable column. PostgREST honours these, so the write is refused at the privilege layer whatever the policies say. The grant list is maintained by hand as the schema grows: a column added later is not writable until it is named, which fails closed and is the right way round.
+  - **A `before update` trigger** forcing `new.verified = old.verified` for non-admin callers. Triggers do see `OLD`, so this is the only place the invariant can be stated directly, and it still holds if a later migration re-grants the column by accident.
+
+  This is the most load-bearing line in the schema — getting it wrong silently destroys the only thing the directory sells, and it fails open rather than loudly.
+
+A third column is planned alongside the `certified` and `verified` booleans described under Architecture: `status` (`registered`, `approved`, `rejected`). The three are independent axes rather than a sequence — `status` governs whether a profile is publicly visible, `verified` governs whether the badge shows. Kept separate deliberately, so a badge can be withdrawn without unpublishing the profile.
 
 ## Deployment
 

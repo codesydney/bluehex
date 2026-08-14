@@ -109,10 +109,11 @@ preview deployments. The build needs no environment variables.
 
 ## Database
 
-There isn't one yet. The plan is Postgres — local in development, [Neon](https://neon.com)
-when deployed, with [Drizzle ORM](https://orm.drizzle.team) on the `pg` driver. The
-rationale and the constraints to follow when adding it are recorded in
-[`AGENTS.md`](./AGENTS.md#database--planned-not-built).
+There isn't one yet. The plan is [Supabase](https://supabase.com) — Postgres with the auth that comes bundled, running locally through the Supabase CLI and hosted when deployed. Queries go through the Supabase client rather than an ORM, because authorization is row level security and the Supabase client carries the user's JWT, so policies resolve against the right identity. A pooled server-side connection carries no per-user identity unless every request installs it, which is the part that goes wrong silently.
+
+This supersedes an earlier Neon and Drizzle plan; the switch was made to buy
+authentication rather than build it. The rationale and the constraints to follow when
+adding it are recorded in [`AGENTS.md`](./AGENTS.md#database--planned-not-built).
 
 ## Toolchain notes
 
