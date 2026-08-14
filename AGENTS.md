@@ -362,7 +362,20 @@ treat it as binding, not as a description of current state.
 
   This is the most load-bearing line in the schema — getting it wrong silently destroys the only thing the directory sells, and it fails open rather than loudly.
 
-A third column is planned alongside the `certified` and `verified` booleans described under Architecture: `status` (`registered`, `approved`, `rejected`). The three are independent axes rather than a sequence — `status` governs whether a profile is publicly visible, `verified` governs whether the badge shows. Kept separate deliberately, so a badge can be withdrawn without unpublishing the profile.
+A third column joins the `certified` and `verified` booleans described under Architecture:
+`status` (`pending`, `approved`, `rejected`). The three are independent axes rather than a
+sequence — `status` governs whether a profile is publicly visible, `verified` governs
+whether the badge shows. Kept separate deliberately, so a badge can be withdrawn without
+unpublishing the profile.
+
+**`docs/profile-lifecycle.md` is the decision**, and it is binding on the first migration:
+the state set and what each state means for visibility, admins as a table rather than a JWT
+claim, and the finding that the admin write path cannot be a `PATCH` at all — PostgREST
+connects as `authenticated` for every signed-in user, so column grants cannot tell an admin
+from a practitioner, and approving and verifying are `security definer` functions instead.
+Practitioners edit their live row in place; an edit never changes `status`, and an edit to
+attested content clears `verified`. Every claim in it was proved against the local stack
+through PostgREST, transcript included.
 
 ## Deployment
 
