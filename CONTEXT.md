@@ -1,8 +1,11 @@
 # Bluehex — domain language
 
 The words this project uses, and what each one means. Glossary only: no schema, no
-policies, no implementation. Decisions live in `docs/spec/`; the profile lifecycle
-mechanism lives in `docs/profile-lifecycle.md`.
+policies, no implementation. Decisions live in `docs/spec/` and `docs/adr/` —
+`docs/spec/profile-and-credentials.md` for the profile and credential model,
+`docs/adr/0001-admins-are-a-postgres-role.md` for how admin authority works.
+`docs/profile-lifecycle.md` is the superseded spike report, kept for its proof
+transcript; do not implement from it.
 
 ## People and records
 
@@ -35,9 +38,13 @@ Independent, not a sequence. Each has a different author.
 **Certified** — self-asserted. The practitioner says they hold a Claude
 Certification. Governs nothing; it is a statement.
 
-**Status** — asserted by Bluehex. Admission control: is this a real person, is the
-profile not spam. Governs whether anyone else can see the profile. `pending`,
-`approved`, `rejected`.
+**Status** — admission control: is this a real person, is the profile not spam. Governs
+whether anyone else can see the profile. `pending`, `approved`, `rejected`, `withdrawn`.
+
+Three of the four are Bluehex's call. `withdrawn` is the practitioner's — it is how
+someone leaves without being erased, keeping their credentials and their verification
+history for when they come back. Coming back goes to `pending`, not straight back to
+`approved`.
 
 **Verified** — asserted by Bluehex. Credential attestation: a human at Bluehex read
 the evidence. Governs whether the badge shows, and nothing else.
