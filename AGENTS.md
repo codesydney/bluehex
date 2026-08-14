@@ -362,35 +362,45 @@ treat it as binding, not as a description of current state.
   The one case that does read the runtime environment is a variable **absent** at build time: the lookup then survives into the bundle and resolves when the request is served. That is the only reason `next build` with no variables set produces something that still works when given them at run time, and it is easy to mistake for the general rule. It is not — it is the exception.
 
   Two consequences. Testing a built artifact against a different Supabase project means rebuilding, not re-running with a different environment. And on Vercel the values must exist *before* the build, which the deploy workflow already handles: `vercel pull` fetches the project's environment variables ahead of `vercel build`.
-- **`verified` must never be writable by the practitioner.** Self-service puts an untrusted writer next to Bluehex's own attestation for the first time. The policy: a practitioner may write their own row, with `verified` not among the columns they can set, and only an admin or the service role sets it. **RLS alone cannot express that**, so the policy needs a mechanism named or it does not exist. A policy's `USING` clause sees the existing row and `WITH CHECK` sees the proposed one, but a policy has no `OLD` to compare against — "this row is yours to update, but this column must not change" is not sayable. The natural `for update using (auth.uid() = user_id)` reads exactly like the paragraph above, passes review, and lets any practitioner `PATCH` themselves `{"verified": true}`. Use both of these, since neither is sufficient alone:
+- **`verified` must never be writable by the practitioner.** Self-service puts an untrusted writer next to Bluehex's own attestation for the first time. The policy: a practitioner may write their own credential rows, with `verified` not among the columns they can set, and only `bluehex_admin` sets it — never the service role, see `docs/adr/0001-admins-are-a-postgres-role.md`. **RLS alone cannot express that**, so the policy needs a mechanism named or it does not exist. A policy's `USING` clause sees the existing row and `WITH CHECK` sees the proposed one, but a policy has no `OLD` to compare against — "this row is yours to update, but this column must not change" is not sayable. The natural `for update using (auth.uid() = user_id)` reads exactly like the paragraph above, passes review, and lets any practitioner `PATCH` themselves `{"verified": true}`. Use both of these, since neither is sufficient alone:
   - **Column privileges** — what Supabase calls column level security. `revoke update on practitioners from authenticated`, then `grant update (…) on practitioners to authenticated` naming each practitioner-writable column. PostgREST honours these, so the write is refused at the privilege layer whatever the policies say. The grant list is maintained by hand as the schema grows: a column added later is not writable until it is named, which fails closed and is the right way round.
   - **A `before update` trigger** forcing `new.verified = old.verified` for non-admin callers. Triggers do see `OLD`, so this is the only place the invariant can be stated directly, and it still holds if a later migration re-grants the column by accident.
 
   This is the most load-bearing line in the schema — getting it wrong silently destroys the only thing the directory sells, and it fails open rather than loudly.
 
-A third column joins the `certified` and `verified` booleans described under Architecture:
-`status` (`pending`, `approved`, `rejected`). The three are independent axes rather than a
-sequence — `status` governs whether a profile is publicly visible, `verified` governs
-whether the badge shows. Kept separate deliberately, so a badge can be withdrawn without
-unpublishing the profile.
+`status` (`pending`, `approved`, `rejected`, `withdrawn`) joins `verified` as the second
+Bluehex-owned axis. They are independent rather than a sequence — `status` governs whether
+a profile is publicly visible, `verified` governs whether the badge shows — so a badge can
+be withdrawn without unpublishing the profile, and a profile can be published without ever
+being vouched for, which is the normal case.
 
-**`docs/profile-lifecycle.md` is the decision**, and it is binding on the first migration.
-The headline: **admins get their own Postgres role.** PostgREST connects every signed-in
-user as `authenticated`, so anything granted there is granted to every practitioner — a
-custom access token hook stamps `role: bluehex_admin` onto the tokens of users listed in
-`public.admins`, and the attestation privileges are granted to that role alone. Sign-up is
-untouched; `bluehex_admin` is granted `authenticated`, so an admin is one tier above a
-practitioner rather than a parallel identity. Practitioners edit their live row in place;
-an edit never changes `status`, and an edit to attested content clears `verified`. Reads
-are column-scoped as well as writes, so `anon` cannot see `user_id` or who approved a
-profile — which means **`select *` is refused and every query must name its columns**.
+**Where the schema is decided, and in what order to read it:**
 
-Two rules that come out of it and bite outside the schema. **The `config.toml` hook line
-and the migration creating `custom_access_token_hook` are one commit** — enabling the hook
-without the function takes down every sign-in with a 500, so `config.toml` in this repo
-stays unchanged until that migration lands. And **admin authority lags revocation by the
-life of an access token**: removing someone from `admins` takes effect on their next
-refresh, not immediately.
+- **`CONTEXT.md`** — the glossary. What a Profile, an Owner, a Claim and a Credential are,
+  and which words not to overload.
+- **`docs/adr/0001-admins-are-a-postgres-role.md`** — why admins are a Postgres role
+  stamped by an access token hook rather than a flag or the service role key, and what
+  that costs.
+- **`docs/spec/profile-and-credentials.md`** — the model: what a profile contains, who
+  owns it, what the badge attests to, and the DDL with its grant lists, triggers and RPCs.
+  Binding on the first migration.
+- **`docs/profile-lifecycle.md`** — the #35 spike report and its proof transcript.
+  Historical: parts of it are superseded, and its own header says which.
+
+The parts most likely to catch you out:
+
+- **Verification is per credential**, not per profile. The profile-level badge is derived —
+  at least one earned credential, and every earned credential verified — and is not stored.
+  `certified` is not stored either.
+- **Reads are column-scoped as well as writes**, so `anon` cannot see `user_id`, `status`
+  or who approved a profile. **`select *` is refused; every query must name its columns.**
+- **The `config.toml` hook line and the migration creating `custom_access_token_hook` are
+  one commit.** Enabling the hook without the function takes down every sign-in with a 500,
+  so `config.toml` in this repo stays unchanged until that migration lands.
+- **Admin authority lags revocation by the life of an access token** — removing someone
+  from `admins` takes effect on their next refresh, not immediately.
+- **Contact details live in `practitioner_contacts`, never on the profile**, and `anon` has
+  no grant on that table by any route.
 
 ## Deployment
 

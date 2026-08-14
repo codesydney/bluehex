@@ -1,5 +1,25 @@
 # Profile lifecycle: states, visibility, and who may write what
 
+> **This is a spike report, not the current contract.** It records what was tried and
+> what was proved on 2026-08-15, and it is deliberately not rewritten as the design moves.
+>
+> - The durable decision — admins as a Postgres role, stamped by an access token hook —
+>   now lives in [`docs/adr/0001-admins-are-a-postgres-role.md`](adr/0001-admins-are-a-postgres-role.md).
+> - The current model of what a profile contains, who owns it, and what the badge attests
+>   to lives in [`docs/spec/profile-and-credentials.md`](spec/profile-and-credentials.md).
+> - **Superseded below:** `verified` is no longer a column on `practitioners` — it sits on
+>   each credential row, and the badge is a derived rollup. The attested set is no longer
+>   `name` + `certified`; `certified` is not stored at all. `status` has gained
+>   `withdrawn`. The migration sketch here is stale in those respects.
+> - **Still current:** the roles, the hook, the two operational rules, the findings, and
+>   the reasoning about why the service role key was rejected.
+>
+> The proof transcript is left exactly as it ran, including where it names columns that
+> have since moved. It is evidence of what was tested, and rewriting it would make it
+> worthless as evidence. **This file can be deleted once those assertions land as
+> committed tests alongside the first migration** — running tests are better evidence than
+> a pasted terminal dump.
+
 Spike for [#35](https://github.com/codesydney/bluehex/issues/35). The deliverable is a
 decision plus a proof, not the production implementation — that is
 [#14](https://github.com/codesydney/bluehex/issues/14).
