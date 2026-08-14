@@ -1,6 +1,6 @@
 ---
 name: keystones
-description: Close a context-gathering pass by naming the keystones and turning them into invariants that are written down where they bind. Use before grill-brief or grill-spec, or before handing substantial work to an agent — when you have explored a problem and want the constraints locked before anyone builds. Not a grilling skill and not a planning skill: it produces constraints, not steps.
+description: Close a context-gathering pass by naming the keystones and turning them into invariants that are written down where they bind. Use before a design review or before handing substantial work to an agent — when you have explored a problem and want the constraints locked before anyone builds. Not a grilling skill and not a planning skill: it produces constraints, not steps.
 ---
 
 # Keystones
@@ -29,8 +29,9 @@ Only the pile is wrong.
 
 ## When to use it
 
-- After context gathering, before `grill-brief` or `grill-spec`. The grill then attacks
-  the design without re-litigating the constraints, which makes it cheaper and sharper.
+- After context gathering, before whatever design review comes next. That review can then
+  attack the design without re-litigating the constraints, which makes it cheaper and
+  sharper.
 - Before handing a substantial piece of work to an agent, which will build whatever is
   asked for, quickly, including the wrong thing.
 - When a piece of work is about to touch something permanent — migration history, a
@@ -88,10 +89,14 @@ neither is appropriate, the invariant probably was not one.
 
 ### 5. Hand off
 
-State the invariants at the top of whatever comes next — `grill-brief`, `grill-spec`, an
-implementation prompt. Anything that survives a grill and turns out to be load-bearing
-can be promoted back into the durable list; that promotion is how `AGENTS.md` earns its
-weight over time instead of only accumulating incident reports.
+State the invariants at the top of whatever comes next — a design review, an
+implementation prompt, a ticket. Anything that survives that review and turns out to be
+load-bearing can be promoted back into the durable list; that promotion is how `AGENTS.md`
+earns its weight over time instead of only accumulating incident reports.
+
+If you have a grilling skill to hand — `grill-brief` for whether a thing should exist,
+`grill-spec` for how — it is the natural next step. Neither is checked into this
+repository, so do not assume they are available.
 
 ## What this does not catch
 

@@ -59,9 +59,9 @@ without any local setup. Ask for one by name, e.g. `/code-tour`.
 Written here:
 
 - **`keystones`** — closes a context-gathering pass by naming what is load-bearing and
-  turning it into invariants written where they bind. Use it before `grill-brief` or
-  `grill-spec`, or before handing substantial work to an agent. It produces constraints,
-  not steps, which is what makes it usable before anyone knows the shape of the answer.
+  turning it into invariants written where they bind. Use it before a design review, or
+  before handing substantial work to an agent. It produces constraints, not steps, which
+  is what makes it usable before anyone knows the shape of the answer.
 - **`code-tour`** — a guided walk through one real flow, end to end, where the learner
   does the work and answers are withheld rather than handed over. Reach for it after
   code has landed faster than it was understood, which on this project is most weeks.
