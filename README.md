@@ -109,10 +109,7 @@ preview deployments. The build needs no environment variables.
 
 ## Database
 
-There isn't one yet. The plan is [Supabase](https://supabase.com) — Postgres with the
-auth that comes bundled, running locally through the Supabase CLI and hosted when
-deployed. Queries go through the Supabase client rather than an ORM, because
-authorization is row level security and an ORM on a direct connection bypasses it.
+There isn't one yet. The plan is [Supabase](https://supabase.com) — Postgres with the auth that comes bundled, running locally through the Supabase CLI and hosted when deployed. Queries go through the Supabase client rather than an ORM, because authorization is row level security and the Supabase client carries the user's JWT, so policies resolve against the right identity. A pooled server-side connection carries no per-user identity unless every request installs it, which is the part that goes wrong silently.
 
 This supersedes an earlier Neon and Drizzle plan; the switch was made to buy
 authentication rather than build it. The rationale and the constraints to follow when
