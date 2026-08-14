@@ -37,10 +37,17 @@ yarn-error.log*
 # vercel
 .vercel
 
-# git worktrees kept inside the repo. Each is a checkout with its own .git file, so
-# `git add -A` stages it as an embedded repository — which commits a broken pointer
-# and none of the contents. Ignoring the directory is what stops that being possible.
-.claude/worktrees/
+# Claude Code's directory. The skills are checked in on purpose — every contributor
+# gets them with no local setup — and nothing else in here is shared: local settings,
+# session state, and worktrees, which are checkouts with their own .git file that
+# `git add -A` would otherwise stage as embedded repositories, committing a broken
+# pointer and none of the contents.
+#
+# `.claude/*` and not `.claude/`. A trailing-slash ignore on the directory stops git
+# descending into it at all, and a negation cannot rescue anything git never looked at.
+# Add further exceptions the same way if something else in here becomes shared.
+.claude/*
+!.claude/skills/
 
 # typescript
 *.tsbuildinfo
