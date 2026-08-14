@@ -612,6 +612,11 @@ the most valuable one in the suite and it transfers directly.
   it to withdraw somebody else.
 - Erasing a profile removes its credentials and its contact row.
 
+**Reading the results.** PostgREST answers `401` for `anon` and `403` for a signed-in
+caller on the same `permission denied`. The status code reports who asked, not what was
+decided — asserting on it as though it were the authorization outcome will write a test
+that passes for the wrong reason.
+
 **Not tested, deliberately:** the rollup rule. It is client-side derivation over data the
 tests already cover, and a test of it would assert a boolean expression against itself.
 
