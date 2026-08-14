@@ -368,14 +368,23 @@ sequence — `status` governs whether a profile is publicly visible, `verified` 
 whether the badge shows. Kept separate deliberately, so a badge can be withdrawn without
 unpublishing the profile.
 
-**`docs/profile-lifecycle.md` is the decision**, and it is binding on the first migration:
-the state set and what each state means for visibility, admins as a table rather than a JWT
-claim, and the finding that the admin write path cannot be a `PATCH` at all — PostgREST
-connects as `authenticated` for every signed-in user, so column grants cannot tell an admin
-from a practitioner, and approving and verifying are `security definer` functions instead.
-Practitioners edit their live row in place; an edit never changes `status`, and an edit to
-attested content clears `verified`. Every claim in it was proved against the local stack
-through PostgREST, transcript included.
+**`docs/profile-lifecycle.md` is the decision**, and it is binding on the first migration.
+The headline: **admins get their own Postgres role.** PostgREST connects every signed-in
+user as `authenticated`, so anything granted there is granted to every practitioner — a
+custom access token hook stamps `role: bluehex_admin` onto the tokens of users listed in
+`public.admins`, and the attestation privileges are granted to that role alone. Sign-up is
+untouched; `bluehex_admin` is granted `authenticated`, so an admin is one tier above a
+practitioner rather than a parallel identity. Practitioners edit their live row in place;
+an edit never changes `status`, and an edit to attested content clears `verified`. Reads
+are column-scoped as well as writes, so `anon` cannot see `user_id` or who approved a
+profile — which means **`select *` is refused and every query must name its columns**.
+
+Two rules that come out of it and bite outside the schema. **The `config.toml` hook line
+and the migration creating `custom_access_token_hook` are one commit** — enabling the hook
+without the function takes down every sign-in with a 500, so `config.toml` in this repo
+stays unchanged until that migration lands. And **admin authority lags revocation by the
+life of an access token**: removing someone from `admins` takes effect on their next
+refresh, not immediately.
 
 ## Deployment
 

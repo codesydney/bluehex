@@ -5,7 +5,10 @@ decision plus a proof, not the production implementation — that is
 [#14](https://github.com/codesydney/bluehex/issues/14).
 
 Everything below was stood up against the local Supabase stack and exercised through
-PostgREST as real signed-in users. The transcript is at the bottom.
+PostgREST as real signed-in users. Two passes: the first put the admin check inside
+`security definer` functions, the second replaced it with a Postgres role of its own.
+The second is the recommendation, and the first is kept at the end because the reasoning
+that got there is the reason to trust it.
 
 ## The decision, in one paragraph
 
@@ -15,7 +18,9 @@ decides whether anyone else can see the row. `verified` is **credential attestat
 Bluehex checked the evidence — and it alone decides whether the badge shows. `certified`
 stays what it already is: the practitioner's own claim, self-asserted and self-writable.
 Practitioners edit their live row in place; an edit never unpublishes them, and an edit
-to attested content silently drops the badge until Bluehex looks again.
+to attested content silently drops the badge until Bluehex looks again. Admins are not
+signed-in users with a flag: they connect to Postgres **as a different role**, so the
+privileges that protect the badge are held by that role and by nothing else.
 
 ## Naming: `AGENTS.md` was right, with one word changed
 
@@ -37,8 +42,8 @@ re-entry.
 | state | who can see the row | how you get here |
 | --- | --- | --- |
 | `pending` | the owner, and admins | insert; the column grants make it the only insertable state |
-| `approved` | **everyone, including anonymous** | `approve_practitioner()`, admin only |
-| `rejected` | the owner (with the reason), and admins | `reject_practitioner()`, admin only |
+| `approved` | **everyone, including anonymous** | an admin, through `approve_practitioner()` |
+| `rejected` | the owner (with the reason), and admins | an admin, through `reject_practitioner()` |
 
 `rejected` is **not terminal**. A rejected profile stays visible to its owner along with
 `review_note`, the feedback that came with the rejection; the owner edits and an admin
@@ -46,9 +51,7 @@ re-approves. There is no separate "resubmit" transition, because there is nothin
 to do — the row never left the admin queue.
 
 Visibility is enforced by RLS policies on `select` and nowhere else. A `.eq("status",
-"approved")` in the directory query is a suggestion; the policy is the control. Three
-permissive policies, OR'd: anonymous and signed-in users see `approved`, a practitioner
-additionally sees their own row in any state, an admin sees everything.
+"approved")` in the directory query is a suggestion; the policy is the control.
 
 **Not decided here, on purpose:** a `draft` state (the submission form holds the draft
 until it is submitted — no row, no state) and a `withdrawn` state. Self-removal is a
@@ -57,23 +60,85 @@ losing the approval and verification history of someone who leaves and returns t
 to matter, `withdrawn` is the answer then, and it is cheap to add — one enum value and
 one transition. Adding it now would be defending a requirement nobody has yet.
 
-## Who an admin is
+## Three tiers, and ordinary signup
 
-A table: `public.admins (user_id)`, referencing `auth.users`. It carries **no grants at
-all**, so it is invisible through the API — even to an admin, who gets `42501` asking for
-it. The only reader is `private.is_admin()`, a `security definer` function in a schema
-PostgREST does not expose.
+Sign-up is completely ordinary and stays that way: a practitioner registers through
+`/auth/v1/signup`, GoTrue creates the user, and their token says `role: authenticated`
+exactly as it would in any Supabase project. There is no separate admin sign-up, no
+invite flow to build, and no second identity system.
 
-Chosen over a JWT claim (via a custom access token hook) for one reason: **revocation is
-immediate**. A claim baked into an access token stays true until that token expires, up
-to an hour after the admin was removed. For the row that decides who can hand out the
-badge, an hour of stale authority is the wrong failure mode. Second reason, smaller: an
-auth hook has to be configured identically in `config.toml` and in the hosted project,
-and configuration that lives in two places drifts silently.
+| tier | Postgres role | how you get it |
+| --- | --- | --- |
+| public | `anon` | no token |
+| a practitioner | `authenticated` | sign up; the default for everybody |
+| Bluehex | `bluehex_admin` | your `user_id` is in `public.admins`, so the access token hook stamps the role |
 
-The cost is a lookup per policy evaluation. Mitigated by wrapping the call as
-`(select private.is_admin())`, which Postgres evaluates once per statement rather than
-once per row.
+`bluehex_admin` is granted `authenticated`, so an admin keeps everything a practitioner
+can do — their own profile included — and gains the attestation privileges on top. It is
+one level above, not a parallel world.
+
+## Who an admin is, and how the role gets onto the token
+
+Three pieces:
+
+1. **`public.admins (user_id)`**, referencing `auth.users`. It carries no grants for
+   `anon`, `authenticated` or `bluehex_admin`, so it is invisible through the API — even
+   an admin gets `42501` asking for it. Its only reader is the hook.
+2. **A custom access token hook**, `public.custom_access_token_hook(event jsonb)`, run by
+   GoTrue as `supabase_auth_admin` when a token is minted. If the user is in `admins` it
+   rewrites one claim: `role` → `bluehex_admin`.
+3. **The role itself**, `create role bluehex_admin nologin` with
+   `grant bluehex_admin to authenticator`. PostgREST logs in as `authenticator` and
+   switches to the role named in the token's `role` claim; it can only switch to roles it
+   is a member of, so that grant is what makes the whole thing work.
+
+**Proved, because it was the load-bearing assumption:** Supabase does permit the hook to
+overwrite `role`, GoTrue mints the token without complaint, PostgREST honours it, and
+`aud` and `sub` are untouched — so `auth.uid()` still resolves to the person, and
+provenance still records who approved what.
+
+### Why a role rather than a flag checked at runtime
+
+Because it is the only design where the privileges that protect the badge are **not
+granted to everyone and then filtered**. PostgREST connects every signed-in user as the
+same Postgres role, so anything granted to `authenticated` is granted to every
+practitioner. With the role:
+
+- `execute` on the three admin functions goes to `bluehex_admin` alone. A practitioner
+  calling `approve_practitioner()` gets `42501 permission denied for function` — they
+  cannot reach it to be turned away.
+- `update (status, verified, review_note, approved_*, verified_*)` goes to
+  `bluehex_admin` alone.
+- `select (approved_by, verified_by, verified_at)` goes to `bluehex_admin` alone. Nobody
+  else in the database can read who vouched for a profile.
+- The `private` schema, the `private.is_admin()` helper, the `usage` grant on that schema
+  and the `execute` grant on that function all **disappear**, along with every
+  `security definer` in the write path. Fewer moving parts, and none of them privileged.
+
+### The cost, measured rather than asserted
+
+**Revocation lags by the life of the access token.** Removing a row from `admins` does
+not touch tokens already issued. The proof asserts exactly this: after the delete, the
+old token still performs an admin write; on the next refresh the role is gone and the
+same call is refused. So revocation takes effect within one refresh interval (an hour by
+default, and `[auth] jwt_expiry` is the dial). If a compromised admin ever needs to be
+cut off *now*, the lever is to invalidate their sessions — not to edit the table and hope.
+
+**The hook is configuration that must match in two places.** `[auth.hook.custom_access_token]`
+in `config.toml` for local, and the Auth Hooks setting in the hosted project. This is the
+config drift that argued against JWT claims in the first pass, and it is still real — it
+is now bought rather than avoided, in exchange for the privilege scoping above.
+
+**And it fails loudly, which is the good news.** Enabling the hook without the function
+present takes down every sign-in and sign-up with
+`500 unexpected_failure: Error running hook URI`. Verified by renaming the function out
+from under a live stack. Two consequences worth stating as rules:
+
+- The `config.toml` change and the migration that creates the function **must land in the
+  same commit**, and the migration must run before the config is enabled anywhere.
+- Enabling the hook on the hosted project is a step that belongs with the deploy of that
+  migration, not before it. `config.toml` in this repo is therefore **still unchanged** —
+  the hook line lands with the migration in #14, not with this spike.
 
 ## Do practitioners edit the live row? The question dissolves
 
@@ -105,116 +170,53 @@ freshness.
 
 ## The mechanism
 
-Four layers. The first two are the ones `AGENTS.md` already demands; the third is forced
-by a constraint that only shows up once you have admins; the fourth is what makes the
-first three legible.
+Four layers, and with the role in place none of them needs a privileged function.
 
-1. **Column grants.** `authenticated` gets `update (name, headline, location, bio,
-   certified)` and `insert (user_id, name, headline, location, bio, certified)` — and
-   nothing else. `status`, `verified`, `review_note` and the provenance columns are not
-   in either list, so a `PATCH {"verified": true}` is refused with `42501` before any
-   policy is consulted. `user_id` is insertable but not updatable, so a row cannot be
-   handed to someone else. A column added later is unwritable until it is named, which
-   fails closed.
+1. **Column grants, on read as well as write.** `authenticated` may write
+   `name, headline, location, bio, certified` and nothing else, so a
+   `PATCH {"verified": true}` is refused with `42501` before any policy is consulted.
+   `user_id` is insertable but not updatable, so a row cannot be handed to someone else.
+   On the read side `anon` gets only the columns a directory card displays — no
+   `user_id`, no provenance — and `authenticated` gets those plus what an owner needs to
+   find and understand their own row (`user_id`, `status`, `review_note`).
 
-2. **A `before update` trigger.** Pins every Bluehex-owned column to its `OLD` value for
-   non-admin callers, and applies the badge-clearing rule above. This is the only place
-   the invariant can be *stated* — a policy has no `OLD`. It is also what still holds if
-   a later migration re-grants a column by accident, which the proof below tests
-   directly by re-granting the columns and trying the write again.
+2. **A `before update` trigger.** Pins every Bluehex-owned column to its `OLD` value
+   unless the connected role is `bluehex_admin` (or an operator role), and applies the
+   badge-clearing rule. This is the only place the invariant can be *stated* — a policy
+   has no `OLD`. It is what still holds if a later migration re-grants a column by
+   accident, which the proof tests directly by re-granting the columns and trying the
+   write again. It is no longer `security definer` and reads no table: admin-ness is now
+   a property of the connected role, which is exactly what a trigger can see.
 
    It pins silently rather than raising. The grants already reject the honest attempt
    with a clear 403; a backstop that throws would take down legitimate writes if it ever
    misfired.
 
-3. **RPCs for the admin write path.** This is the part that is easy to miss:
-   **PostgREST connects as `authenticated` for every signed-in user**, so column grants
-   cannot tell an admin from a practitioner. Revoking `update (verified)` from
-   `authenticated` revokes it from admins too. So admins do not `PATCH` the attestation
-   columns at all — they call `approve_practitioner()`, `reject_practitioner()` and
-   `set_practitioner_verified()`, `security definer` functions that check
-   `private.is_admin()` first. Proved below: an admin `PATCH`ing `status` directly gets
-   403, exactly like a practitioner would.
+3. **RLS policies** for row visibility. Anonymous and signed-in users see `approved`; a
+   practitioner also sees their own row in any state; `bluehex_admin` gets one
+   `for all … using (true)` policy — no function call, no helper, the role *is* the check.
 
-   Two things fall out of this for free. Approving and verifying are separate actions,
-   which is what the ticket asked for — approval never sets `verified`. And the service
-   role key is not needed for any of it, so the admin screen can be an ordinary
-   signed-in client and no secret needs to exist in the app.
-
-4. **RLS policies** for row visibility and own-row writes, as above.
-
-### Why not the service role key
-
-The obvious alternative: let the admin screen hold the secret key, bypass RLS, and write
-`status` and `verified` directly. Rejected, and it is worth being precise about why,
-because it looks like less work.
-
-It does not remove the `admins` table — you still have to know who an admin is. It moves
-where that check runs: out of Postgres and into a server action. The check that protects
-the badge stops being enforced by the database and becomes application code that has to
-be right on every path, which is the second authorization model `AGENTS.md` rules out
-under **No ORM**.
-
-The failure modes are asymmetric. A missing guard in one server action is a total
-bypass — and both mechanisms above are decorative against it, since the trigger's
-non-admin branch never fires for a role that is not `authenticated`. The same mistake
-against the RPC is refused by Postgres. This is the column where failing open destroys
-the only thing the directory sells.
-
-It also has a cost the repo has already priced: no secret key is in this repo, and
-adding one is a decision rather than a step. Taking this route puts an RLS-bypassing
-credential into `.env.local` and into Vercel preview *and* production, so every preview
-deployment carries it, plus the standing discipline that it is never imported by a client
-component or anything one can reach.
-
-The service role key is still right for operator work with no user in the loop — seeding
-the first admin, backfills, a webhook or a cron job. That is the case `AGENTS.md` already
-covers. It is not the admin screen, which has a signed-in human whose identity you want
-on the row: `approved_by` comes from `auth.uid()` for free inside the RPC, and would have
-to be passed in and trusted if the service key were doing the writing.
-
-### The grant this design does not scope down
-
-Be honest about the weak point, because it is the thing the service key would have
-fixed. `execute` on the three admin RPCs is granted to **`authenticated`** — every
-signed-in practitioner may call `approve_practitioner()`. Each one raises `42501` for a
-non-admin, and the proof asserts it, but the privilege is granted broadly and then
-filtered at runtime rather than never granted at all.
-
-That is not a slip, it is the ceiling: PostgREST connects every signed-in user as the
-same Postgres role, so *any* privilege granted to `authenticated` is granted to
-everyone. Guarding at runtime is the only lever left. The service key does not beat this
-on least privilege either — it swaps a broad grant of a precise capability (three named
-actions) for a narrow grant of an unbounded one (a credential that can do anything to any
-table). Neither is what least privilege actually asks for.
-
-**The design that does ask for it is a distinct Postgres role.** PostgREST switches to
-the role named in the JWT's `role` claim, so a custom access token hook could hand admins
-`role: bluehex_admin`. Then the attestation column grants and the `execute` grants go to
-that role alone, non-admins cannot call the functions at all — possibly cannot need them,
-since column grants would now tell an admin apart on their own — and enforcement stays in
-the database.
-
-Not taken here, and not because it is wrong: it needs an auth hook configured identically
-in `config.toml` and in the hosted project or it drifts silently, it reintroduces the
-revocation lag that lost the JWT claim to the `admins` table, and a misfiring hook hands
-someone admin. It also needs proving first — that Supabase permits a hook to overwrite
-`role` at all is untested here. **If minimising what `authenticated` holds is the
-priority, this is the route to spike, not the service key.**
+4. **RPCs for the admin actions**, granted to `bluehex_admin` only. They are now plain
+   `security invoker` functions with no authorization logic inside them at all — Postgres
+   refuses the call to anyone else. They earn their place by making approval atomic and
+   by writing provenance from `auth.uid()` rather than from whatever the caller passes.
+   An admin *can* also `PATCH` `status` directly, since the column grant allows it; the
+   RPC is the path that records who did it.
 
 ## Provenance
 
 `approved_at` / `approved_by` and `verified_at` / `verified_by`, set by the RPCs from
 `auth.uid()` — so the record of who vouched for a profile is written by the same
-statement that vouches for it, not by the caller.
+statement that vouches for it. Only `bluehex_admin` can read these columns.
 
 Admin edits to a practitioner's *content* are not recorded, and should not be faked with
 more columns. If it matters, the answer is an audit table over the whole row, and that is
 its own ticket.
 
-`review_note` is feedback **to the practitioner**, not an internal comment: it is on the
-row, and the row is world-readable once approved. `approve_practitioner()` clears it for
-that reason. Internal notes need somewhere else to live.
+`review_note` is feedback **to the practitioner**, not an internal comment: the owner can
+read it, and it stays on a row that becomes world-readable once approved.
+`approve_practitioner()` clears it for that reason. Internal notes need somewhere else to
+live.
 
 ## Migration sketch
 
@@ -222,39 +224,54 @@ Not a migration yet, and deliberately so. The lifecycle columns below are settle
 profile's own fields are not — [#9](https://github.com/codesydney/bluehex/issues/9) owns
 what a profile contains, what a credential is, and what a profile URL looks like, and
 `AGENTS.md` is explicit that no schema lands before the model it encodes is settled. The
-first real migration should be this file's lifecycle half plus #9's field half, together.
+first real migration should be this file's lifecycle half plus #9's field half, together —
+and it must carry the `config.toml` hook line with it, per the rule above.
 `name`, `headline`, `location` and `bio` below are placeholders standing in for whatever
 #9 decides, and `credentials` is absent entirely.
 
 ```sql
--- admin identity -----------------------------------------------------------
-create schema private;
-revoke all on schema private from public, anon, authenticated;
+-- the role ------------------------------------------------------------------
+-- PostgREST logs in as `authenticator` and switches to the role named in the
+-- token's `role` claim. It can only switch to roles it is a member of.
+create role bluehex_admin nologin;
+grant bluehex_admin to authenticator;
+grant authenticated to bluehex_admin;   -- an admin is also an ordinary user
+grant usage on schema public to bluehex_admin;
 
+-- admin identity -------------------------------------------------------------
 create table public.admins (
   user_id uuid primary key references auth.users (id) on delete cascade,
   created_at timestamptz not null default now()
 );
 alter table public.admins enable row level security;
--- no grants: `admins` is not part of the API surface at all
+-- no grants to anon/authenticated/bluehex_admin: not part of the API surface
+grant select on public.admins to supabase_auth_admin;
+create policy admins_read_auth_admin on public.admins
+  for select to supabase_auth_admin using (true);
 
-create function private.is_admin()
-returns boolean language sql stable security definer set search_path = '' as $$
-  select exists (
-    select 1 from public.admins a where a.user_id = (select auth.uid())
-  );
+-- the hook -------------------------------------------------------------------
+-- Runs inside GoTrue as `supabase_auth_admin` when a token is minted.
+-- REQUIRES `[auth.hook.custom_access_token]` in config.toml and the matching
+-- setting in the hosted project. Enabling it without this function present
+-- takes down every sign-in with a 500.
+create function public.custom_access_token_hook(event jsonb)
+returns jsonb language plpgsql stable as $$
+begin
+  if exists (
+    select 1 from public.admins a
+     where a.user_id = (event->>'user_id')::uuid
+  ) then
+    event := jsonb_set(event, '{claims,role}', '"bluehex_admin"');
+  end if;
+  return event;
+end;
 $$;
--- A policy expression is evaluated as the CALLING role, so `authenticated` must
--- be able to execute this. Without the grant, every query on `practitioners`
--- fails with `42501 permission denied for function is_admin` and nothing in the
--- message points at the policy. What keeps it out of reach is the schema:
--- PostgREST exposes only the schemas it is configured with, and `private` is not
--- one of them.
-revoke execute on function private.is_admin() from public, anon;
-grant usage on schema private to authenticated;
-grant execute on function private.is_admin() to authenticated;
+grant usage on schema public to supabase_auth_admin;
+grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
+revoke execute on function public.custom_access_token_hook(jsonb)
+  from public, anon, authenticated, bluehex_admin;
 
--- the table ----------------------------------------------------------------
+-- the table ------------------------------------------------------------------
 create type public.practitioner_status as enum ('pending', 'approved', 'rejected');
 
 create table public.practitioners (
@@ -268,7 +285,7 @@ create table public.practitioners (
   bio text,
   certified boolean not null default false,
 
-  -- Bluehex-writable, through the RPCs below and nothing else
+  -- bluehex_admin only
   status public.practitioner_status not null default 'pending',
   verified boolean not null default false,
   review_note text,
@@ -285,17 +302,31 @@ create index practitioners_user_id_idx on public.practitioners (user_id);
 create index practitioners_approved_idx on public.practitioners (status)
   where status = 'approved';
 
--- privileges ---------------------------------------------------------------
+-- privileges -----------------------------------------------------------------
 -- Migrations run as `postgres`, whose default privileges give anon and
 -- authenticated no read or write. Every grant here is load-bearing.
-grant select on public.practitioners to anon, authenticated;
+
+-- Read is column-scoped too. The public never needed `user_id` or provenance.
+grant select (id, name, headline, location, bio, certified, verified, created_at)
+  on public.practitioners to anon;
+grant select (id, user_id, name, headline, location, bio, certified, verified,
+              status, review_note, created_at, updated_at)
+  on public.practitioners to authenticated;
+
 grant insert (user_id, name, headline, location, bio, certified)
   on public.practitioners to authenticated;
 grant update (name, headline, location, bio, certified)
   on public.practitioners to authenticated;
 grant delete on public.practitioners to authenticated;
 
--- policies -----------------------------------------------------------------
+-- the attestation columns, and the provenance behind them, exist for one role
+grant select, delete on public.practitioners to bluehex_admin;
+grant update (name, headline, location, bio, certified,
+              status, verified, review_note,
+              approved_at, approved_by, verified_at, verified_by)
+  on public.practitioners to bluehex_admin;
+
+-- policies -------------------------------------------------------------------
 alter table public.practitioners enable row level security;
 
 create policy practitioners_read_approved on public.practitioners
@@ -306,9 +337,10 @@ create policy practitioners_read_own on public.practitioners
   for select to authenticated
   using ((select auth.uid()) = user_id);
 
-create policy practitioners_read_all_admin on public.practitioners
-  for select to authenticated
-  using ((select private.is_admin()));
+-- no function call, no helper schema: the role is the check
+create policy practitioners_admin_all on public.practitioners
+  for all to bluehex_admin
+  using (true) with check (true);
 
 create policy practitioners_insert_own on public.practitioners
   for insert to authenticated
@@ -316,20 +348,20 @@ create policy practitioners_insert_own on public.practitioners
 
 create policy practitioners_update_own on public.practitioners
   for update to authenticated
-  using ((select auth.uid()) = user_id or (select private.is_admin()))
-  with check ((select auth.uid()) = user_id or (select private.is_admin()));
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
 
 create policy practitioners_delete_own on public.practitioners
   for delete to authenticated
-  using ((select auth.uid()) = user_id or (select private.is_admin()));
+  using ((select auth.uid()) = user_id);
 
--- the guard ----------------------------------------------------------------
+-- the guard ------------------------------------------------------------------
 create function public.practitioners_guard()
-returns trigger language plpgsql security definer set search_path = '' as $$
+returns trigger language plpgsql as $$
 begin
   new.updated_at := now();
 
-  if (select private.is_admin()) then
+  if current_user in ('bluehex_admin', 'service_role', 'postgres', 'supabase_admin') then
     return new;
   end if;
 
@@ -359,17 +391,13 @@ create trigger practitioners_guard
   before update on public.practitioners
   for each row execute function public.practitioners_guard();
 
--- admin write path ---------------------------------------------------------
--- PostgREST connects as `authenticated` for every signed-in user, so column
--- grants cannot distinguish an admin. The admin write path is a function.
+-- admin write path -----------------------------------------------------------
+-- `security invoker`, and no authorization logic inside: Postgres refuses the
+-- call to anyone who is not bluehex_admin.
 create function public.approve_practitioner(profile_id uuid)
-returns public.practitioners
-language plpgsql security definer set search_path = '' as $$
+returns public.practitioners language plpgsql as $$
 declare result public.practitioners;
 begin
-  if not (select private.is_admin()) then
-    raise exception 'not authorized' using errcode = '42501';
-  end if;
   update public.practitioners
      set status = 'approved',
          review_note = null,   -- approved rows are world-readable
@@ -387,65 +415,93 @@ $$;
 --    set_practitioner_verified(uuid, boolean) to the same shape.
 
 -- Functions in `public` are executable by PUBLIC by default. Revoke first.
-revoke execute on function public.approve_practitioner(uuid) from public, anon;
-grant execute on function public.approve_practitioner(uuid) to authenticated;
+revoke execute on function public.approve_practitioner(uuid)
+  from public, anon, authenticated;
+grant execute on function public.approve_practitioner(uuid) to bluehex_admin;
 ```
 
-## Two things that cost time, worth writing down
+## Things that cost time, worth writing down
 
-**A policy's helper function must be executable by the calling role.** The Supabase
-guidance to `revoke execute … from anon, authenticated` on a `security definer` helper
-applies to functions the client calls *directly*. A helper used inside a policy is
-evaluated as the caller, so revoking it breaks every query on the table — with
+**Column-scoped `select` means `select *` stops working, and that is the point.**
+`GET /practitioners` with no `select=` is refused, because PostgREST asks for every
+column. Every read must name its columns. The same applies to filters: PostgREST
+translates `?approved_by=not.is.null` into a `where` clause, and Postgres checks column
+privileges on `where` too, so anonymous callers cannot filter on a column they cannot
+read either. A column added later is unreadable until it is named — fails closed, same
+as the update grants.
+
+**An RLS policy can filter on a column the caller may not select.** The public read
+policy is `using (status = 'approved')` and `anon` has no `select` privilege on `status`.
+It works: policy expressions are not subject to the caller's column privileges. Asserted
+in the proof, because assuming it the other way would have pushed the design towards a
+view for no reason.
+
+**PostgREST answers `401` for `anon` and `403` for a signed-in caller** on the same
+`permission denied`. Do not read the status code as the authorization outcome.
+
+**Enabling the hook without the function is a hard outage.** Every sign-in and sign-up
+returns `500 unexpected_failure`. The config change and the migration are one change.
+
+**A `security definer` helper used inside a policy must be executable by the calling
+role.** This bit the first pass: the Supabase guidance to `revoke execute … from
+authenticated` applies to functions the client calls *directly*, and a helper used in a
+policy is evaluated as the caller — so revoking it breaks every query on the table with
 `42501 permission denied for function is_admin`, which names neither the table nor the
-policy. Keep the helper in an unexposed schema and grant `execute`; the schema is what
-makes it unreachable over the API, not the grant.
-
-**Column-level `insert` grants also block the insert-time attack.** `POST` with
-`{"status": "approved"}` is refused for the same reason the `PATCH` is, so there is no
-window where a practitioner arrives pre-approved. Worth knowing that the two grant lists
-differ by one column: `user_id` is insertable (you must claim your own row) and not
-updatable (you cannot hand it to someone else).
+policy. Moot in the recommended design, which has no such helper, and recorded because
+the first pass looked correct and was not.
 
 ## Proof
 
 Run against the local stack, through PostgREST, as three real users — two practitioners
-and one admin. 49 assertions, all passing. The script is not committed: it asserts
-against a schema applied by hand, and when the real migration lands in #14 the proof
-should land with it as a test rather than as a shell script.
+and one admin, with one of them arriving through the ordinary `/auth/v1/signup` form.
+46 assertions, all passing. The script is not committed: it asserts against a schema
+applied by hand, and when the real migration lands in #14 the proof should land with it
+as a test rather than as a shell script.
 
 ```
+== signup is ordinary; the role claim is the only thing the hook touches ==
+  PASS  alice signs herself up and gets a session                  authenticated
+  PASS  bob too                                                    authenticated
+  PASS    alice arrived through /auth/v1/signup                    f31f92fc-…
+  PASS  admin's next token carries the role                        bluehex_admin
+  PASS    and still identifies the same person                     8245bc15-…
+  PASS    aud is untouched                                         authenticated
+
 == the admins table is not part of the API ================================
   PASS  even an admin cannot GET /admins                           403
 
 == a practitioner creates their own profile ===============================
   PASS  alice inserts own row                                      201
   PASS    lands as pending                                         pending
-  PASS    lands unverified                                         false
-  PASS  bob inserts a row owned by alice                           403
   PASS  bob self-approves at insert time                           403
 
-== visibility of a pending profile ========================================
-  PASS  anonymous sees it                                          0
-  PASS  another practitioner sees it                               1
-  PASS    (that one row is bob's own)                              6cd3897d-…
-  PASS  alice sees her own                                         1
-  PASS  admin sees both                                            2
+== reads are column-scoped, not just writes ===============================
+  PASS  anonymous SELECT *                                         401
+        permission denied for table practitioners
+  PASS  anonymous asks for user_id                                 401
+  PASS  anonymous asks for approved_by                             401
+  PASS  anonymous filters on approved_by                           401
+  PASS  anonymous asks for the public columns                      200
+  PASS    and the RLS filter still ran on a column it cannot read  0
+  PASS  alice reads her own status                                 pending
+  PASS  alice asks for approved_by                                 403
+  PASS  admin reads approved_by                                    200
 
 == the attack: a practitioner writes the columns Bluehex owns =============
   PASS  alice PATCHes {status: approved}                           403
   PASS  alice PATCHes {verified: true}                             403
   PASS  alice reassigns her row to bob                             403
-  PASS  alice edits bob's row                                      200
-  PASS    ...but matched no rows                                   0
+
+== the scope-down: the RPCs are out of reach entirely =====================
+  PASS  alice calls approve_practitioner                           403
+        permission denied for function approve_practitioner
+  PASS  bob calls set_practitioner_verified                        403
 
 == the admin write path ===================================================
-  PASS  bob calls approve_practitioner                             403
-  PASS  bob verifies himself via the RPC                           403
   PASS  admin approves alice                                       200
   PASS    status                                                   approved
-  PASS    approved_by is the admin                                 da1e7532-…
-  PASS    verified is untouched by approval                        false
+  PASS    approved_by is the admin                                 8245bc15-…
+  PASS    verified untouched by approval                           false
   PASS  anonymous now sees the approved profile                    1
   PASS  admin verifies alice                                       200
   PASS    verified                                                 true
@@ -453,49 +509,103 @@ should land with it as a test rather than as a shell script.
 == an edit drops the badge without unpublishing ===========================
   PASS  alice edits bio (not attested)                             200
   PASS    still verified                                           true
-  PASS    still approved                                           approved
   PASS  alice claims certification (attested)                      200
   PASS    badge dropped                                            false
   PASS    still published                                          approved
-  PASS    verified_by cleared                                      null
 
 == an admin edits someone else's profile ==================================
-  PASS  admin re-verifies alice                                    200
-  PASS  admin fixes alice's bio                                    200
-  PASS    the edit landed                                          tidied by Bluehex
   PASS  admin corrects the name (attested)                         200
   PASS    badge survives an admin edit                             true
-  PASS  admin PATCHes status directly                              403
+  PASS  admin PATCHes status directly                              200
+  PASS    it lands (no RPC needed)                                 approved
 
 == the backstop: what if a later migration re-grants the columns? =========
   PASS  grant restored, alice PATCHes both                         200
   PASS    trigger pinned verified                                  false
-  PASS  bob PATCHes his pending row                                200
-  PASS    trigger pinned status                                    pending
-  PASS    trigger pinned verified                                  false
+  PASS    trigger pinned status                                    approved
 
-== rejection, and self-removal ============================================
-  PASS  admin rejects bob                                          200
-  PASS    bob still sees his own row                               rejected
-  PASS    and reads the reason                                     no evidence supplied
-  PASS    anonymous sees nothing                                   0
-  PASS  alice removes her own listing                              200
-  PASS    it is gone                                               0
+== revocation lag: the cost of carrying authority in a token =============
+  PASS  removed from admins, old token still works                 200
+        (this is the lag — the token is valid until it expires)
+  PASS  on refresh the role is gone                                authenticated
+  PASS    and the RPC is out of reach again                        403
 
-  49 passed, 0 failed
+  46 passed, 0 failed
 ```
 
-The two assertions that matter most are the ones a review would wave through: a
-practitioner `PATCH`ing themselves `{"verified": true}` is refused, and it is *still*
-refused after the column grant is put back by hand. A policy that looks right and permits
-the write is the failure mode here, so the assertion is the point.
+The assertions that matter most are the ones a review would wave through: a practitioner
+`PATCH`ing themselves `{"verified": true}` is refused, it is *still* refused after the
+column grant is put back by hand, and a practitioner cannot so much as call the approval
+function. A policy that looks right and permits the write is the failure mode here, so
+the assertion is the point.
+
+## Rejected: the service role key
+
+The obvious alternative — let the admin screen hold the secret key, bypass RLS, and write
+`status` and `verified` directly. It looks like less work and it is worth being precise
+about why it was not taken.
+
+It does not remove the `admins` table; you still have to know who an admin is. It moves
+where that check runs: out of Postgres and into a server action. The check that protects
+the badge stops being enforced by the database and becomes application code that has to
+be right on every path — the second authorization model `AGENTS.md` rules out under
+**No ORM**.
+
+The failure modes are asymmetric. A missing guard in one server action is a total bypass,
+and both mechanisms above are decorative against it, since the trigger's non-admin branch
+never fires for a role that is not `authenticated`. The same mistake against the role
+design is refused by Postgres.
+
+On least privilege specifically — the reason it came up — it does not even win: it swaps
+a broad grant of a precise capability (three named actions) for a narrow grant of an
+unbounded one (a credential that can do anything to any table). The role design is the
+one that actually scopes down, because the capability is *both* precise and held by a
+role that practitioners do not have.
+
+It also has a cost the repo has already priced: no secret key is in this repo, and adding
+one is a decision rather than a step. It would put an RLS-bypassing credential into
+`.env.local` and into Vercel preview *and* production, so every preview deployment
+carries it, plus the standing discipline that it is never imported by a client component
+or anything one can reach.
+
+The service role key remains right for operator work with no user in the loop — seeding
+the first admin, backfills, a webhook or a cron job. That is the case `AGENTS.md` already
+covers. It is not the admin screen, which has a signed-in human whose identity belongs on
+the row.
+
+## Superseded: the first pass, `security definer` and `private.is_admin()`
+
+Recorded because it is what a reasonable person writes first, and because the second pass
+only looks obvious afterwards.
+
+The first design kept everyone on `authenticated` and made admin-ness a runtime check: a
+`private.is_admin()` helper reading the `admins` table, called from the RLS policies, the
+trigger and three `security definer` RPCs that each raised `42501` for a non-admin. It
+worked — 49 assertions, same behaviour — and it is a legitimate design if a custom access
+token hook is unavailable.
+
+What was wrong with it was not correctness but privilege. `execute` on all three admin
+RPCs had to be granted to **`authenticated`**, so every signed-in practitioner could call
+`approve_practitioner()` and be turned away by a check inside the function rather than by
+Postgres. The helper had to be executable by `authenticated` too, and the write path ran
+through three `security definer` functions. Broad grants, filtered at runtime, with
+privileged functions doing the filtering.
+
+Its one advantage is the one the recommended design pays for: **revocation is immediate**,
+because the check reads a table on every statement rather than trusting a claim minted up
+to an hour ago. If the badge ever needs cutting off faster than a token refresh, that is
+the trade to revisit — and the two are not exclusive, since the trigger could read
+`admins` as well as checking the role.
 
 ## What this unblocks, and what it does not
 
 - **[#14](https://github.com/codesydney/bluehex/issues/14)** can be built: the states,
-  the transitions and the write path are settled.
-- **[#9](https://github.com/codesydney/bluehex/issues/9)** still owns the field list,
-  the credential model, and identity/slugs. The first migration waits on it.
+  the transitions, the roles and the write path are settled. It carries the `config.toml`
+  hook line and the hosted-project Auth Hook setting with it.
+- **[#9](https://github.com/codesydney/bluehex/issues/9)** still owns the field list, the
+  credential model, and identity/slugs. The first migration waits on it. Note that a
+  credentials child table needs its own column grants and its own badge-clearing trigger —
+  the attestation is about the credentials, and they will not be on this row.
 - **[#10](https://github.com/codesydney/bluehex/issues/10)** decides what `approved` and
   `verified` actually assert about a person. Nothing above depends on the answer — it
   changes the admin's checklist, not the schema.
