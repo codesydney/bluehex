@@ -1,7 +1,16 @@
 name: CI
 
 on:
+  # `ready_for_review` is not one of the default activity types, and naming any type
+  # replaces the defaults rather than adding to them — so the three defaults have to
+  # be written out again alongside it. Without it, a PR opened as a draft and later
+  # marked ready would sit with no CI run at all until its next push.
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   push:
     branches:
       - main
@@ -13,6 +22,18 @@ jobs:
   quality:
     name: Build and lint
     runs-on: ubuntu-latest
+    # Draft PRs skip CI; marking one ready fires `ready_for_review` and runs it then.
+    #
+    # This must stay a job-level condition, not a filter in the `on:` block — and not
+    # only because draft state is not expressible there. A job skipped by `if:` reports
+    # Success, whereas a whole workflow skipped by filtering leaves its checks pending,
+    # blocking the merge. Once this check is required on `main` (#18), the first blocks
+    # nothing and the second would make every draft unmergeable short of an admin
+    # override or dropping the requirement.
+    #
+    # `!= true` rather than `!github.event.pull_request.draft`: on `push` there is no
+    # `pull_request` object, so both forms pass, but only this one says why.
+    if: github.event.pull_request.draft != true
     steps:
       # Actions are pinned to commit SHAs, not tags: a major-version tag can be
       # retargeted. Comments record the version each SHA corresponds to; bump both
