@@ -122,6 +122,37 @@ Both phases end in the same place: a human at Bluehex reads the credentials and
 decides. Verification is manual either way — that is the product. Self-service does
 not remove that work, it changes who types the profile in.
 
+### Profile lifecycle
+
+**Decided.** A profile moves through three steps, the third optional:
+
+1. **Registered** — submitted, not publicly visible.
+2. **Approved** — Bluehex has accepted it for publication. The directory renders it.
+3. **Verified** — optional. Bluehex has checked the credentials. The badge appears.
+
+Held as **two columns, not one enum**: `status` (`registered`, `approved`,
+`rejected`) governs visibility, and `verified` stays the separate boolean it is
+today. Collapsing them into a single ordered state would make it impossible to
+withdraw a badge without unpublishing the profile, or to publish a profile that has
+not been checked — both of which are wanted. `certified`, the practitioner's own
+claim to hold a Claude Certification, stays exactly as it is and is unaffected.
+
+Three distinct ideas, then, and each has a different author:
+
+| Field | Asserted by | Governs |
+| --- | --- | --- |
+| `certified` | the practitioner | nothing, it is a claim |
+| `status` | Bluehex | whether the profile is public |
+| `verified` | Bluehex | whether the badge shows |
+
+Neither `status` nor `verified` is writable by the practitioner.
+
+**Open: does editing an approved profile return it to `registered`?** The strict
+answer is yes for material changes — otherwise approval is a one-time gate and
+anything can be published through it afterwards. The same argument applies to
+`verified`, more forcefully. At this volume the strict version costs little, so it
+is the recommended default until re-approval traffic makes it annoying.
+
 ### Open design questions for phase two
 
 Not blocking phase one, but they shape the schema, so they want answering before
