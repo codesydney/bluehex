@@ -225,9 +225,17 @@ requests, so it decides whether a build runs at all. A draft says the branch is 
 nothing is being asked for yet. Ready for review says two things at once — I want eyes on
 this, and I want a build.
 
+**From a fork, marking it ready creates the run but does not start it.** GitHub holds
+workflow runs on pull requests from forks until a maintainer approves them, so the check
+sits at `Awaiting approval` rather than building. Nothing is wrong and there is nothing for
+you to press — ask, and someone with write access clicks it.
+
 The cost is that a draft gets no CI feedback, which is the point but is still surprising
 the first time. If you want a run before you are ready for review, mark it ready and put it
-back to draft afterwards; there is no way to ask for a build while it stays a draft.
+back to draft afterwards (`gh pr ready --undo`); there is no way to ask for a build while
+it stays a draft. It is not a free toggle, though — marking a pull request ready notifies
+everyone watching the repository and puts it in their review queue, so it spends someone
+else's attention to get yourself a build.
 
 ## Stack
 

@@ -26,9 +26,10 @@ jobs:
     #
     # This must stay a job-level condition, not a filter in the `on:` block — and not
     # only because draft state is not expressible there. A job skipped by `if:` reports
-    # Success, whereas a whole workflow skipped by filtering leaves its checks pending
-    # forever. Once this check is required on `main` (#18), the first blocks nothing and
-    # the second would make every draft unmergeable with nothing to click.
+    # Success, whereas a whole workflow skipped by filtering leaves its checks pending,
+    # blocking the merge. Once this check is required on `main` (#18), the first blocks
+    # nothing and the second would make every draft unmergeable short of an admin
+    # override or dropping the requirement.
     #
     # `!= true` rather than `!github.event.pull_request.draft`: on `push` there is no
     # `pull_request` object, so both forms pass, but only this one says why.
