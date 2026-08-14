@@ -77,7 +77,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if ! changed=$(git diff --name-only "origin/$BASE_REF...HEAD"); then
+          # `--no-renames` is load-bearing, not tidiness. Rename detection is on by
+          # default, and `--name-only` then prints only the *destination* path — so
+          # `git mv src/thing.ts docs/thing.md` reports one `.md` file and nothing else,
+          # and a module leaves `src/` classified as documentation. With the flag, both
+          # paths are listed and the deleted one forces a build.
+          if ! changed=$(git diff --name-only --no-renames "origin/$BASE_REF...HEAD"); then
             echo "Could not diff against origin/$BASE_REF — building rather than guessing."
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -86,7 +91,13 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$changed" | sed 's/^/  /'
 
-          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qv '\.md$'; then
+          # A here-string rather than `printf | grep`, and for the same fail-closed
+          # reason. `grep -q` exits on its first match; with a list bigger than the pipe
+          # buffer the writer is still going, takes SIGPIPE and exits 141, and
+          # `pipefail` reports that 141 instead of grep's 0 — which `!` then reads as
+          # "no non-Markdown file found". A here-string is not a pipeline, so none of
+          # that applies.
+          if [ -n "$changed" ] && ! grep -qv '\.md$' <<<"$changed"; then
             echo "Documentation only — skipping install, lint and build."
             echo "docs-only=true" >> "$GITHUB_OUTPUT"
           else
