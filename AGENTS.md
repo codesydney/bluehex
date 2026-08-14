@@ -206,33 +206,49 @@ Keep the tree this thin until something needs otherwise.
 
 ## Database — planned, not built
 
-The repo has **no database**: no driver, no ORM, no `DATABASE_URL`, no `src/lib/db.ts`.
+The repo has **no database**: no client, no ORM, no `DATABASE_URL`, no `src/lib/db.ts`.
 An earlier SQLite (`better-sqlite3`) setup was removed, and a Drizzle/Postgres one was
 scaffolded and then stripped back out to keep the skeleton thin. The notes below are the
 agreed plan for when it is reintroduced — treat them as the contract, not a description
 of current state.
 
-- **Target is Postgres**: local Postgres in development, [Neon](https://neon.com) when
-  deployed. Drizzle ORM for schema and queries.
-- **Use the `node-postgres` (`pg`) driver, not `@neondatabase/serverless`.** Neon's HTTP
-  driver cannot talk to local Postgres — it speaks Neon's own HTTP protocol, so a
-  `localhost` URL fails with `Error connecting to database: TypeError: fetch failed`.
-  `pg` speaks the standard wire protocol and works against both local Postgres and Neon's
-  pooled connection string. Only consider the HTTP driver if the app moves to the edge
-  runtime.
-- **Make the client lazy** — a `getDb()` function, not a top-level `export const db`.
-  The module gets imported during `next build`, so reading `DATABASE_URL` eagerly breaks
-  builds wherever that secret is absent (CI, preview deployments).
+- **Target is [Supabase](https://supabase.com)** — Postgres, plus the auth that comes
+  with it. Local development runs the Supabase CLI stack; deployed is a hosted Supabase
+  project. This supersedes an earlier Neon plan, and the reason is auth: the product
+  needs end-user accounts, and buying that rather than building it is the entire
+  justification. Neon was cheaper and otherwise preferred, so if the auth requirement
+  ever disappears the decision should be revisited rather than inherited.
+- **No ORM — query through the Supabase client.** Authorization is row level security,
+  which depends on the request carrying the user's JWT so `auth.uid()` resolves in
+  policy. An ORM over a direct Postgres connection bypasses RLS and forces a second
+  authorization model in application code. Types come from
+  `supabase gen types typescript`, not from a schema declared in TypeScript.
+- **Migrations live in the repository.** Create them with the Supabase CLI and commit
+  them. Schema changes made through the dashboard leave no diff and no history, and this
+  is the easiest thing in this section to get wrong once the dashboard is open in a tab.
+- **Make the client lazy** — a `getClient()` function, not a top-level `export const db`.
+  The module gets imported during `next build`, so reading environment variables eagerly
+  breaks builds wherever the secret is absent (CI, preview deployments).
 - **Cache the client at module scope**, not only on `globalThis`. A `globalThis`-only
-  cache is typically skipped in production and leaks a new connection pool per call.
+  cache is typically skipped in production and leaks a new client per call.
 - **Queries are async**, unlike the synchronous `better-sqlite3` setup. A Server Component
   that reads from the database must be `async`, and should `await connection()` from
   `next/server` first to opt out of prerendering. `export const dynamic` is on its way out
   in Next 16 — prefer `connection()`.
-- Local Postgres on this machine follows a `<project>_dev` naming convention.
-- `DATABASE_URL` belongs in `.env.local` (git-ignored). Add a committed `.env.example`
+- Secrets belong in `.env.local` (git-ignored). Add a committed `.env.example`
   template at the same time — `.gitignore` already has the `!.env.example` exception,
   since the blanket `.env*` rule would otherwise swallow it.
+- **`verified` must never be writable by the practitioner.** Self-service puts an
+  untrusted writer next to Bluehex's own attestation for the first time. As policy: a
+  practitioner may write their own row with `verified` excluded from the writable
+  columns, and only an admin or the service role may set it. This is the most
+  load-bearing line in the schema — getting it wrong silently destroys the only thing
+  the directory sells, and it fails open rather than loudly.
+
+A third state is planned alongside these two: `status` (`registered`, `approved`,
+`rejected`), governing whether a profile is publicly visible, separate from `verified`
+governing whether the badge shows. Kept as separate columns deliberately, so a badge can
+be withdrawn without unpublishing the profile.
 
 ## Deployment
 
