@@ -266,6 +266,14 @@ it stays a draft. It is not a free toggle, though — marking a pull request rea
 everyone watching the repository and puts it in their review queue, so it spends someone
 else's attention to get yourself a build.
 
+## Prose formatting
+
+**Do not hard-wrap prose.** One paragraph is one line — in Markdown, in PR and issue bodies, and in the body of a commit message. Editors and renderers soft-wrap already, so a hard wrap buys nothing and costs a reflow: insert a word near the top of a wrapped paragraph and every line beneath it shifts, turning a one-word edit into a twenty-line diff. The reviewer then reads the reflow instead of the change, which is the opposite of what a small diff is for.
+
+The **commit title** is the exception and stays a single short line, around 72 characters. `git log --oneline`, `git shortlog` and GitHub all truncate it, so there the length is a real constraint rather than a formatting preference.
+
+Files written before this rule are still hard-wrapped. Reflow a paragraph when you are already editing it; do not reflow whole files on their own, because a pure-reflow commit is unreviewable and buries the history of every line it touches.
+
 ## Stack
 
 - Next.js 16 (App Router, Turbopack), React 19
