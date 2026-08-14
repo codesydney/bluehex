@@ -76,12 +76,13 @@ takes to build, or the site sits empty for a quarter while auth gets written.
 | Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
 | **1 — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. No database, no accounts, no secrets. |
-| **2a — Supabase and the read path** | 2–3d | ~2 weeks | Supabase project, local development database, Drizzle schema and migrations, lazy client, env plumbing across CI and Vercel, seed of the curated profiles, directory reading from the database. No auth. |
-| **2b — Authentication** | 4–5d | ~3 weeks | Accounts, sessions, sign-up with email verification, password reset, route protection, access policies. |
+| **2a — Supabase and the read path** | 2–3d | ~2 weeks | Supabase project, local stack via the Supabase CLI, SQL migrations in version control, generated TypeScript types, env plumbing across CI and Vercel, seed of the curated profiles, directory reading from the database. No auth. |
+| **2b — Authentication** | 3–4d | ~2.5 weeks | Supabase Auth: accounts, sessions, sign-up with email verification, password reset, route protection, RLS policies. |
 | **2c — Profile writes** | 8–10d | ~6 weeks | Profile CRUD, avatar upload, validation, claiming of curated profiles, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
 
-**Total for phase two: 14–18 days**, unchanged — this is a re-split of the same work,
-not a re-estimate.
+**Total for phase two: 13–17 days**, down from 14–18. Supabase Auth supplies sign-up,
+verification mail, password reset and session handling as product rather than code,
+which is most of what made 2b expensive when it was going to be built by hand.
 
 The order is a dependency chain, not a preference. Profile *reads* need no auth and
 can come first, which puts the directory on real data early and de-risks everything
@@ -156,23 +157,37 @@ owner, and material edits to credentials should drop it pending re-check. Withou
 that, a profile can be verified on modest claims and then edited to carry larger
 ones, and the badge stops attesting to anything.
 
+With row level security as the enforcement mechanism, this stops being a principle
+and becomes a specific policy: practitioners get write access to their own profile
+with `verified` excluded from the writable columns, and only the service role or an
+admin can set it. That policy is the most load-bearing line in the schema — it is
+what the badge, and therefore the product, actually rests on. It deserves a test
+that tries to set `verified` as a signed-in practitioner and asserts the write is
+refused.
+
 ### Where profile data lives
 
 Phase one runs on the typed array already in the repo, where every change is a
 reviewed commit — a real audit trail for a credential claim. Phase 2a moves it to
 Supabase Postgres.
 
+**No ORM.** Queries go through the Supabase client rather than Drizzle, so that
+authorization has one model instead of two. Supabase enforces access with row level
+security, which depends on the request carrying the user's JWT for `auth.uid()` to
+resolve in policy. A direct Postgres connection through an ORM bypasses that, leaving
+authorization to be re-implemented in application code. Types come from
+`supabase gen types typescript` rather than from a schema declared in code.
+
 Two things to settle when 2a starts:
 
-- **`AGENTS.md` is stale on this.** It states Neon as the deployed target, which was
-  true before Supabase was chosen. Correcting it is part of 2a, not a follow-up —
-  every agent working in this repository reads it as the contract.
-- **The driver guidance still holds.** `node-postgres` (`pg`) rather than an
-  HTTP-only driver, so the same connection code works against a local database and
-  against Supabase's pooled connection string. The lazy `getDb()` pattern in
-  `AGENTS.md` also carries over unchanged, and matters more here than it looks: the
-  module is imported during `next build`, so reading `DATABASE_URL` eagerly breaks
-  the build anywhere the secret is absent — CI and preview deployments included.
+- **`AGENTS.md` is stale on the whole database section.** It names Neon as the
+  deployed target, Drizzle for schema and queries, and the `pg` driver — all decided
+  before Supabase was chosen. The section needs rewriting rather than patching, and
+  it belongs to 2a: every agent working in this repository reads it as the contract.
+- **Migrations live in the repository, not the dashboard.** Schema changes made
+  through the Supabase UI leave no diff and no history. Use the Supabase CLI so every
+  change arrives as a committed SQL migration and is reviewable like anything else.
+  This is the single easiest thing to get wrong once the dashboard is open in a tab.
 
 ### Meetup banner
 
