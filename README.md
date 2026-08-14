@@ -115,6 +115,18 @@ This supersedes an earlier Neon and Drizzle plan; the switch was made to buy
 authentication rather than build it. The rationale and the constraints to follow when
 adding it are recorded in [`AGENTS.md`](./AGENTS.md#database--planned-not-built).
 
+### Running it locally
+
+**None of this works yet.** There is no `supabase/` directory and no Supabase dependency in `package.json`, so `pnpm exec supabase` will not resolve today. This is written down now because the container runtime is the slow part of the setup and it is better discovered before the database lands than during it.
+
+The Supabase stack is a set of Docker containers, so a working container runtime is the one real prerequisite. What that takes depends on the platform, and the difference is not cosmetic:
+
+- **macOS and Windows** — install [Docker Desktop](https://docs.docker.com/desktop/). There is no Linux kernel underneath to run containers on, so Docker Desktop supplies one inside a VM; it is doing real work here rather than being a convenience wrapper. On Windows use the WSL 2 backend and enable integration for the distro you work in (Settings → Resources → WSL integration), then run the CLI from inside that distro rather than from PowerShell — this project already expects Windows contributors to be in WSL for the Node version pin, so it is the same distro either way.
+- **Linux** — install [Docker Engine](https://docs.docker.com/engine/install/) from Docker's own apt or dnf repository, not the distribution's `docker.io` package, which is habitually several versions behind. The kernel is already yours, so there is no VM and Docker Desktop is unnecessary; installing it anyway is not harmful but adds a second `desktop-linux` context, and `docker ps` then answers differently depending on which context is active. Do the [post-install step](https://docs.docker.com/engine/install/linux-postinstall/) — add your user to the `docker` group, then log out and back in. Skipping it means every call needs `sudo`, which surfaces as a permission error on `/var/run/docker.sock` when the CLI reaches for the daemon, and that error does not obviously read as "you are not in the docker group".
+- **Already have something Docker-compatible?** Rancher Desktop, Podman, OrbStack and colima are all supported. The test is whether `docker ps` works; if it does, the CLI is satisfied. Worth knowing if one is already installed, not worth installing if not.
+
+Once the database lands, the loop from the repo root will be `pnpm install` (which brings the CLI down with everything else — it is a devDependency, not a global install), then `pnpm exec supabase start`. The first start pulls several GB of images and is slow in a way that later starts are not. `pnpm exec supabase status` prints the local URLs and keys to copy into `.env.local`; the API is on `localhost:54321`, Postgres on `54322` and Studio on `54323`. The containers keep running until `pnpm exec supabase stop`, which is worth remembering on a laptop.
+
 ## Toolchain notes
 
 `pnpm outdated` will report `typescript` and `eslint` as behind. That's deliberate —
