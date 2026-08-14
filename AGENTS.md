@@ -114,6 +114,33 @@ Two things will waste your time otherwise:
 Ask early. A question costs a minute; a day spent stuck on a stale Stack Overflow answer
 costs a day.
 
+## Invariants beat scope
+
+Scope is hard to set upfront, because the constraints that matter usually only become
+visible once the work has started. Invariants are not: they say what is unacceptable
+rather than what to build, so they can be stated before anyone knows the shape of the
+answer. **Plans go stale the moment you learn something; invariants survive learning.**
+
+- **Nothing throwaway gets committed.** If it exists only to prove something during
+  development, it does not belong in the repository — least of all in migration history,
+  which is permanent and is read as the story of how the schema got here.
+- **No schema lands before the model it encodes is settled.**
+- **An invariant has to be violable.** If nobody could break it, and you could not point
+  at the breach in a diff, it is a preference. Four real ones beat ten where six are
+  decoration, because the six teach everyone to skim.
+
+**When a premise is removed, revisit the requirement that rested on it rather than
+building machinery to keep satisfying it.** This is the one that actually bites, because
+each step looks reasonable and only the pile is wrong. The tell is work that defends an
+earlier decision instead of delivering value — a third state added to a check, then a
+fourth, then a workaround for the type system. That accumulation is visible in a diff
+without understanding the domain, and it is the signal to stop and ask.
+
+Recorded because it happened here: a `connection_check` table was added to give a
+walking skeleton something to read, and when it was cut for not belonging in migration
+history, the page that read it grew a four-state probe rather than being cut too. Both
+went in the end. See #32.
+
 ## Toolchain pins
 
 Two dev dependencies are deliberately held behind `latest`. Don't bump them as a
