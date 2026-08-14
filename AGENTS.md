@@ -50,6 +50,8 @@ so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly.
 `.claude/skills/` holds skills checked into the repo, so every contributor gets them
 without any local setup. Ask for one by name, e.g. `/code-tour`.
 
+Written here:
+
 - **`code-tour`** — a guided walk through one real flow, end to end, where the learner
   does the work and answers are withheld rather than handed over. Reach for it after
   code has landed faster than it was understood, which on this project is most weeks.
@@ -61,6 +63,35 @@ without any local setup. Ask for one by name, e.g. `/code-tour`.
 
 Reviews belong on the pull request, not in a chat session. A finding nobody can find
 later did not happen.
+
+Vendored from [supabase/agent-skills](https://github.com/supabase/agent-skills):
+
+- **`supabase`** — the whole product surface: client libraries and `@supabase/ssr`,
+  auth and sessions, RLS, migrations, Edge Functions, and the debugging workflows for
+  when something returns a status code nobody expected.
+- **`supabase-postgres-best-practices`** — Postgres rather than Supabase specifically.
+  Worth loading before schema work, not after: column types, indexes, RLS policies and
+  the tests that prove them, and the migration patterns that avoid taking a lock on a
+  table in production.
+
+Both are relevant to what is being built here — the `verified` column rule under
+Database is exactly the class of problem the second one covers.
+
+### How the vendored skills are stored
+
+Not as ordinary directories. The real files live in `.agents/skills/<name>/`, and
+`.claude/skills/<name>` is a **symlink** into it. That layout lets one copy serve any
+agent tool that looks in its own directory, rather than duplicating 200 KB per tool.
+Git stores the symlinks natively; on Windows they need `core.symlinks` enabled, which
+is another reason the Node section points Windows contributors at WSL.
+
+`skills-lock.json` records where each came from and pins it by **content hash**, not by
+version. Do not trust the `version` field inside a `SKILL.md` — upstream leaves it
+behind (`supabase` reads `0.1.2` in frontmatter against a changelog whose latest entry
+is `0.1.7`). The hash is the real pin.
+
+Treat everything under `.agents/` as vendored, not ours. Edits belong upstream; a local
+change is silently reverted by the next update and there is no diff to explain it.
 
 ## Working here, if you are new
 
