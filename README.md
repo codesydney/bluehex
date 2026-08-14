@@ -168,8 +168,15 @@ preview deployments.
 The build still succeeds with no environment variables set — that is deliberate, so a
 preview build cannot break for want of a secret. It does not follow that the deployment
 works: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be set
-in Vercel's preview and production environments or every database read fails at request
+in Vercel's preview and production environments, or every database read fails at request
 time. `/connection-check` on the deployment is how you tell the difference.
+
+They have to be set *before the build*, not just before the app runs. Next inlines
+`NEXT_PUBLIC_*` into the bundle as literal strings, so a built artifact ignores whatever
+environment it is later started with. The deploy workflow already gets this right —
+`vercel pull` fetches them ahead of `vercel build` — but it is why re-running a build
+with different variables changes nothing, and rebuilding is the only way to point one at
+a different project.
 
 ## Database
 
