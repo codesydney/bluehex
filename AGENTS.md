@@ -41,6 +41,12 @@ or `yarn` — they would create a competing lockfile.
 - `pnpm build` — production build (also runs the TypeScript type-check)
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint (flat config, `eslint-config-next`)
+- `pnpm db:start` / `pnpm db:stop` — the local Supabase stack (needs Docker running)
+- `pnpm db:reset` — drop the local database and re-apply every migration from scratch
+- `pnpm db:types` — regenerate `src/lib/database.types.ts` from the local schema
+
+`pnpm dev` does not start the database — run `pnpm db:start` alongside it. `db:reset`
+and `db:types` both need it running too.
 
 There is no test runner configured yet. Note that `next build` no longer runs ESLint,
 so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly.
@@ -212,7 +218,8 @@ can bias the review. Commit messages should describe the change and nothing else
 - Next.js 16 (App Router, Turbopack), React 19
 - Tailwind CSS v4 (via `@tailwindcss/postcss`; no `tailwind.config` file — configured in CSS)
 - TypeScript 6, path alias `@/*` → `src/*`
-- No database, no test runner, no runtime environment variables
+- Supabase (Postgres) through `@supabase/supabase-js`, local stack via the Supabase CLI
+- No test runner
 
 ## Architecture
 
@@ -223,7 +230,11 @@ can bias the review. Commit messages should describe the change and nothing else
   the one client component, because search and filters are local state.
 - `src/lib/` — data and configuration, no rendering. `site.ts` is the single source of
   truth for naming, nav, contact details and legal links; `practitioners.ts` holds the
-  directory data and its types.
+  directory data and its types; `supabase.ts` is the database client.
+  `database.types.ts` is **generated** — regenerate it with `pnpm db:types` after a
+  migration rather than editing it.
+- `supabase/` — `config.toml` for the local stack and `migrations/` for the schema.
+  Both are committed.
 
 `practitioners.ts` ships an empty array on purpose. **Real people only** — no placeholder
 profiles. The directory renders an invitation card for the empty slots instead.
@@ -235,13 +246,22 @@ checked the credentials. Either can be true without the other, and the badge ref
 
 Keep the tree this thin until something needs otherwise.
 
-## Database — planned, not built
+## Database — the plumbing, and the contract for the rest
 
-The repo has **no database**: no client, no ORM, no `DATABASE_URL`, no `src/lib/db.ts`.
-An earlier SQLite (`better-sqlite3`) setup was removed, and a Drizzle/Postgres one was
-scaffolded and then stripped back out to keep the skeleton thin. The notes below are the
-agreed plan for when it is reintroduced — treat them as the contract, not a description
-of current state.
+What exists: the local Supabase stack, a lazy client in `src/lib/supabase.ts`, generated
+types, and the environment wiring. An earlier SQLite (`better-sqlite3`) setup was
+removed, and a Drizzle/Postgres one was scaffolded and stripped back out, before this.
+
+**The database is empty and there are no migrations.** That is deliberate. A
+health-check table existed briefly to prove the connection and was taken back out before
+it was ever committed: it would have sat in the migration history permanently, describing
+a table dropped a fortnight later, to prove something the first real query proves for
+free. So nothing queries anything yet, and `database.types.ts` describes no tables. The
+schema starts with `practitioners`.
+
+What does not exist yet: the `practitioners` table, any RLS policy of consequence, auth,
+and the hosted project. The rest of this section is the contract for building those —
+treat it as binding, not as a description of current state.
 
 - **Target is [Supabase](https://supabase.com)** — Postgres, plus the auth that comes
   with it. Local development runs the Supabase CLI stack; deployed is a hosted Supabase
@@ -253,11 +273,36 @@ of current state.
 - **Migrations live in the repository.** Create them with the Supabase CLI and commit
   them. Schema changes made through the dashboard leave no diff and no history, and this
   is the easiest thing in this section to get wrong once the dashboard is open in a tab.
+- **A new table is invisible to the API until you `grant` on it, and the failure looks
+  like a broken policy.** Postgres checks the privilege first and only then evaluates
+  RLS, so a table with a correct policy and no grant returns `42501 permission denied`
+  and never consults the policy at all. It is easy to assume the grant is inherited,
+  because the `public` schema carries two different sets of default privileges — see
+  `pg_default_acl`:
+
+  ```
+  owner supabase_admin  tables -> anon, authenticated get arwdDxtm  (everything)
+  owner postgres        tables -> anon, authenticated get Dxtm      (no read or write)
+  ```
+
+  Migrations run as `postgres`, so every table a migration creates lands under the
+  second set. Tutorials and dashboard-created tables land under the first, which is why
+  most advice on this never mentions grants. Write them explicitly. It fails closed,
+  which is the right way round, and it is the same privilege layer the `verified` rule
+  below depends on — so being in the habit is worth more than the keystrokes.
 - **Make the client lazy** — a `getClient()` function, not a top-level `export const db`. The module gets imported during `next build`, so reading environment variables eagerly breaks builds wherever a required variable is absent (CI, preview deployments).
 - **Cache the client at module scope**, not only on `globalThis`. A `globalThis`-only
   cache is typically skipped in production and leaks a new client per call.
 - **Queries are async**, unlike the synchronous `better-sqlite3` setup, so a Server Component that reads from the database must be `async`. Most of them will not also need `await connection()`. Per `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/connection.md`, `connection()` exists for a component that produces per-request output *without* touching a request-time API — its worked example is a synchronous `better-sqlite3` query, which is precisely the setup being replaced here. A Supabase server client reads cookies to resolve the session, and `cookies()` is a request-time API, so the render is already request-bound and `connection()` adds nothing. Reach for it only on a read that touches neither cookies nor headers, such as an anonymous public query — plausibly the directory listing itself. `export const dynamic` is on its way out in Next 16, so `connection()` is still the tool when one is needed.
-- **Two keys, and the difference decides where code may run.** The anon/publishable key is shipped to the browser by design and is not a secret: `NEXT_PUBLIC_*` is where it belongs, and there is no reason to proxy reads through a server action to hide it. The service role key bypasses RLS outright — every policy on the table is decorative for any code holding it — so it is server-only: never `NEXT_PUBLIC_*`, never imported by a client component or by a module a client component can reach, and reserved for the admin write path rather than used as an escape hatch when a policy is inconvenient. Both belong in `.env.local` (git-ignored). Add a committed `.env.example` template at the same time — `.gitignore` already has the `!.env.example` exception, since the blanket `.env*` rule would otherwise swallow it.
+- **Two keys, and the difference decides where code may run.** The anon/publishable key is shipped to the browser by design and is not a secret: `NEXT_PUBLIC_*` is where it belongs, and there is no reason to proxy reads through a server action to hide it. The service role key bypasses RLS outright — every policy on the table is decorative for any code holding it — so it is server-only: never `NEXT_PUBLIC_*`, never imported by a client component or by a module a client component can reach, and reserved for the admin write path rather than used as an escape hatch when a policy is inconvenient. Both belong in `.env.local` (git-ignored); `.env.example` is the committed template, kept alive by the `!.env.example` exception in `.gitignore` against the blanket `.env*` rule.
+
+  Current Supabase issues both under new names — `sb_publishable_…` and `sb_secret_…`, superseding the legacy `anon` and `service_role` JWTs, which the CLI still prints. This repo uses the publishable key, as `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. No secret key is in the repo at all, and adding one is a decision, not a step.
+
+  **`NEXT_PUBLIC_*` is baked in at build time, and the build's values win.** Next inlines these by literal text substitution wherever they are defined when `next build` runs — the server bundle included, not just the browser one. Verified by grepping `.next/server` after a build: the URL and key are there as string literals. So the environment a built artifact is *run* with cannot override them, and passing a different value to `next start` silently changes nothing.
+
+  The one case that does read the runtime environment is a variable **absent** at build time: the lookup then survives into the bundle and resolves when the request is served. That is the only reason `next build` with no variables set produces something that still works when given them at run time, and it is easy to mistake for the general rule. It is not — it is the exception.
+
+  Two consequences. Testing a built artifact against a different Supabase project means rebuilding, not re-running with a different environment. And on Vercel the values must exist *before* the build, which the deploy workflow already handles: `vercel pull` fetches the project's environment variables ahead of `vercel build`.
 - **`verified` must never be writable by the practitioner.** Self-service puts an untrusted writer next to Bluehex's own attestation for the first time. The policy: a practitioner may write their own row, with `verified` not among the columns they can set, and only an admin or the service role sets it. **RLS alone cannot express that**, so the policy needs a mechanism named or it does not exist. A policy's `USING` clause sees the existing row and `WITH CHECK` sees the proposed one, but a policy has no `OLD` to compare against — "this row is yours to update, but this column must not change" is not sayable. The natural `for update using (auth.uid() = user_id)` reads exactly like the paragraph above, passes review, and lets any practitioner `PATCH` themselves `{"verified": true}`. Use both of these, since neither is sufficient alone:
   - **Column privileges** — what Supabase calls column level security. `revoke update on practitioners from authenticated`, then `grant update (…) on practitioners to authenticated` naming each practitioner-writable column. PostgREST honours these, so the write is refused at the privilege layer whatever the policies say. The grant list is maintained by hand as the schema grows: a column added later is not writable until it is named, which fails closed and is the right way round.
   - **A `before update` trigger** forcing `new.verified = old.verified` for non-admin callers. Triggers do see `OLD`, so this is the only place the invariant can be stated directly, and it still holds if a later migration re-grants the column by accident.
@@ -269,5 +314,12 @@ A third column is planned alongside the `certified` and `verified` booleans desc
 ## Deployment
 
 Target is Vercel, deployed from the `main` branch of `codesydney/bluehex`. Pushes to
-`main` ship to production; pull requests get preview deployments. The build requires no
-environment variables.
+`main` ship to production; pull requests get preview deployments.
+
+`next build` passes with no environment variables set, which is what the lazy client in
+`src/lib/supabase.ts` is for and is worth keeping true. It does not follow that a
+deployment can reach Supabase: `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be in Vercel's preview and production
+environments, or a deployed read fails at request time rather than at build time. Both
+are set as of August 2026. Nothing queries the database yet, so the first feature to do
+so is the first thing that will actually test this — a green deploy is not evidence.

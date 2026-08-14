@@ -87,8 +87,65 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) for the placeholder home page.
 
-There is no configuration to do — the app has no database and no environment
-variables. It builds and runs from a clean clone.
+The site builds and runs from a clean clone without any of the below. You only need the
+next section to work on anything that touches the database.
+
+### Docker
+
+The local database is a Supabase stack the CLI runs in containers, so Docker is the one
+prerequisite that is not `pnpm install`. Any of Docker Desktop, Docker Engine, Rancher
+Desktop, Podman, OrbStack or colima will do — the test is whether `docker ps` works.
+
+- **macOS and Windows** — there is no Linux kernel underneath, so something has to
+  supply one in a VM. [Docker Desktop](https://docs.docker.com/desktop/) is the usual
+  answer and is not optional in the way it is on Linux.
+- **Linux** — the kernel is already there, so
+  [Docker Engine](https://docs.docker.com/engine/install/) from Docker's own repository
+  is the install. Do the
+  [post-install step that adds you to the `docker` group](https://docs.docker.com/engine/install/linux-postinstall/);
+  skipping it surfaces later as a permission error on `/var/run/docker.sock` that never
+  mentions the group.
+- **Windows** — you are already expected to be in WSL for the Node version pin, so run
+  the CLI there rather than in PowerShell.
+
+### The local database
+
+```bash
+cp .env.example .env.local
+pnpm db:start
+```
+
+The first `pnpm db:start` pulls around a dozen container images and takes a few minutes;
+later ones take seconds. It prints a block of URLs and keys when it finishes —
+`pnpm exec supabase status` reprints them. The values are the same on every machine, so
+the `.env.example` you just copied already matches.
+
+Two of those URLs are worth a bookmark: Studio at
+[127.0.0.1:54323](http://127.0.0.1:54323) to browse the data, and Mailpit at
+[127.0.0.1:54324](http://127.0.0.1:54324), which catches every email the stack sends so
+sign-in links work locally with no mail provider configured.
+
+| Command | Description |
+| --- | --- |
+| `pnpm db:start` | Start the local stack |
+| `pnpm db:stop` | Stop it (the data survives) |
+| `pnpm db:reset` | Drop the database and re-apply every migration from scratch |
+| `pnpm db:types` | Regenerate `src/lib/database.types.ts` after a schema change |
+
+`db:reset` and `db:types` both read the running stack, so `pnpm db:start` first. Note
+`pnpm dev` does not start it either.
+
+**The database is empty.** There are no migrations yet — the schema starts with the
+practitioners table, which is still being designed. So the stack comes up with nothing
+in it, `src/lib/database.types.ts` describes no tables, and nothing in the app queries
+anything. That is the honest state rather than an oversight: a health-check table
+invented to have something to read would have to live in the migration history
+permanently to prove a point that the first real query proves for free.
+
+Schema changes are migrations, created with
+`pnpm exec supabase migration new <name>` and committed. Changing the schema through
+Studio leaves no diff and no history, so the next person's `pnpm db:reset` silently
+undoes it. Run `pnpm db:types` afterwards so the generated types keep up.
 
 ## Scripts
 
@@ -105,15 +162,36 @@ into CI rather than relying on the build to catch lint errors.
 ## Deployment
 
 Deployed on Vercel from `main`. Pushes to `main` go to production; pull requests get
-preview deployments. The build needs no environment variables.
+preview deployments.
+
+The build still succeeds with no environment variables set — that is deliberate, so a
+preview build cannot break for want of a secret. It does not follow that the deployment
+works: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be set
+in Vercel's preview and production environments before the first query ships, or every
+database read will fail at request time. They are set as of August 2026.
+
+They have to be set *before the build*, not just before the app runs. Next inlines
+`NEXT_PUBLIC_*` into the bundle as literal strings, so a built artifact ignores whatever
+environment it is later started with. The deploy workflow already gets this right —
+`vercel pull` fetches them ahead of `vercel build` — but it is why re-running a build
+with different variables changes nothing, and rebuilding is the only way to point one at
+a different project.
 
 ## Database
 
-There isn't one yet. The plan is [Supabase](https://supabase.com) — Postgres with the auth that comes bundled, running locally through the Supabase CLI and hosted when deployed. Queries go through the Supabase client rather than an ORM, because authorization is row level security and the Supabase client carries the user's JWT, so policies resolve against the right identity. A pooled server-side connection carries no per-user identity unless every request installs it, which is the part that goes wrong silently.
+[Supabase](https://supabase.com) — Postgres with the auth that comes bundled, run
+locally through the Supabase CLI and hosted when deployed. Queries go through the
+Supabase client rather than an ORM, because authorization is row level security and the
+client carries the user's JWT, so policies resolve against the right identity. A pooled
+server-side connection carries no per-user identity unless every request installs it,
+which is the part that goes wrong silently.
 
-This supersedes an earlier Neon and Drizzle plan; the switch was made to buy
-authentication rather than build it. The rationale and the constraints to follow when
-adding it are recorded in [`AGENTS.md`](./AGENTS.md#database--planned-not-built).
+So far this is plumbing only: the local stack, the client, the type generation and the
+environment wiring, with an empty database behind it. The practitioners table and its
+policies come next, and they are the part that matters. This supersedes an earlier Neon
+and Drizzle plan; the switch was made to buy authentication rather than build it. The
+rationale and the constraints to follow are in
+[`AGENTS.md`](./AGENTS.md#database--the-plumbing-and-the-contract-for-the-rest).
 
 ## Toolchain notes
 

@@ -14,6 +14,16 @@ ignoredBuiltDependencies:
   - esbuild
   - unrs-resolver
 
+# The other side of the same coin: a package whose build script genuinely must run.
+#
+# - supabase. The npm package is a wrapper with no binary in it; its postinstall
+#   downloads the platform binary. Blocked, `pnpm install` still reports success and
+#   the failure surfaces much later at `pnpm exec supabase`, a long way from the cause.
+#   Unlike the two above there is no optional platform package to fall back on.
+#   Upstream: https://github.com/supabase/cli/issues/1809.
+onlyBuiltDependencies:
+  - supabase
+
 # Refuse to resolve a package version until it has been published for 7 days. The unit
 # is minutes, so this is 7 * 24 * 60 — a bare `7` would mean seven minutes. Compromised
 # npm releases are usually pulled within hours, so a resolution delay keeps that window

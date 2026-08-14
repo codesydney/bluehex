@@ -1,0 +1,15 @@
+-- Local development seed data. Runs automatically at the end of `pnpm db:reset`,
+-- after every migration has been applied. Not run against the hosted project.
+--
+-- Empty for now: there is no schema worth seeding until the practitioners table exists.
+-- The file is here so `db:reset` stops warning that it is missing, and so the slot is
+-- obvious to whoever adds that table.
+--
+-- When it does get filled in, two things to hold to:
+--
+--   * Make it re-runnable. `db:reset` is the only path here, so a plain `insert` is
+--     fine, but anything hand-run wants `on conflict do nothing`.
+--   * Seed data is fake data, and this is the one place that is fine — it never leaves
+--     a developer's machine. The "real people only" rule in AGENTS.md is about the
+--     directory the public sees, not about local fixtures. Do not confuse the two by
+--     seeding the hosted project.
