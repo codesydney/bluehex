@@ -143,6 +143,65 @@ first three legible.
 
 4. **RLS policies** for row visibility and own-row writes, as above.
 
+### Why not the service role key
+
+The obvious alternative: let the admin screen hold the secret key, bypass RLS, and write
+`status` and `verified` directly. Rejected, and it is worth being precise about why,
+because it looks like less work.
+
+It does not remove the `admins` table — you still have to know who an admin is. It moves
+where that check runs: out of Postgres and into a server action. The check that protects
+the badge stops being enforced by the database and becomes application code that has to
+be right on every path, which is the second authorization model `AGENTS.md` rules out
+under **No ORM**.
+
+The failure modes are asymmetric. A missing guard in one server action is a total
+bypass — and both mechanisms above are decorative against it, since the trigger's
+non-admin branch never fires for a role that is not `authenticated`. The same mistake
+against the RPC is refused by Postgres. This is the column where failing open destroys
+the only thing the directory sells.
+
+It also has a cost the repo has already priced: no secret key is in this repo, and
+adding one is a decision rather than a step. Taking this route puts an RLS-bypassing
+credential into `.env.local` and into Vercel preview *and* production, so every preview
+deployment carries it, plus the standing discipline that it is never imported by a client
+component or anything one can reach.
+
+The service role key is still right for operator work with no user in the loop — seeding
+the first admin, backfills, a webhook or a cron job. That is the case `AGENTS.md` already
+covers. It is not the admin screen, which has a signed-in human whose identity you want
+on the row: `approved_by` comes from `auth.uid()` for free inside the RPC, and would have
+to be passed in and trusted if the service key were doing the writing.
+
+### The grant this design does not scope down
+
+Be honest about the weak point, because it is the thing the service key would have
+fixed. `execute` on the three admin RPCs is granted to **`authenticated`** — every
+signed-in practitioner may call `approve_practitioner()`. Each one raises `42501` for a
+non-admin, and the proof asserts it, but the privilege is granted broadly and then
+filtered at runtime rather than never granted at all.
+
+That is not a slip, it is the ceiling: PostgREST connects every signed-in user as the
+same Postgres role, so *any* privilege granted to `authenticated` is granted to
+everyone. Guarding at runtime is the only lever left. The service key does not beat this
+on least privilege either — it swaps a broad grant of a precise capability (three named
+actions) for a narrow grant of an unbounded one (a credential that can do anything to any
+table). Neither is what least privilege actually asks for.
+
+**The design that does ask for it is a distinct Postgres role.** PostgREST switches to
+the role named in the JWT's `role` claim, so a custom access token hook could hand admins
+`role: bluehex_admin`. Then the attestation column grants and the `execute` grants go to
+that role alone, non-admins cannot call the functions at all — possibly cannot need them,
+since column grants would now tell an admin apart on their own — and enforcement stays in
+the database.
+
+Not taken here, and not because it is wrong: it needs an auth hook configured identically
+in `config.toml` and in the hosted project or it drifts silently, it reintroduces the
+revocation lag that lost the JWT claim to the `admins` table, and a misfiring hook hands
+someone admin. It also needs proving first — that Supabase permits a hook to overwrite
+`role` at all is untested here. **If minimising what `authenticated` holds is the
+priority, this is the route to spike, not the service key.**
+
 ## Provenance
 
 `approved_at` / `approved_by` and `verified_at` / `verified_by`, set by the RPCs from
