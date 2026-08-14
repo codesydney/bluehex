@@ -155,6 +155,7 @@ undoes it. Run `pnpm db:types` afterwards so the generated types keep up.
 | `pnpm build` | Production build, including the TypeScript type-check |
 | `pnpm start` | Serve the production build |
 | `pnpm lint` | ESLint (flat config, `eslint-config-next`) |
+| `pnpm test:e2e` | Build, serve, and test the production app in desktop and mobile Chromium |
 
 `next build` no longer runs ESLint, so `pnpm lint` is a separate step — worth wiring
 into CI rather than relying on the build to catch lint errors.
