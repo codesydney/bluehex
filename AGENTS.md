@@ -58,6 +58,10 @@ without any local setup. Ask for one by name, e.g. `/code-tour`.
 
 Written here:
 
+- **`keystones`** — closes a context-gathering pass by naming what is load-bearing and
+  turning it into invariants written where they bind. Use it before `grill-brief` or
+  `grill-spec`, or before handing substantial work to an agent. It produces constraints,
+  not steps, which is what makes it usable before anyone knows the shape of the answer.
 - **`code-tour`** — a guided walk through one real flow, end to end, where the learner
   does the work and answers are withheld rather than handed over. Reach for it after
   code has landed faster than it was understood, which on this project is most weeks.
@@ -83,21 +87,34 @@ Vendored from [supabase/agent-skills](https://github.com/supabase/agent-skills):
 Both are relevant to what is being built here — the `verified` column rule under
 Database is exactly the class of problem the second one covers.
 
-### How the vendored skills are stored
+### Where skills live
 
-Not as ordinary directories. The real files live in `.agents/skills/<name>/`, and
-`.claude/skills/<name>` is a **symlink** into it. That layout lets one copy serve any
-agent tool that looks in its own directory, rather than duplicating 200 KB per tool.
-Git stores the symlinks natively; on Windows they need `core.symlinks` enabled, which
-is another reason the Node section points Windows contributors at WSL.
+**`.agents/skills/<name>/` holds the real files; `.claude/skills/<name>` is a symlink
+into it.** One copy serves any agent tool that reads its own directory, instead of a
+duplicate per tool. New skills go here — `.agents/` is the source of truth and
+`.claude/` is a view onto it. Git stores the symlinks natively as mode `120000`; on
+Windows they need `core.symlinks` enabled, which is another reason the Node section
+points Windows contributors at WSL.
 
-`skills-lock.json` records where each came from and pins it by **content hash**, not by
-version. Do not trust the `version` field inside a `SKILL.md` — upstream leaves it
-behind (`supabase` reads `0.1.2` in frontmatter against a changelog whose latest entry
-is `0.1.7`). The hash is the real pin.
+`code-tour`, `pr-review` and `pr-review-resolve` predate this and are still ordinary
+directories under `.claude/skills/`. They work, so moving them is tidying rather than
+urgent, but the layout above is the one to follow.
 
-Treat everything under `.agents/` as vendored, not ours. Edits belong upstream; a local
-change is silently reverted by the next update and there is no diff to explain it.
+**Vendored means listed in `skills-lock.json`, not "lives under `.agents/`".** That
+distinction matters now that skills written here live there too:
+
+- **Vendored** (`supabase`, `supabase-postgres-best-practices`) — do not edit. Changes
+  belong upstream; a local edit is silently reverted by the next update with no diff to
+  explain it. `skills-lock.json` records the source and pins by **content hash**, not by
+  version — do not trust the `version` in a `SKILL.md`, which upstream leaves stale
+  (`supabase` reads `0.1.2` in frontmatter against a changelog whose newest entry is
+  `0.1.7`).
+- **Ours** (`keystones`) — edit freely. It is in no lockfile and has no upstream.
+
+One thing worth watching, not yet verified: whether the tool that maintains
+`skills-lock.json` prunes directories under `.agents/skills/` that it does not recognise.
+If an authored skill ever disappears after a skills update, that is the first thing to
+check.
 
 ## Working here, if you are new
 
@@ -113,6 +130,34 @@ Two things will waste your time otherwise:
 
 Ask early. A question costs a minute; a day spent stuck on a stale Stack Overflow answer
 costs a day.
+
+## Invariants beat scope
+
+Scope is hard to set upfront, because the constraints that matter usually only become
+visible once the work has started. Invariants are not: they say what is unacceptable
+rather than what to build, so they can be stated before anyone knows the shape of the
+answer. **Plans go stale the moment you learn something; invariants survive learning.**
+The `keystones` skill exists to produce them; these are the durable ones.
+
+- **Nothing throwaway gets committed.** If it exists only to prove something during
+  development, it does not belong in the repository — least of all in migration history,
+  which is permanent and is read as the story of how the schema got here.
+- **No schema lands before the model it encodes is settled.**
+- **An invariant has to be violable.** If nobody could break it, and you could not point
+  at the breach in a diff, it is a preference. Four real ones beat ten where six are
+  decoration, because the six teach everyone to skim.
+
+**When a premise is removed, revisit the requirement that rested on it rather than
+building machinery to keep satisfying it.** This is the one that actually bites, because
+each step looks reasonable and only the pile is wrong. The tell is work that defends an
+earlier decision instead of delivering value — a third state added to a check, then a
+fourth, then a workaround for the type system. That accumulation is visible in a diff
+without understanding the domain, and it is the signal to stop and ask.
+
+Recorded because it happened here: a `connection_check` table was added to give a
+walking skeleton something to read, and when it was cut for not belonging in migration
+history, the page that read it grew a four-state probe rather than being cut too. Both
+went in the end. See #32.
 
 ## Toolchain pins
 

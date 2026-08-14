@@ -37,6 +37,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# git worktrees kept inside the repo. Each is a checkout with its own .git file, so
+# `git add -A` stages it as an embedded repository — which commits a broken pointer
+# and none of the contents. Ignoring the directory is what stops that being possible.
+.claude/worktrees/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
