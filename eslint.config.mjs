@@ -12,6 +12,13 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+
+    // Scratch space the Supabase CLI writes while the local stack runs. It is
+    // git-ignored by supabase/.gitignore, but ESLint does not read nested .gitignore
+    // files, so without this `pnpm lint` fails with ~150 errors in a bundled Deno
+    // entrypoint nobody wrote.
+    "supabase/.temp/**",
+    "supabase/.branches/**",
   ]),
 ]);
 
