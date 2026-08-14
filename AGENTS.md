@@ -292,10 +292,16 @@ else's attention to get yourself a build.
 `practitioners.ts` ships an empty array on purpose. **Real people only** — no placeholder
 profiles. The directory renders an invitation card for the empty slots instead.
 
-`certified` and `verified` are two separate booleans and must stay that way. `certified`
-is the practitioner's own claim to hold a Claude Certification; `verified` means Bluehex
+`certified` and `verified` are two separate ideas and must stay that way. `certified` is
+the practitioner's own claim to hold a Claude Certification; `verified` means Bluehex
 checked the credentials. Either can be true without the other, and the badge reflects
 `verified` only.
+
+They are two booleans in `practitioners.ts` today, but only `verified` survives as a
+stored column: once credentials are rows of their own, `certified` is "has an earned
+Claude Certification credential" and gets derived rather than stored, so the two cannot
+disagree. The separation of the two *ideas* is the invariant; the second column is not.
+See `docs/spec/profile-and-credentials.md`.
 
 Keep the tree this thin until something needs otherwise.
 
