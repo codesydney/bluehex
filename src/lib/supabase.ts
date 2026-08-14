@@ -8,7 +8,11 @@ import type { Database } from "./database.types";
    yet. See AGENTS.md before adding one.
 
    Signed-in reads will need a second client that carries the user's session from
-   cookies (`@supabase/ssr`), which is issue #14's problem, not this one's. */
+   cookies (`@supabase/ssr`), which is issue #14's problem, not this one's.
+
+   Nothing calls this yet: the database ships empty, and the first query arrives with
+   the practitioners table. It is here because the constraints below are the easy ones
+   to get wrong, and getting them wrong is cheaper to fix now than mid-feature. */
 
 /* Cached at module scope rather than on `globalThis`. A `globalThis`-only cache tends
    to be skipped in production and leaks a fresh client per call. */
@@ -22,7 +26,7 @@ export function getClient(): SupabaseClient<Database> {
      succeed — it only has to fail if something actually tries to query. Note the two
      names are written out in full rather than indexed dynamically: Next.js inlines
      `NEXT_PUBLIC_*` by matching the literal text, so `process.env[name]` silently
-     yields undefined in the browser bundle. */
+     yields undefined. */
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
@@ -44,5 +48,6 @@ export function getClient(): SupabaseClient<Database> {
   client = createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
   return client;
 }

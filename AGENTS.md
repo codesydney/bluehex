@@ -45,8 +45,8 @@ or `yarn` — they would create a competing lockfile.
 - `pnpm db:reset` — drop the local database and re-apply every migration from scratch
 - `pnpm db:types` — regenerate `src/lib/database.types.ts` from the local schema
 
-`pnpm dev` does not start the database. Run `pnpm db:start` alongside it, or
-`/connection-check` reports a refused connection.
+`pnpm dev` does not start the database — run `pnpm db:start` alongside it. `db:reset`
+and `db:types` both need it running too.
 
 There is no test runner configured yet. Note that `next build` no longer runs ESLint,
 so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly.
@@ -215,14 +215,18 @@ checked the credentials. Either can be true without the other, and the badge ref
 
 Keep the tree this thin until something needs otherwise.
 
-## Database — a walking skeleton, and the contract for the rest
+## Database — the plumbing, and the contract for the rest
 
-What exists: the local Supabase stack, one committed migration creating a
-`connection_check` table, a lazy client in `src/lib/supabase.ts`, generated types, and
-`/connection-check` — a Server Component that reads the row and renders it, so "the
-database is wired up" is a claim you can check rather than assume. An earlier SQLite
-(`better-sqlite3`) setup was removed, and a Drizzle/Postgres one was scaffolded and
-stripped back out, before this.
+What exists: the local Supabase stack, a lazy client in `src/lib/supabase.ts`, generated
+types, and the environment wiring. An earlier SQLite (`better-sqlite3`) setup was
+removed, and a Drizzle/Postgres one was scaffolded and stripped back out, before this.
+
+**The database is empty and there are no migrations.** That is deliberate. A
+health-check table existed briefly to prove the connection and was taken back out before
+it was ever committed: it would have sat in the migration history permanently, describing
+a table dropped a fortnight later, to prove something the first real query proves for
+free. So nothing queries anything yet, and `database.types.ts` describes no tables. The
+schema starts with `practitioners`.
 
 What does not exist yet: the `practitioners` table, any RLS policy of consequence, auth,
 and the hosted project. The rest of this section is the contract for building those —
@@ -281,10 +285,10 @@ A third column is planned alongside the `certified` and `verified` booleans desc
 Target is Vercel, deployed from the `main` branch of `codesydney/bluehex`. Pushes to
 `main` ship to production; pull requests get preview deployments.
 
-The build no longer requires environment variables to *succeed* — `next build` passes
-with none set, which is what the lazy client in `src/lib/supabase.ts` and the
-`connection()` call in `/connection-check` are for. But it does require them to
-*function*: without `NEXT_PUBLIC_SUPABASE_URL` and
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in Vercel's preview and production
-environments, every deployed database read fails at request time instead of at build
-time. A green deploy is not evidence the connection works — `/connection-check` is.
+`next build` passes with no environment variables set, which is what the lazy client in
+`src/lib/supabase.ts` is for and is worth keeping true. It does not follow that a
+deployment can reach Supabase: `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be in Vercel's preview and production
+environments, or a deployed read fails at request time rather than at build time. Both
+are set as of August 2026. Nothing queries the database yet, so the first feature to do
+so is the first thing that will actually test this — a green deploy is not evidence.

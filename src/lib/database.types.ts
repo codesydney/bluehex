@@ -34,24 +34,7 @@ export type Database = {
   }
   public: {
     Tables: {
-      connection_check: {
-        Row: {
-          checked_at: string
-          id: number
-          note: string
-        }
-        Insert: {
-          checked_at?: string
-          id?: never
-          note: string
-        }
-        Update: {
-          checked_at?: string
-          id?: never
-          note?: string
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Views: {
       [_ in never]: never
