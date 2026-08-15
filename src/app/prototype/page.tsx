@@ -4,11 +4,11 @@ import { notFound } from "next/navigation";
 import { ArrowUpRight } from "@/components/icons";
 
 /**
- * Index for the two design mocks. Never production, and linked from nowhere.
+ * Index for the three design mocks. Never production, and linked from nowhere.
  *
- * Both routes below 404 in a production build, which is the confusing failure
- * to know about: `pnpm start` serves the rest of the site perfectly well and
- * returns 404 only for these, which reads like a broken route rather than a
+ * All three routes below 404 in a production build, which is the confusing
+ * failure to know about: `pnpm start` serves the rest of the site perfectly well
+ * and returns 404 only for these, which reads like a broken route rather than a
  * working guard. Use `pnpm dev`.
  */
 
@@ -17,7 +17,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-const designs: { href: string; title: string; blurb: string; open?: boolean }[] = [
+/* No `open` flag. It existed while the variants and the switcher did, and all
+   three rounds have closed — a design here is settled or it has been deleted. */
+const designs: { href: string; title: string; blurb: string }[] = [
   {
     href: "/prototype/directory",
     title: "Directory and profile",
@@ -45,8 +47,9 @@ export default function DesignIndex() {
     <section className="container-x pt-32 pb-32 md:pt-40">
       <h1 className="display-2">Designs</h1>
       <p className="mt-5 max-w-2xl text-t-muted">
-        Working mocks of the two surfaces that do not exist yet. Nothing here saves, and
-        neither is reachable in production.
+        Working mocks of three surfaces — the directory as it ships today, and the two
+        that do not exist yet. Nothing here saves, and none of them is reachable in
+        production.
       </p>
 
       <ul className="mt-12 flex max-w-3xl flex-col gap-4">
@@ -61,7 +64,7 @@ export default function DesignIndex() {
                 <ArrowUpRight className="mt-1.5 size-[0.5em] shrink-0 text-t-faint transition-colors group-hover:text-t-bright" />
               </p>
               <p className="mt-3 text-xs font-medium tracking-wide text-t-faint uppercase">
-                {design.open ? "Open — variants to compare" : "Settled"}
+                Settled
               </p>
               <p className="mt-4 max-w-xl text-t-muted">{design.blurb}</p>
             </Link>
