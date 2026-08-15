@@ -86,10 +86,13 @@ export type ProfileDraft = {
   /**
    * What they can be hired for, and the axis the directory filters on. Closed
    * set, at most `maxServices` from `@/lib/practitioners` — capped because a
-   * multi-select everyone maxes
-   * out is a filter that narrows nothing. The form shows the cap and enforces
-   * it, and the column enforces it again with a `cardinality` check, because a
-   * cap enforced only in a form is not a cap.
+   * multi-select everyone maxes out is a filter that narrows nothing. The form
+   * shows the cap and enforces it, and the column enforces it again with a
+   * `cardinality` check plus `public.is_distinct(services)`, because a cap
+   * enforced only in a form is not a cap and `cardinality` counts elements
+   * rather than distinct ones. The picker here toggles, so it cannot produce a
+   * duplicate to begin with — which is exactly why the constraint is in the
+   * database rather than left to the control.
    */
   services: Service[];
   /** A sentence, not a calendar. Nullable in the column, `""` here. */
