@@ -114,6 +114,17 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
     [practitioners],
   );
 
+  /* The Verification group gates on its source data like the other two, rather
+     than rendering unconditionally. It was the sole exception, and on the empty
+     directory production ships it was the only chip on the page: one click
+     selected nobody out of nobody and took the invitation card with it. A chip
+     that can only ever return nothing is worse than no chip — the same reason
+     `offered` lists services somebody actually offers. */
+  const anyBadged = useMemo(
+    () => practitioners.some((person) => hasVerifiedBadge(person.credentials)),
+    [practitioners],
+  );
+
   /* Location filtering groups on `countryCode`, not on `location`. `location`
      is free text at whatever granularity the practitioner chose — "Sydney"
      next to "Bengaluru, Karnataka, India (remote)" — so it will never collapse
@@ -215,11 +226,13 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
           the row read as one undifferentiated pile. Groups whose source data is
           empty render nothing at all. */}
       <div className="mt-8 flex flex-col gap-4">
-        <FilterGroup label="Verification">
-          <FilterChip pressed={verifiedOnly} onClick={() => setVerifiedOnly(!verifiedOnly)}>
-            Verified only
-          </FilterChip>
-        </FilterGroup>
+        {anyBadged ? (
+          <FilterGroup label="Verification">
+            <FilterChip pressed={verifiedOnly} onClick={() => setVerifiedOnly(!verifiedOnly)}>
+              Verified only
+            </FilterChip>
+          </FilterGroup>
+        ) : null}
 
         {countries.length > 0 ? (
           <FilterGroup label="Location">
@@ -267,11 +280,20 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
           : `${results.length} ${results.length === 1 ? "practitioner" : "practitioners"}`}
       </p>
 
-      {filtering && results.length === 0 && practitioners.length > 0 ? (
+      {/* No `practitioners.length > 0` guard. The empty roster is what production
+          ships, and the guard meant the one state that most needs an explanation
+          got none: filtering emptied the results, the invitation below is
+          suppressed under an active filter, and the container has no padding, so
+          the page's only call to action was replaced by nothing at all. Gating
+          the Verification chip above removes the one-click version of that; the
+          search box is not gated and cannot be, so the card has to cover it. */}
+      {filtering && results.length === 0 ? (
         <Card className="mt-6">
           <p className="text-lg">No practitioner matches that yet.</p>
           <p className="mt-3 text-t-muted">
-            Try a broader term, or clear the filters to see everyone in the directory.
+            {practitioners.length > 0
+              ? "Try a broader term, or clear the filters to see everyone in the directory."
+              : "No profiles are published yet, so there is nothing to search — clearing this will not turn any up. Yours would be the first: certified, or working towards it."}
           </p>
         </Card>
       ) : (
