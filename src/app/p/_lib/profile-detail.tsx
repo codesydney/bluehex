@@ -79,8 +79,17 @@ export function ProfileDetail({
   const holdings = new Set(person.credentials.map((credential) => credential.entry.id));
   /* Retired entries are excluded: a course nobody can take any more is not
      something this person has failed to do. `active` filters the picker for the
-     same reason, and a retired entry they *do* hold still renders above. */
-  const unearned = catalogue.filter((entry) => entry.active && !holdings.has(entry.id));
+     same reason, and a retired entry they *do* hold still renders above.
+
+     Sorted here rather than trusted from the caller. `sortOrder` is the only
+     thing standing between the Academy track and a scrambled reading of it —
+     the field's own doc comment says so — and the caller that will supply this
+     list is a `select` whose row order is whatever Postgres finds unless
+     somebody remembers an `order by`. Filtering already copies the array, so
+     the sort costs nothing and mutates nothing the caller holds. */
+  const unearned = catalogue
+    .filter((entry) => entry.active && !holdings.has(entry.id))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
 
   /* Absolute, because the point of the button is what a practitioner pastes
      into an application. The origin lives in `site.ts` with the rest of the
@@ -145,11 +154,21 @@ export function ProfileDetail({
           <h2 className="text-xs font-medium tracking-wide text-t-faint uppercase">
             Credentials
           </h2>
-          <p className="text-xs text-t-faint">
-            {badged
-              ? "Opened and read by a human at Bluehex"
-              : "Not all of these have been checked"}
-          </p>
+          {/* The caption describes the earned list and nothing else, so it goes
+              when that list does. Under `Not earned` the only thing on screen is
+              a list of credentials this person does not hold, and "Opened and
+              read by a human at Bluehex" above it claims Bluehex checked them —
+              the exact misreading the sentence further down exists to prevent.
+              The unbadged branch fails the same way round: "Not all of these
+              have been checked" over unearned entries implies some of them
+              were. */}
+          {view === "unearned" ? null : (
+            <p className="text-xs text-t-faint">
+              {badged
+                ? "Opened and read by a human at Bluehex"
+                : "Not all of these have been checked"}
+            </p>
+          )}
         </div>
 
         {/* The rest of the catalogue is behind a control and never the default.
