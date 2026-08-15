@@ -5,8 +5,8 @@
  *
  * It rendered in two containers for a while — a drawer over the directory on a
  * click, a page on a cold arrival, one component behind both. The drawer was cut
- * along with the route interception that produced it; see NOTES.md for why. What
- * is left is the page, which was always the half that had to work.
+ * along with the route interception that produced it. What is left is the page,
+ * which was always the half that had to work.
  *
  * What is here and not on the roster row: the bio, the earned dates, and the
  * credential sources. Three fields. The page is not justified by that depth —
@@ -29,10 +29,23 @@ export function ProfileDetail({ person }: { person: Practitioner }) {
      site-wide facts rather than being spelled out here. */
   const shareUrl = `${site.origin}${profilePath(person)}`;
 
-  const copy = () => {
-    void navigator.clipboard?.writeText(shareUrl);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+  /* Confirm after the fact, not before it. `navigator.clipboard` is undefined
+     on any non-secure origin — a dev server reached over a LAN address rather
+     than localhost — and where it does exist `writeText` rejects on a denied
+     permission or an unfocused document. Optional chaining and a discarded
+     promise both used to reach `setCopied(true)` regardless, so the button
+     claimed a copy that had not happened. Pasting a profile link into an
+     application is the reason this route exists, which makes that the one lie
+     it cannot afford. */
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* Leave the label alone — nothing was copied, and the URL is in the
+         address bar for anyone who needs it. */
+    }
   };
 
   return (
@@ -123,10 +136,9 @@ export function ProfileDetail({ person }: { person: Practitioner }) {
         </div>
       ) : null}
 
-      {/* The id, not the name — see the comment in `contact/page.tsx`. The
-          banner will not appear from here, because these are fixture people and
-          `practitioners` is empty; wiring the fixture into a production lookup
-          to make a drawing look complete would be the wrong trade. */}
+      {/* The id, not the name — see the comment in `contact/page.tsx`, which
+          resolves it back to a name against the same roster this page was
+          resolved from. */}
       <a
         href={`/contact?about=${encodeURIComponent(person.id)}`}
         className="mt-9 inline-flex h-13 items-center justify-center rounded-full bg-ink px-7 font-medium text-t-invert transition-colors hover:bg-ink-tint"

@@ -19,8 +19,9 @@ import { ProfileDetail } from "../_lib/profile-detail";
  *
  * Every arrival renders this — clicked from the directory, pasted from a CV, or
  * found in search. An earlier version intercepted the click into a drawer over
- * the directory so the visitor kept their search context; that was cut. See
- * `src/app/prototype/directory/NOTES.md`.
+ * the directory so the visitor kept their search context; that was cut, because
+ * interception applies to soft navigation only and a link pasted from anywhere
+ * else is a cold arrival at this page regardless.
  */
 
 export async function generateMetadata({
