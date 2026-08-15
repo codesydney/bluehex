@@ -130,11 +130,11 @@ or the site sits empty while auth gets written.
 | Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
 | **1 — Curated intake** | 1–1.5d | ~2 days | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. Mail template, PR template, and the checklist Bluehex verifies against. No database, no accounts, no secrets. |
-| **2a — Schema and the read path** | 3–4.5d | ~1 week | #49, #50, #45, #41, #48, #53. No auth in the application. |
+| **2a — Schema and the read path** | 3.5–5d | ~1 week | #49, #50, #45, #41, #48, #53. No auth in the application. Includes the four published link columns, the `https_url` domain and their tests. |
 | **2b — Authentication** | 3–4d | ~1 week | Supabase Auth: accounts, sessions, sign-up with email verification, password reset, route protection. |
 | **2c — Profile writes** | 8–10d | ~2–2.5 weeks | #14, #52. Profile CRUD, avatar upload, validation, claiming, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
 
-**Total for phase two: 14–18.5 days**, about **four to five weeks** elapsed.
+**Total for phase two: 14.5–19 days**, about **four to five weeks** elapsed.
 
 **2a moved, and it moved in both directions.** The plumbing that made up much of the
 original 2–3d estimate has landed — local stack, migrations in version control, generated
@@ -244,13 +244,15 @@ Fail soft: an undocumented upstream feed must not be able to take the homepage d
 The broader marketplace ambition is bounded to **profiles, an approval process,
 authentication, and enquiry by email**. That is the whole of it.
 
-**Decided 2026-08-16 — enquiries produce email, delivered to the practitioner.** A visitor enquires through the app and the enquiry becomes an email, via the existing `/contact` page reached from a card button that prefills which practitioner it concerns. The mail is addressed to the practitioner with the visitor's address in `Reply-To`; the address itself is never published, and the exchange leaves the product at the first reply.
+**Decided 2026-08-16 — enquiries produce email, delivered to the practitioner.** A visitor enquires through the app and the enquiry becomes an email, via the existing `/contact` page reached from the profile page, which prefills which practitioner it concerns. The mail is addressed to the practitioner with the visitor's address in `Reply-To`; the address itself is never published, and the exchange leaves the product at the first reply.
 
 This supersedes the 2026-08-15 decision that Bluehex stays in the path. It costs this document a line it used to be able to write — Bluehex no longer sees who is hiring — and it moves work into #2, which can no longer be satisfied by a form service pointed at a fixed address. See `docs/spec/profile-and-credentials.md`, which owns the mechanism and its costs.
 
 **Decided 2026-08-16 — a profile may publish links, but never an address or a phone number.** `website_url`, `github_url`, `linkedin_url` and `booking_url` are public, practitioner-writable columns; `practitioner_contacts` keeps every protection it had. The test is a route to a *page* versus a route to a *person*; `docs/adr/0002-links-are-published-addresses-are-not.md` owns the argument.
 
-**This reprices #2 downwards rather than up.** With links on the profile, the enquiry form stops being the only way to reach a practitioner and becomes the fallback for visitors the practitioner has given no other route to. The server-side send, the first secret and the abuse handling are all still needed, but they are no longer the single point the directory's usefulness rests on — which makes #2 sequenceable after the link fields rather than before them.
+**Two repricings, in opposite directions, and both are in the table above rather than only in this paragraph.** 2a goes **3–4.5d → 3.5–5d**: four columns, the `https_url` domain, four grant-list edits and the tests that prove the domain refuses what it is there to refuse. That is half a day, and it is the cheap direction — the columns cost a fraction now of what collecting them from twenty-five people later would.
+
+The other direction is #2, which gets **less load-bearing** without getting cheaper. With links on the profile the enquiry form stops being the only way to reach a practitioner and becomes the fallback for visitors given no other route. The server-side send, the first secret and the abuse handling are all still needed at the same cost — what changes is that #2 is now sequenceable *after* the link fields rather than before them, because the directory is useful without it.
 
 **The test, so a reviewer can apply it without re-deriving the argument: an enquiry form
 that produces an email is not a marketplace. It becomes one the moment a practitioner

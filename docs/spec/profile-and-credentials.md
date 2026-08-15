@@ -193,8 +193,11 @@ not the display name, and that decision should be made when the page is, not bef
 
 **Decided.** `verified` attests to **evidence-backed claims only** — the credentials,
 the education if a sister feature is ever built, and the `name` those are attached to.
-It never attests to self-described expertise: `bio`, `headline`, `focus` and `location`
-are outside it and always will be.
+It never attests to self-described expertise: `bio`, `headline`, `focus`, `location` and
+the published links — `website_url`, `github_url`, `linkedin_url`, `booking_url` — are
+outside it and always will be. The links are the case worth stating, because a repository
+or a portfolio site looks like evidence of work and is not evidence *Bluehex checked*. See
+"links may be published" under Contact.
 
 The principle is that Bluehex can only vouch for what a human can check. A certificate
 can be opened and read; a degree can be checked against a registrar. "Good at RAG
@@ -293,7 +296,7 @@ array today.
 
 ## Contact: held in its own table, never published
 
-**Decided.** A practitioner's email address and phone number never appear on the profile. Enquiries are made through the app: the existing `/contact` page, reached from a card button that prefills which practitioner the enquiry is about.
+**Decided.** A practitioner's email address and phone number never appear on the profile. Enquiries are made through the app: the existing `/contact` page, reached from the profile page, which prefills which practitioner the enquiry is about. Deliberately not from a directory row — one call to action per surface.
 
 This decision originally excluded `website_url` / `github_url` / `linkedin_url` as well, on the grounds that they route around Bluehex as effectively as an address does. **That half was reversed on 2026-08-16** — see "links may be published" below. What survives is the part about addresses and phone numbers, and it is not weakened by the reversal.
 
@@ -336,9 +339,14 @@ it never touches the badge.
 - **Spam now reaches practitioners instead of Bluehex.** A public form that mails community members raises the abuse handling in #2 from protecting one inbox to protecting everyone in the directory. Turnstile or equivalent stops being optional.
 - **Deliverability becomes Bluehex's problem.** Mail sent from Bluehex's domain carrying a visitor's `Reply-To` needs SPF and DKIM configured, or enquiries land in spam folders and nobody involved finds out.
 
-**Deferred: portfolio links.** A GitHub or personal site is arguably evidence of work
-rather than a contact route. Cut for now. **Gate:** practitioners asking for it — and it
-should then be argued as a portfolio decision, not reopened as a contact one.
+**~~Deferred: portfolio links.~~ Superseded 2026-08-16 — they are admitted, as `website_url` and `github_url` below.** The deferral read: *"A GitHub or personal site is arguably evidence of work rather than a contact route. Cut for now. **Gate:** practitioners asking for it — and it should then be argued as a portfolio decision, not reopened as a contact one."*
+
+Both halves of that gate are worth answering rather than stepping over, because the second half is a condition on *how* the question could be reopened and the decision below reopens it the other way.
+
+- **"Practitioners asking for it" — met.** Raised 2026-08-15 from the community, alongside the booking link.
+- **"Argued as a portfolio decision, not a contact one" — only half-honoured, and the gate was right to ask.** The argument below is a contact argument: a route to a page against a route to a person. On the portfolio question the deferral's own reasoning still stands unchallenged — a GitHub profile *is* evidence of work — and it points somewhere this document should be explicit about: **evidence of work is not evidence the badge covers.** `verified` attests to credentials a human checked, and a repository nobody read is self-described expertise, sitting with `bio` and `focus` rather than with the credentials. Admitting these columns does not widen the badge, and the reason they are safe to admit is the same reason they are not attested.
+
+So the gate is discharged on both counts, and the columns land. Recording it this way rather than deleting the paragraph, because the gate caught a real gap — the contact argument alone would have admitted them without anyone asking what it did to the badge.
 
 **Decided 2026-08-16 — links may be published, personal contact details may not.** This reverses the half of the decision at the top of this section that cut `website_url` / `github_url` / `linkedin_url`, and admits the external booking link raised on 2026-08-15. The test is **a route to a page versus a route to a person**, and it is the one every future field gets held to. `docs/adr/0002-links-are-published-addresses-are-not.md` owns the argument, the rejected alternatives and the cost; read it before concluding that this and `practitioner_contacts` contradict each other.
 
@@ -431,10 +439,15 @@ revoke execute on function public.custom_access_token_hook(jsonb)
 create type public.practitioner_status as enum
   ('pending', 'approved', 'rejected', 'withdrawn');
 
--- every published link is rendered as an `href`, so the scheme is refused here
--- rather than trusted in the render path: `javascript:` never reaches a page
+-- every published link is rendered as an `href` and is served to any API client
+-- holding the publishable key, so the scheme is constrained here rather than
+-- trusted in a render path: `javascript:` and `data:` never reach either.
+-- Case-insensitive because RFC 3986 makes the scheme case-insensitive, and a
+-- host with a dot in it because `https:///foo` otherwise passes. Deliberately
+-- not a URL parser — it rejects the shapes that are dangerous or obviously
+-- wrong and lets a human read the rest, per "check it is a URL" above
 create domain public.https_url as text
-  check (value ~ '^https://[^[:space:]]+$');
+  check (value ~* '^https://[^[:space:]/]+\.[^[:space:]]+$' and length(value) <= 2048);
 
 create table public.practitioners (
   id uuid primary key default gen_random_uuid(),
@@ -497,7 +510,10 @@ create table public.practitioner_credentials (
     check (source in ('Claude Certification', 'Anthropic Academy')),
   label text not null,
   earned_at date,                      -- null = working towards
-  evidence_url text,
+  -- `https_url` rather than `text`: `evidence_url_public` below is granted to
+  -- `anon` and rendered as an `href`, so it is a published link on the same
+  -- terms as the profile's, and "check it is a URL" above is what asks for this
+  evidence_url public.https_url,
   evidence_public boolean not null default false,
 
   -- the attestation, per credential
@@ -505,7 +521,9 @@ create table public.practitioner_credentials (
   verified_at timestamptz,
   verified_by uuid references auth.users (id),
 
-  -- what `anon` may read: the URL only when the practitioner has opted in
+  -- what `anon` may read: the URL only when the practitioner has opted in.
+  -- `text`, not `https_url` — a generated column inherits the constraint's
+  -- effect through `evidence_url` and does not need to re-declare it
   evidence_url_public text
     generated always as (case when evidence_public then evidence_url end) stored,
 
@@ -918,8 +936,16 @@ the most valuable one in the suite and it transfers directly.
   the whole form object round-tripped, `name` included — leaves every credential verified.
   `update of name` fires on targeting rather than on change, so this asserts the trigger's
   `when (old.name is distinct from new.name)` clause is present.
-- Editing `bio`, `headline`, `focus` or `location` clears nothing, and leaves `status`
-  untouched.
+- Editing `bio`, `headline`, `focus`, `location` or any of the four published link
+  columns clears nothing, and leaves `status` untouched.
+- **`https_url` refuses what it is there to refuse.** `javascript:alert(1)`, `data:…`,
+  `http://example.com` and `https:///foo` are all rejected on `practitioners.website_url`
+  *and* on `practitioner_credentials.evidence_url`; `HTTPS://Example.com` is accepted, so
+  the check is case-insensitive as intended. This is the backstop for the only mechanism
+  standing between a practitioner-written string and an `href` on a public page.
+- `anon` can read `website_url`, `github_url`, `linkedin_url` and `booking_url`, and a
+  practitioner can write all four on their own profile — the grant lists are maintained by
+  hand, so a column added later is unreadable and unwritable until it is named.
 - `anon` selecting `evidence_url` is refused; selecting `evidence_url_public` returns
   null while `evidence_public` is false and the URL once it is true.
 - `anon` has no access to `practitioner_contacts` by any route, including a filter.
