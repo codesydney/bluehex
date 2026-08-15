@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import { PractitionerDirectory } from "@/components/practitioner-directory";
 import { launchPopulation } from "./fixtures";
 
 /**
- * The directory and the profile, as one surface. Never production.
+ * The directory and the profile, as one surface. Served in production.
+ *
+ * The three practitioners below are invented and two of them carry a Verified
+ * badge. That is the one thing on this page that could mislead someone who
+ * arrives without context, since the badge is the product — so the page says so
+ * on screen rather than relying on the reader knowing what `/prototype/` means.
  *
  * Renders the **real** `PractitionerDirectory` against the population it will
  * actually have on launch day — three profiles, none of them holding a finished
@@ -46,16 +50,17 @@ export const metadata: Metadata = {
 };
 
 export default function DirectoryPrototypePage() {
-  if (process.env.NODE_ENV === "production") notFound();
-
   return (
     <>
       <div className="container-x pt-32 md:pt-40">
         <p className="max-w-2xl text-sm text-t-muted">
-          Each row&rsquo;s <strong className="font-medium text-t-bright">View profile</strong>{" "}
-          points at that person&rsquo;s real URL, <code>/p/&lt;handle&gt;</code> — the one they
-          would paste into a job application. Clicking it 404s: that route resolves against
-          the real practitioners, and there are none yet.
+          <strong className="font-medium text-t-bright">A design mock.</strong> These three
+          people are invented and their Verified badges attest to nothing — the real
+          directory is on the home page and is empty. Each row&rsquo;s{" "}
+          <strong className="font-medium text-t-bright">View profile</strong> points at that
+          person&rsquo;s real URL, <code>/p/&lt;handle&gt;</code> — the one they would paste
+          into a job application. Clicking it 404s: that route resolves against the real
+          practitioners, and there are none yet.
         </p>
       </div>
 
