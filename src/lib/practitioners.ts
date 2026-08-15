@@ -9,7 +9,22 @@
  *
  * REAL PEOPLE ONLY. Nothing here is placeholder copy — a profile goes in when
  * the person has agreed to be published and the credentials have been checked.
- * The home page renders open slots for the rest rather than inventing entries.
+ * The home page renders an invitation for the empty directory rather than
+ * inventing entries.
+ *
+ * These types are the *public* view of a profile, and they deliberately mirror
+ * the columns `anon` is granted in `docs/spec/profile-and-credentials.md` —
+ * nothing more. The directory is an anonymous read, so a field absent from that
+ * grant list is one the page can never render, and putting it here would only
+ * invite a component to reach for it. Notably absent: `status`, `user_id`, and
+ * the raw `evidence_url` (only the practitioner's published one survives).
+ *
+ * Fields are camelCase here and snake_case in Postgres; the mapping happens
+ * where the query does, which is #53.
+ *
+ * CONTEXT.md notes that naming this type `Practitioner` conflates the human
+ * with the record — strictly it is a Profile. Left alone for now because the
+ * rename reaches the component, its file and its props; it belongs with #53.
  */
 
 export type CredentialSource = "Claude Certification" | "Anthropic Academy";
@@ -17,26 +32,77 @@ export type CredentialSource = "Claude Certification" | "Anthropic Academy";
 export type Credential = {
   source: CredentialSource;
   label: string;
-  /** Left off until the credential is earned — drives the "in progress" state. */
-  earned?: string;
+  /**
+   * The day it was earned, `YYYY-MM-DD`. Null means working towards — and a
+   * working-towards credential is inherently unverifiable, so it sits outside
+   * the badge rollup entirely rather than counting against it.
+   */
+  earnedAt: string | null;
+  /**
+   * Bluehex checked the evidence behind *this credential*. Verification is per
+   * credential and never per profile: Bluehex checks certificates one at a
+   * time, and "three credentials, two checked" is a real state that a
+   * profile-level boolean cannot hold. Only Bluehex sets this.
+   */
+  verified: boolean;
+  /**
+   * The certificate URL, but only when the practitioner chose to publish it —
+   * this is the generated `evidence_url_public` column, which is null unless
+   * `evidence_public` is true. A verified credential with no link here is
+   * normal, not missing data: publishing a Skilljar page exposes the holder's
+   * full legal name, so it is their call.
+   */
+  evidenceUrl: string | null;
 };
 
 export type Practitioner = {
+  id: string;
   name: string;
-  role: string;
-  location: string;
-  /** Holds a Claude Certification. Comes from Anthropic, claimed by the person. */
-  certified: boolean;
+  /** What they do, in a line. Called `headline` in the schema, not `role`. */
+  headline: string | null;
+  /** Free text, at whatever granularity the practitioner chose. Not filterable. */
+  location: string | null;
   /**
-   * Bluehex has checked the credentials on this profile. Independent of
-   * `certified`: anyone can publish a profile before it has been checked, and a
-   * practitioner still working towards certification can have the Academy
-   * certificates they do hold verified. Only Bluehex sets this.
+   * ISO 3166-1 alpha-2. Separate from `location` because a machine cannot
+   * reliably derive one from the other — this is what the location filter
+   * groups on, and what a flag would be drawn from.
    */
-  verified: boolean;
-  bio: string;
-  credentials: Credential[];
+  countryCode: string | null;
+  bio: string | null;
   focus: string[];
+  credentials: Credential[];
 };
+
+/**
+ * Whether the profile shows the Verified badge.
+ *
+ * Derived, never stored — consistent with `certified`, which is not stored
+ * either and is simply "has an earned Claude Certification credential".
+ *
+ * The rule: at least one earned credential, and every earned credential
+ * verified. In-progress credentials are excluded rather than counted as
+ * unverified, because counting them would permanently deny the badge to anyone
+ * working towards a certification — a group this directory exists to include.
+ *
+ * Cheap because the directory fetches every profile and filters in the browser.
+ * Materialise it into a column when that stops being true.
+ */
+export function hasVerifiedBadge(credentials: Credential[]) {
+  const earned = credentials.filter((credential) => credential.earnedAt);
+  return earned.length > 0 && earned.every((credential) => credential.verified);
+}
+
+/* `Intl` already ships every country name, so a lookup table here would be a
+   few kilobytes of data to maintain for no gain. Built once, not per render. */
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+
+/** "AU" → "Australia". Falls back to the code if it is not a known region. */
+export function countryName(code: string) {
+  try {
+    return regionNames.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
 
 export const practitioners: Practitioner[] = [];

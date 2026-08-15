@@ -12,7 +12,12 @@ export const metadata: Metadata = {
 const BOOKING_URL =
   "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ2fXA9Mpyae3jbldYGLyeNFKUM4f--cA-W-w5v1WUV0BtWG6eq1paYGH4Q6gNtE_iyUPynhSCXF";
 
-export default function ContactPage() {
+export default async function ContactPage({ searchParams }: PageProps<"/contact">) {
+  /* The directory's Enquire button carries who the enquiry is about. Read here
+     rather than with `useSearchParams` in the form, which would need a Suspense
+     boundary and push the whole page to client rendering for one string. */
+  const about = (await searchParams).about;
+
   return (
     <>
       <section className="container-x pt-32 pb-20 md:pt-44 md:pb-28">
@@ -35,7 +40,10 @@ export default function ContactPage() {
               anytime.
             </p>
 
-            <ContactForm email={site.email} />
+            <ContactForm
+              email={site.email}
+              about={typeof about === "string" ? about : undefined}
+            />
           </div>
         </div>
       </section>
