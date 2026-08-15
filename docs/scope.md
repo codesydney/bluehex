@@ -225,7 +225,7 @@ to Supabase in #28 and this document's claim that it was stale is no longer true
 ### Still open
 
 - **What a Pearson VUE pass is evidenced by.** The four Claude Certifications are examined through Pearson VUE rather than issued through Skilljar, and this whole design rests on evidence being a shareable URL. Whether a Pearson VUE result produces one — a Credly badge, a public score report, anything linkable — is not known and should not be guessed. Not blocking: nobody in the community holds a Certification yet, so the first person to earn one answers it. If the answer is "no URL", `evidence_url` needs a companion and that is a spec change rather than a workaround.
-- **Where the progress figure may be shown.** "2 of 23" reads as encouragement on a practitioner's own editor and as 9% on a public profile in front of an employer. Recommended split is in the spec; it is a presentation decision with no schema consequence, and it should be settled before it is drawn.
+Where the progress figure may be shown was the second item here and is now settled in the spec: the roster carries none of it, the profile page defaults to earned credentials with the rest one control away, and the figure itself lives on the editor. The label is settled too — unearned entries are never called "in progress", because a page saying that makes the unfalsifiable claim automatically that the deleted rows at least made opt-in.
 
 ### Talking to users, before more of this gets built
 

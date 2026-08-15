@@ -195,12 +195,43 @@ through the Academy track on weekends" is already sayable, already free text, an
 correctly framed as the practitioner's own words. That is less structured than a row, and
 that is the point: an unverifiable claim should not have the same shape as a checked one.
 
-**Where the progress number may be shown is a presentation decision, and one worth taking
-deliberately.** "2 of 23" reads as encouragement on your own editor and as 9% on a public
-profile in front of an employer. The recommendation is that the practitioner's editor
-shows progress against the whole catalogue, and the public profile shows what the person
-holds rather than what they lack. No schema consequence either way — this is derived, like
-the badge — but it should be settled before it is drawn rather than after.
+### Where progress may be shown, and what it may be called
+
+**Decided.** Progress is derived, so all of this is presentation with no schema
+consequence — but it was settled before being drawn rather than after, because two of the
+three surfaces get it wrong by default.
+
+| surface | what it shows |
+| --- | --- |
+| **Directory roster** | held credentials only. No catalogue, no counts, no progress figure. |
+| **Profile page** | held credentials by default, with a control revealing the rest — **Earned** / **Not earned** / **All**. |
+| **Editor** | progress against the whole catalogue. |
+
+**The roster carries none of it because of space.** The catalogue is roughly two dozen
+entries; rendering it under every practitioner buries the credentials somebody actually
+holds in a list of the ones they do not. The roster is dense on purpose and that is the
+property to protect.
+
+**The profile page defaults to Earned rather than All** for the same reason it exists at
+all: a visitor opening a profile is deciding whether to enquire, and the honest answer to
+that is what the person holds. The rest of the catalogue is available to anyone who wants
+the context, one control away, and defaulted off.
+
+**"2 of 23" reads as encouragement on your own editor and as 9% to an employer**, which is
+why the figure itself lives on the editor. Same number, different reader, opposite effect.
+
+**The label is load-bearing: unearned entries must never be called "in progress".** This is
+the argument that removed in-progress rows, arriving one layer up in the UI, and it is
+easy to miss because "in progress" is the natural English for the state being rendered.
+A credential row saying "working towards" was at least an opt-in claim by the practitioner.
+A *page* that labels every unheld catalogue entry "in progress" makes the same
+unfalsifiable claim automatically, on their behalf, about credentials they have never
+opened — asserting that somebody with two certificates is working on the other twenty-one.
+That is strictly worse than what was deleted.
+
+So the vocabulary is **Earned / Not earned / All**, or any phrasing that describes the
+record rather than the person's intent. Anything implying effort, enrolment or intention
+reintroduces the claim the model exists without.
 
 ### Not generalised to other kinds of qualification
 
