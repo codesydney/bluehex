@@ -44,7 +44,16 @@ export function ContactForm({ email, about }: { email: string; about?: string })
       body,
     });
 
-    window.location.href = `mailto:${email}?${query}`;
+    /* `URLSearchParams.toString()` serialises as `application/x-www-form-
+       urlencoded`, which writes a space as `+`. A mailto query is not form
+       encoded — RFC 6068 wants percent-encoding, where `+` is a literal plus —
+       so clients split on it and the strict ones open a compose window reading
+       "Enquiry+about+Mara+Ellison". A literal plus in a field is already
+       `%2B` by this point, so replacing every remaining `+` is safe.
+
+       `URLSearchParams` is still what builds the query: it percent-encodes `&`,
+       `?`, CR and LF, so no field value can inject a second mailto header. */
+    window.location.href = `mailto:${email}?${query.toString().replace(/\+/g, "%20")}`;
   };
 
   return (
