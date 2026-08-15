@@ -56,13 +56,22 @@ alone marks Verified.
 
 ## Credentials
 
-**Credential** — a **Claude** qualification a practitioner holds or is working
-towards, issued by Anthropic. Claude Certifications and Anthropic Academy
-certificates are both credentials, distinguished by a `source`; they differ in weight,
-not in kind. The word is deliberately narrow: a university degree or a non-Anthropic
-certification is **not** a credential here, and belongs to a sister concept if it is
-ever wanted. Widening this term silently widens what the Verified badge asserts.
+**Catalogue entry** — one credential that *exists in the world*, listed by Bluehex: a named Anthropic Academy course or a named Claude Certification. The catalogue is the closed set of things a practitioner may claim, and only Bluehex writes it. It carries the `source`, so weight is a property of the credential rather than of anyone's claim to it.
+
+**Credential** — a practitioner's claim to hold a catalogue entry, evidenced and checked. It names an entry rather than describing one: there is no free text, so the word cannot be widened by anybody but Bluehex. A university degree or a non-Anthropic certification is **not** a credential here and cannot be entered as one; it belongs to a sister concept if it is ever wanted.
+
+Do **not** say "credential" for a catalogue entry nobody holds. That is an entry, and the distinction is the whole reason progress can be shown without anyone claiming anything.
+
+**Progress** — how much of the catalogue a practitioner holds, as a fact derived by comparing the two. Not stored, not claimed, and not a credential in any state: an entry a practitioner has not earned is simply an entry they have not earned. There is no "working towards" record, deliberately — see the spec, which removed it.
 
 **Evidence** — what a practitioner supplies so a human at Bluehex can check a
 credential. In practice a Skilljar certificate or share URL. Checking is manual and
 deliberately stays manual: automating it would remove the step the badge attests to.
+
+## What a practitioner offers
+
+**Services** — what a visitor can *buy*: one-to-one tutoring, code review, an implementation engagement. A closed set, and the axis the directory filters on, because a visitor arrives shopping rather than surveying.
+
+**Focus** — what a practitioner *knows*: Agents, MCP, RAG. Free text, secondary, and shown on the profile rather than driving the roster.
+
+The two are not interchangeable and neither absorbs the other. "Knows RAG" does not say whether you can hire them for an afternoon, and "does tutoring" does not say what about. Both are self-asserted and neither is attested — the badge never covers either.

@@ -84,21 +84,162 @@ The reason it works as a lock is that it is not editable by the person who wants
 
 **Decided.** A credential is a row in `practitioner_credentials`, a child of the
 profile. Claude Certifications and Anthropic Academy certificates are the *same*
-entity distinguished by `source` — both come from Anthropic, both arrive through
-Skilljar, both are evidenced by a share URL, and both are checked by the same human
-doing the same thing. They differ in weight, and weight is a property rather than a
-type.
-
-`source` is **`text` with a check constraint, not an enum**. This is the axis that
-actually moves: Anthropic will ship new credential types, and widening a check
-constraint is one line where adding an enum value is a migration with awkward
-transactional rules. `status` stays an enum — it grew once, to add `withdrawn`, and that
-is the kind of growth a deliberate migration should announce rather than absorb quietly.
+entity distinguished by `source` — both come from Anthropic and both are checked by the
+same human doing the same thing. They differ in weight, and weight is a property rather
+than a type.
 
 **A child table rather than `jsonb`,** because credentials are what the badge attests
 to. They need their own grants and their own trigger, and a `jsonb` column would make
 the badge-clearing rule diff two documents while making every credential writable
 whenever any of them is.
+
+**One claim in the earlier draft of this section has been withdrawn**, because it is
+not true of Claude Certifications: they do *not* all "arrive through Skilljar, evidenced
+by a share URL". The Certifications are examined through Pearson VUE, and how a pass is
+evidenced is not yet known — see "Evidence is a URL" for what that does and does not
+change. The two are still one entity; the shared *delivery mechanism* was never what made
+them one, and citing it as though it were would have made this decision look contingent on
+a fact that has since moved.
+
+### The catalogue: a practitioner names a credential, and cannot describe one
+
+**Decided.** `credential_catalogue` is a Bluehex-owned table listing every Claude
+credential that exists — each Anthropic Academy course and each Claude Certification, one
+row apiece. `practitioner_credentials.catalogue_id` references it, and **`source` and
+`label` leave the practitioner's row entirely.** A practitioner picks from a list; there
+is no free text anywhere in a credential.
+
+**This closes a gap rather than adding a feature.** `CONTEXT.md` has always said the word
+is deliberately narrow, and that "widening this term silently widens what the Verified
+badge asserts". Nothing enforced it. `label` was free text against a two-value `source`,
+so `AWS Solutions Architect` filed under `Anthropic Academy` was a legal row that rendered
+in the credentials block on the page whose entire job is credibility. The narrowness was
+prose with no mechanism — the same failure `AGENTS.md` names on `verified`, where the
+policy that reads correctly and enforces nothing is the one that passes review.
+
+**A table, not a widened check constraint**, and this supersedes the reasoning that put
+`source` in a check constraint in the first place. That argument was right about which
+axis moves — Anthropic ships new credentials — and drew the wrong conclusion from it at
+this cardinality. Two source values are a constraint; roughly two dozen named courses
+growing on somebody else's release schedule are data, and holding them in DDL means a
+migration every time Anthropic publishes a course. `status` stays an enum for the reason
+it always did: it grew once, and that is growth a deliberate migration should announce.
+
+Three things fall out, and they are why this is worth more than the validation:
+
+- **`source` becomes a property of the entry**, so a row claiming
+  `source = 'Anthropic Academy'` with `label = 'Claude Certification'` stops being
+  representable. Two representations of one fact that can disagree — the objection that
+  removed `certified` — applied here too and was not noticed.
+- **`unique (practitioner_id, catalogue_id)`** becomes expressible: you cannot claim the
+  same credential twice. Free-text labels could never support that, because
+  `Prompt engineering` and `Prompt Engineering` are different strings.
+
+  **It does not address credential theft, and it is easy to read as though it does.** The
+  constraint is scoped to one practitioner, so two *different* practitioners claiming the
+  same catalogue entry is legal — as it must be, since that is what happens every time two
+  people pass the same course. The attack the review queue records as its known gap is one
+  person submitting somebody else's certificate, and that is the same catalogue entry with
+  a different `evidence_url`, which nothing here refuses. The catalogue narrowed what can
+  be claimed; it did nothing about whose evidence backs the claim.
+- **Progress becomes derivable**, which is what removes in-progress rows from the model
+  entirely. See below.
+
+**Bluehex maintains it, and that is a real cost, stated rather than discovered.** A course
+Anthropic ships is unclaimable until somebody adds a row. That is an admin insert, not a
+migration or a deploy — but it is a standing obligation on a human, and the failure mode
+is a practitioner who cannot enter a credential they hold. Mitigated only by it being
+visible: they will say so.
+
+**Deferred: retiring an entry.** Anthropic will withdraw a course eventually, and the
+people who earned it still earned it. An `active boolean` hides an entry from the picker
+without invalidating existing claims, which is the right shape — included in the DDL below
+because it costs one column now and a data migration later. What is *not* decided is what
+a retired entry looks like on a profile. **Gate:** the first withdrawn course.
+
+**Rejected: letting practitioners propose entries.** It reintroduces free text through a
+queue, and the queue is the expensive part. Bluehex adds the row; a practitioner emails.
+
+### Progress is derived from the catalogue, and in-progress rows are removed
+
+**Decided, and it reverses an earlier decision in this document.** `earned_at` becomes
+`not null`. There is no such thing as a credential row for something a practitioner has
+not earned. What replaces it is **progress**: the catalogue is a known set, a profile
+holds a subset of it, and "2 of 23" is a fact computed by comparing them — no row, no
+column, no claim.
+
+Two arguments arrived from opposite directions and resolve to the same schema.
+
+**Against in-progress rows**, from the review-queue prototype: an in-progress credential
+is a free, unfalsifiable claim rendering in the credentials list wearing the same row
+shape as one a human checked. Skilljar issues a certificate on completion and there is no
+public proof of enrolment, so nothing can ever check it and it never resolves — an entry
+made in 2026 still reads "working towards" in 2028. Structure that cannot be verified,
+sitting beside structure that was, is the confusion.
+
+**For showing unearned credentials**, from the director's feedback: a practitioner working
+through the Academy wants to see the whole track and their place in it, and that is
+motivating rather than decorative. Making progress visible is a reason to come back.
+
+**The catalogue satisfies the second while deleting the first**, which is why this is a
+resolution rather than a trade. Every credential that exists is already a row Bluehex
+wrote; showing a practitioner the ones they do not hold requires no assertion *from* them.
+You cannot claim to be working on something, because there is nothing to write — the
+surface renders the catalogue and marks what is held. The unfalsifiable claim disappears
+and the motivational surface is strictly better, since it shows the whole track rather
+than only the parts somebody remembered to type in.
+
+**It also deletes machinery instead of adding it.** The review queue's rule that "a
+profile with only in-progress credentials has nothing to verify, ever" existed to stop the
+queue showing a permanently unclearable item. Remove the premise and the rule has nothing
+left to warn about: every credential row is earned, therefore checkable. `evidence_url`
+stays nullable for a different and narrower reason — an earned credential whose holder has
+not supplied proof yet, which is approvable, never badgeable, and not a rejection.
+
+**What is given up**, stated because it is a real loss and the mitigation is weaker than
+the thing it replaces: a practitioner can no longer say *which* credentials they are
+working towards, only that they hold the ones they hold. The bio carries it — "working
+through the Academy track on weekends" is already sayable, already free text, and already
+correctly framed as the practitioner's own words. That is less structured than a row, and
+that is the point: an unverifiable claim should not have the same shape as a checked one.
+
+### Where progress may be shown, and what it may be called
+
+**Decided.** Progress is derived, so all of this is presentation with no schema
+consequence — but it was settled before being drawn rather than after, because two of the
+three surfaces get it wrong by default.
+
+| surface | what it shows |
+| --- | --- |
+| **Directory roster** | held credentials only. No catalogue, no counts, no progress figure. |
+| **Profile page** | held credentials by default, with a control revealing the rest — **Earned** / **Not earned** / **All**. |
+| **Editor** | progress against the whole catalogue. |
+
+**The roster carries none of it because of space.** The catalogue is roughly two dozen
+entries; rendering it under every practitioner buries the credentials somebody actually
+holds in a list of the ones they do not. The roster is dense on purpose and that is the
+property to protect.
+
+**The profile page defaults to Earned rather than All** for the same reason it exists at
+all: a visitor opening a profile is deciding whether to enquire, and the honest answer to
+that is what the person holds. The rest of the catalogue is available to anyone who wants
+the context, one control away, and defaulted off.
+
+**"2 of 23" reads as encouragement on your own editor and as 9% to an employer**, which is
+why the figure itself lives on the editor. Same number, different reader, opposite effect.
+
+**The label is load-bearing: unearned entries must never be called "in progress".** This is
+the argument that removed in-progress rows, arriving one layer up in the UI, and it is
+easy to miss because "in progress" is the natural English for the state being rendered.
+A credential row saying "working towards" was at least an opt-in claim by the practitioner.
+A *page* that labels every unheld catalogue entry "in progress" makes the same
+unfalsifiable claim automatically, on their behalf, about credentials they have never
+opened — asserting that somebody with two certificates is working on the other twenty-one.
+That is strictly worse than what was deleted.
+
+So the vocabulary is **Earned / Not earned / All**, or any phrasing that describes the
+record rather than the person's intent. Anything implying effort, enrolment or intention
+reintroduces the claim the model exists without.
 
 ### Not generalised to other kinds of qualification
 
@@ -139,11 +280,11 @@ the design (the other is `withdraw_profile()`), and it only ever sets the flag f
 
 ### Evidence is a URL, and only a URL
 
-**Decided.** `evidence_url text`, nullable, on the credential row. The practitioner
-pastes their Skilljar certificate or share URL; a human at Bluehex opens it, reads the
-name on it, and sets `verified`. Nullable because a working-towards credential has no
-evidence yet — and an in-progress credential is inherently unverifiable, so the badge
-attests to earned credentials only.
+**Decided.** `evidence_url`, nullable, on the credential row. The practitioner pastes
+their certificate or share URL; a human at Bluehex opens it, reads the name on it, and
+sets `verified`. Nullable because an earned credential whose holder has not supplied proof
+is a real state — approvable, never badgeable, and not a rejection. It is no longer
+nullable on account of in-progress credentials, which no longer exist.
 
 Three things deliberately **not** built, recorded so the argument does not have to be
 had twice:
@@ -151,19 +292,32 @@ had twice:
 - **No file upload.** Screenshots and PDFs were floated in #10. That is a Storage
   bucket, bucket policies, a size and type gate, and a moderation surface — for
   evidence a human reads once. A URL does the same job with no new subsystem.
-- **No host validation.** Do not constrain the URL to `skilljar.com`. Skilljar serves
-  tenants on custom subdomains and CNAMEs, so the host belongs to Anthropic and can
-  change on their schedule. Check it is a URL; let the human read it.
+- **No host validation**, and this got *stronger* rather than weaker. The original reason
+  was that Skilljar serves tenants on custom subdomains and CNAMEs, so the host belongs to
+  Anthropic and can move on their schedule. The Certifications being examined through
+  Pearson VUE means the evidence for them will not be on a Skilljar host at all, so a host
+  allow-list would have had to be widened before the first Certification could be entered.
+  Check it is a URL; let the human read it.
 - **No parsed credential ID.** Its only real benefit is catching two people submitting
   the same certificate, which the human check already catches — they can see whose name
   is on it. Structure that duplicates a check already being performed is not worth a
   column.
 
+**Open, and it belongs to whoever enters the first Claude Certification: what a Pearson
+VUE pass is evidenced *by*.** Skilljar issues a shareable certificate page and this design
+rests on there being one. Whether a Pearson VUE result produces a public URL — a Credly
+badge, a score report, anything linkable — is not known here and should not be guessed. If
+it turns out there is no such URL, "evidence is a URL, and only a URL" does not survive
+contact with the higher-weight half of the catalogue, and that is a spec change rather
+than a workaround. **Gate:** the first practitioner to earn one. Nothing before then
+depends on the answer, since nobody in the community holds one yet.
+
 ### `certified` is derived, not stored
 
-**Decided.** The profile has no `certified` column. It is "has a credential with
-`source = 'Claude Certification'` and `earned_at` set", derived from rows the directory
-card is already embedding in order to list them.
+**Decided.** The profile has no `certified` column. It is "has a credential whose
+catalogue entry carries `source = 'Claude Certification'`", derived from rows the
+directory card is already embedding in order to list them. Every credential row is earned
+now, so there is no second condition to test.
 
 `AGENTS.md` defines `certified` as the practitioner's own claim to hold a Claude
 Certification — and a credential row *is* that claim, since practitioners enter their
@@ -171,9 +325,9 @@ own credentials. Storing it as well means two representations of one fact that c
 disagree, and the disagreement surfaces as a card claiming certification while listing
 none, on the page whose entire job is credibility.
 
-It also handles the case the director asked for without a third state: working towards
-is a credential row with `earned_at` null, certified is one with `earned_at` set. The
-boolean could never express that distinction.
+The derivation now reads `source` off the catalogue rather than off the credential, which
+is a second place the same duplicated-fact objection was quietly applying and is now
+closed — see the catalogue decision above.
 
 `AGENTS.md` has been reworded accordingly — the invariant is that the two *ideas* stay
 separate, one self-asserted and one attested by Bluehex. The second column was never
@@ -193,9 +347,9 @@ not the display name, and that decision should be made when the page is, not bef
 
 **Decided.** `verified` attests to **evidence-backed claims only** — the credentials,
 the education if a sister feature is ever built, and the `name` those are attached to.
-It never attests to self-described expertise: `bio`, `headline`, `focus`, `location` and
-the published links — `website_url`, `github_url`, `linkedin_url`, `booking_url` — are
-outside it and always will be. The links are the case worth stating, because a repository
+It never attests to self-described expertise: `bio`, `headline`, `focus`, `services`,
+`availability`, `location` and the published links — `website_url`, `github_url`,
+`linkedin_url`, `booking_url` — are outside it and always will be. The links are the case worth stating, because a repository
 or a portfolio site looks like evidence of work and is not evidence *Bluehex checked*. See
 "links may be published" under Contact.
 
@@ -245,9 +399,12 @@ name**. A narrow badge placed where it reads as a whole-profile endorsement is
 misleading no matter what the clearing rule does, and no schema rule can fix that
 reading. This is a UI constraint that the directory work inherits.
 
-Accepted consequence: `focus` drives the directory's filtering and is never vetted. That
-is how every directory works, and the badge does not claim otherwise — but it is the
-reason the badge's placement is load-bearing rather than cosmetic.
+Accepted consequence: `services` drives the directory's filtering and is never vetted,
+with `focus` beside it on the profile in the same condition. That is how every directory
+works, and the badge does not claim otherwise — but it is the reason the badge's placement
+is load-bearing rather than cosmetic, and `services` sharpens it, because a visitor
+filtering by "code review" and landing on a badged profile is one step from reading the
+badge as Bluehex endorsing the service.
 
 ## Verification is per credential; the badge is a binary rollup
 
@@ -264,11 +421,18 @@ real state a single boolean cannot hold.
 
 `approved_at` / `approved_by` stay on the profile. That is `status`, a different axis.
 
-**The rollup rule:** the badge shows when the profile has **at least one earned
-credential and every earned credential is verified**. In-progress credentials
-(`earned_at` null) sit outside the rollup entirely — they can never be verified, so
-counting them would permanently deny the badge to anyone working towards a
-certification, which is a group the directory exists to include.
+**The rollup rule:** the badge shows when the profile has **at least one credential and
+every credential is verified**. It got simpler when in-progress rows were removed — the
+rule used to carve them out explicitly, because a credential that could never be verified
+would otherwise have denied the badge permanently to the group the directory exists to
+include. There is nothing left to carve out: every credential row is earned and therefore
+checkable, and a practitioner with nothing earned has no credentials rather than
+unverifiable ones.
+
+An earned credential with no `evidence_url` is the case that now carries that weight, and
+it behaves differently on purpose: it *is* in the rollup, so it holds the badge back until
+proof is supplied. That is correct — the practitioner can act on it, where nobody could
+ever act on an in-progress row.
 
 **Rejected: a "partially verified" badge.** #10 is explicit that a lesser badge must be
 unmistakably different from a verified one or it devalues the real ones by association —
@@ -281,11 +445,15 @@ word "partial" and cannot be misread as a whole-profile endorsement. If a
 profile-level summary is wanted it should read as a **fact, not a badge** — "2 of 3
 credentials verified". Facts do not get confused with endorsements.
 
-**The principle, which settles three questions at once:** *all nuance lives on the
-credential row; the profile badge stays binary.* Partial verification, working-towards,
-and mixed credential sources are all credential-level states. #10's "in progress"
-requirement resolves here too — a credential with no `earned_at`, shown as such, never
-touching the badge.
+**The principle:** *all nuance lives on the credential row; the profile badge stays
+binary.* Partial verification and mixed credential sources are credential-level states.
+
+**#10's "in progress" requirement is met by the catalogue, not by a credential row** —
+this is the half of the principle that changed. It used to be answered by a credential
+with no `earned_at`, shown as such and never touching the badge. It is now answered by
+showing the catalogue with the practitioner's holdings marked against it, which delivers
+the same visibility without anybody asserting anything unverifiable. See "Progress is
+derived from the catalogue".
 
 This is derived state, so partial-vs-binary is a presentation decision with **no schema
 consequence**. It does not block the migration.
@@ -293,6 +461,92 @@ consequence**. It does not block the migration.
 **Gate for materialising the rollup into a column:** when the directory stops fetching
 every profile and needs to filter server-side. It is a client component filtering an
 array today.
+
+## What a practitioner offers: services, focus, availability
+
+### `services` is the directory's axis; `focus` stays and is demoted
+
+**Decided.** `services text[] not null default '{}'`, from a closed set, and it becomes
+what the directory filters on. `focus` survives unchanged as free text and moves to the
+profile page. **`job_function`, proposed in the editor prototype and never in this
+document, is dropped.**
+
+Three taxonomies were live in one space, which is why this was blocking #49:
+
+| | answers | verdict |
+| --- | --- | --- |
+| `focus` — free `text[]` | what do they *know* — Agents, MCP, RAG | kept, demoted to the profile |
+| `job_function` — closed, single | what *kind* of practitioner — Engineering, Design | **dropped** |
+| `services` — closed, multiple | what can I *buy* — tutoring, code review | **the filter** |
+
+**The deciding question is who is doing the filtering.** A visitor arrives to hire
+somebody, not to survey the community's skill distribution, and "one-to-one tutoring" is
+what they came to type. `focus` answers a question they did not ask: knowing RAG does not
+say whether you can be hired for an afternoon. `job_function` answers an even more distant
+one — "Engineering" describes what a practitioner *is*, which a visitor can neither buy nor
+usefully narrow by, since almost everyone here would tick it.
+
+`job_function` is dropped rather than kept alongside because it was proposed to solve
+exactly the problem `services` solves better. Its own argument was that `headline` is prose
+and `focus` is technology, so neither filters — true, and it identified a real gap while
+naming the wrong closed set to fill it. Keeping both would put two closed vocabularies on
+one screen with no answer to which a visitor should use, and the honest reason to prefer
+`services` is that somebody who wants to *buy* asked for it.
+
+**Closed set, for the reason `job_function` was closed:** free text does not filter,
+because `1:1 tutoring`, `one-on-one tutoring` and `tutoring` are three chips with one
+person behind each. The set is short on purpose — every extra option splits the same people
+into smaller buckets until no chip has anyone behind it — and carries no "Other", which
+reliably becomes the largest bucket and means nothing.
+
+**Multi-select, and it needs a cap.** Unlike `job_function` this genuinely is plural: a
+person does tutoring *and* code review, and forcing one would make the filter lie. That
+reopens the failure `job_function` avoided by being single — everyone ticks everything, and
+a filter that matches all rows narrows nothing. **Capped at three**, enforced by a check
+constraint rather than by the form, because a form-only rule is not a rule. Three is a
+guess at the right number and is the cheapest thing in this section to change.
+
+**The cap needs a distinctness test beside it, or it is not a cap.** `cardinality` counts elements rather than distinct ones and `<@` is containment, so `['Code review', 'Code review', 'Implementation']` satisfies both halves: the profile then offers two services while consuming all three slots, and the directory renders the same chip twice on the axis it filters by. The obvious spelling of the test is refused outright — a check constraint may not contain a subquery — so it goes through an `immutable` helper, `public.is_distinct(text[])`, which a check constraint may call. Refused rather than silently deduplicated, for the reason the cap is in the database at all: the form is where this would normally be prevented, and this section's own argument is that a rule the form enforces is not enforced.
+
+**`text[]` with a check constraint, not a catalogue table.** Deliberately not the shape
+chosen one section earlier, and the difference is who owns the list. The credential
+catalogue tracks *Anthropic's* releases and must change without a deploy; the service list
+is Bluehex's own product vocabulary, changes when positioning changes, and is small.
+Growth in DDL is appropriate when the growth is a decision — which is the same reasoning
+that keeps `status` an enum.
+
+**Empty is legal and normal.** A practitioner who has not said what they sell is a profile
+that appears in the directory and matches no service filter. Requiring it would turn
+publishing a profile into declaring a commercial offering, which is not what everybody is
+here for.
+
+**The badge does not cover this**, and it is worth saying plainly because `services` reads
+more like a commitment than `focus` did: `verified` attests to credentials a human checked
+and the name attached to them. Offering an engagement is self-asserted, unattested and
+freely editable, exactly like `bio`. Editing it never clears the badge.
+
+### `availability` is a sentence, not a calendar
+
+**Decided.** `availability text`, nullable, free text, practitioner-writable, published.
+"Evenings and weekends", "about 20 hours a week", "booked until March".
+
+**This does not breach scope.md's marketplace exclusion, and the exclusion has been
+reworded because it read as though it did.** What is excluded is availability as *state
+the application maintains* — real slots, bookings, a calendar that can be wrong. A
+sentence the practitioner typed is a fact they assert, on the same footing as `headline`,
+and it is stale in the way every self-described field is stale rather than in the way a
+double-booked slot is wrong. It passes the same test `booking_url` passed in ADR-0002: it
+carries no state, and nothing in the app has to stay true.
+
+**Free text rather than a closed set**, which is the opposite call to `services` two
+sections up, and the difference is whether it filters. Nobody browses a directory by
+availability — it is read once, after a visitor has already decided they are interested,
+which is the profile page rather than the roster. A closed set buys filtering nobody wants
+and loses "booked until March", which is the most useful thing anybody will write in it.
+
+**Gate:** if availability ever becomes something a visitor filters or sorts on, it needs a
+structured field beside this one and this becomes the note. Do not retrofit parsing onto
+the free text.
 
 ## Contact: held in its own table, never published
 
@@ -389,7 +643,7 @@ claim, so it stays out of the attested set.
 
 ## Program design
 
-Four tables, and the prerequisites they sit on. Those prerequisites are **repeated here
+Five tables, and the prerequisites they sit on. Those prerequisites are **repeated here
 rather than referenced**, because the only other copy is in `docs/profile-lifecycle.md`,
 which opens with "Do not implement from this file" and is scheduled for deletion once its
 assertions land as tests. A binding spec cannot delegate its first statements to a
@@ -401,7 +655,13 @@ DDL has moved.
 
 **Statement order is load-bearing.** The role must exist before any `grant … to bluehex_admin` below it, and `custom_access_token_hook` must exist before `[auth.hook.custom_access_token]` is enabled anywhere — enabling the hook without the function takes down every sign-in and sign-up with `500 unexpected_failure`. The `config.toml` line and this migration are one commit.
 
-**`practitioner_contacts` is created before `practitioners`**, because the profile holds the foreign key. The tables are documented below in the order a reader wants them — the profile first, since it is the thing everything else hangs off — which is *not* the order the migration writes them in. Create contacts, then practitioners, then credentials and review notes.
+**`practitioner_contacts` is created before `practitioners`**, because the profile holds the foreign key, and **`credential_catalogue` before `practitioner_credentials`** for the same reason. The tables are documented below in the order a reader wants them — the profile first, since it is the thing everything else hangs off — which is *not* the order the migration writes them in. Create contacts, then practitioners, then the catalogue, then credentials and review notes.
+
+**Every table in this section enables row level security at its `create table`**, and the line is written there rather than beside the policies because that is where it is missed. RLS is off by default, and a table with RLS off ignores every policy defined on it — the grants alone decide, and the grants below are broad on purpose because the policies were expected to narrow them. The failure is silent in both directions: a correct policy that never executes reads exactly like a correct policy that does, and every assertion written against a table's *owner* passes whether RLS is on or off. So the assertions that catch it are the ones written from a second account, and the Testing section now names one per table.
+
+**Every foreign key to `auth.users` names an `on delete` action**, and every one in the product schema is `set null`. `public.admins.user_id` is the exception at `cascade`, correctly — an admin list entry is *about* the account and has nothing left to say once it is gone. Everywhere else the default would apply, and the default is `NO ACTION`, which refuses the delete rather than doing anything to the child row: a single provenance reference anywhere in the schema turns "delete my account" into `23503 update or delete on table "users" violates foreign key constraint`, and the Deletion section's whole design never runs. The attribution is what is expendable here — that a profile was approved, or a credential checked, is a record worth keeping after the account that did it is gone.
+
+**The catalogue ships with its rows, and that is a judgement call worth flagging.** `AGENTS.md` forbids anything throwaway in migration history, and seeding reference data is the edge of that rule: these rows are not test fixtures, they are the closed vocabulary the model is built on, and an empty catalogue means nobody can enter a credential at all. Seed them in the migration. What must **not** go in migration history is any correction to them afterwards — a course Anthropic renames is an admin operation, not a second migration, or the history fills with Anthropic's release notes. On an entry nobody has claimed yet that is a plain `UPDATE`; on one with claims against it, `catalogue_guard` requires `correct_catalogue_entry()`, because at that point the same statement could also be a repoint.
 
 ### Prerequisites: the role, the admin list, and the hook
 
@@ -463,6 +723,18 @@ create type public.practitioner_status as enum
 create domain public.https_url as text
   check (value ~* '^https://[^[:space:]/]+\.[^[:space:]]+$' and length(value) <= 2048);
 
+-- `cardinality` counts elements, not distinct ones, so the cap below does not
+-- reject a repeat on its own. The obvious spelling of that test is refused —
+-- `cannot use subquery in check constraint` — so it goes in an `immutable`
+-- function, which a check constraint may call
+create function public.is_distinct(arr text[])
+returns boolean immutable language sql
+set search_path = ''
+as $$
+  select cardinality(arr)
+       = cardinality((select array_agg(distinct e) from unnest(arr) e));
+$$;
+
 create table public.practitioners (
   id uuid primary key default gen_random_uuid(),
   -- nullable, and `set null` rather than `cascade`: deleting an account
@@ -480,6 +752,26 @@ create table public.practitioners (
   bio text,
   focus text[] not null default '{}',
 
+  -- what a visitor can buy, and the axis the directory filters on. Closed set in
+  -- DDL because it is Bluehex's own vocabulary rather than Anthropic's release
+  -- schedule — contrast `credential_catalogue`. Capped because a multi-select
+  -- everyone maxes out is a filter that narrows nothing, and a cap enforced in a
+  -- form is not enforced
+  services text[] not null default '{}'
+    check (cardinality(services) <= 3
+           and public.is_distinct(services)
+           and services <@ array[
+      'One-to-one tutoring',
+      'Team training',
+      'Code review',
+      'Implementation',
+      'Architecture and advisory',
+      'Evaluation and testing'
+    ]::text[]),
+  -- a sentence the practitioner asserts, never state the app maintains: that is
+  -- the line scope.md's marketplace exclusion actually draws
+  availability text,
+
   -- published links. A route to a page, not to a person — see Contact. Public,
   -- practitioner-writable, and outside the attested set: editing one never
   -- clears the badge
@@ -492,13 +784,20 @@ create table public.practitioners (
   -- `review_note` is NOT here: it is admin feedback to one practitioner, and a
   -- column cannot be scoped to the owner. See `practitioner_review_notes`.
   approved_at timestamptz,
-  approved_by uuid references auth.users (id),
+  -- `set null` on every provenance reference to `auth.users`: the default is
+  -- `NO ACTION`, which refuses the account deletion outright rather than doing
+  -- anything to this row, and would make the Deletion section's assertion fail
+  -- on a table it does not discuss. The record that something was done outlives
+  -- the account; who did it does not
+  approved_by uuid references auth.users (id) on delete set null,
   owner_assigned_at timestamptz,
-  owner_assigned_by uuid references auth.users (id),
+  owner_assigned_by uuid references auth.users (id) on delete set null,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.practitioners enable row level security;
 ```
 
 `on delete set null` on `user_id`, paired with a trigger forcing `status = 'withdrawn'`.
@@ -510,7 +809,47 @@ profile that may carry the badge is a privileged act worth attributing.
 
 `location` stays free text. An enum or a place table would force a granularity decision
 onto people who can express it perfectly well themselves. `country_code` is separate
-because the card wants a flag and you cannot derive one from a string reliably.
+because the card wants a flag and you cannot derive one from a string reliably. **Neither
+is ANZ-scoped and neither should become so** — the community's home base is Sydney and the
+directory is not limited to it, so `country_code` takes any ISO 3166-1 alpha-2 value and
+the check constraint deliberately does not name a list.
+
+### `credential_catalogue`
+
+```sql
+-- every Claude credential that exists, one row each. Bluehex writes it; nobody
+-- else can insert, and there is no free-text escape from it anywhere in the model
+create table public.credential_catalogue (
+  id uuid primary key default gen_random_uuid(),
+  source text not null
+    check (source in ('Claude Certification', 'Anthropic Academy')),
+  label text not null,
+  -- retiring an entry hides it from the picker without invalidating the claims of
+  -- people who earned it. What a retired entry looks like on a profile is not
+  -- decided — see the catalogue section
+  active boolean not null default true,
+  -- what the picker sorts by; the Academy track has an order and alphabetical
+  -- would scramble it
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  -- maintained by `catalogue_guard`, not by the default: corrections to this
+  -- table are admin `UPDATE`s rather than migrations, which is exactly the event
+  -- this column exists to record
+  updated_at timestamptz not null default now(),
+
+  unique (source, label)
+);
+
+alter table public.credential_catalogue enable row level security;
+```
+
+`source` keeps its check constraint here, where it is a genuine two-value axis about weight
+and stays one. The thing that outgrew a constraint was the *labels*, which is why they
+became rows.
+
+**No `slug` or stable external key.** The `id` is the reference and `unique (source, label)`
+is what stops the same course being added twice by two admins. A human-readable key would
+be a third representation of the same fact and would go stale on a rename.
 
 ### `practitioner_credentials`
 
@@ -520,20 +859,28 @@ create table public.practitioner_credentials (
   practitioner_id uuid not null
     references public.practitioners (id) on delete cascade,
 
-  source text not null
-    check (source in ('Claude Certification', 'Anthropic Academy')),
-  label text not null,
-  earned_at date,                      -- null = working towards
+  -- `restrict`, not `cascade`: a catalogue entry with claims against it must be
+  -- retired via `active`, never deleted out from under somebody's profile
+  catalogue_id uuid not null
+    references public.credential_catalogue (id) on delete restrict,
+
+  -- `not null`: there is no in-progress credential. Progress is derived by
+  -- comparing what is held against the catalogue — see the Credentials section
+  earned_at date not null,
   -- `https_url` rather than `text`: `evidence_url_public` below is granted to
   -- `anon` and rendered as an `href`, so it is a published link on the same
-  -- terms as the profile's, and "check it is a URL" above is what asks for this
+  -- terms as the profile's, and "check it is a URL" above is what asks for this.
+  -- Still nullable: an earned credential awaiting proof is approvable and
+  -- unbadgeable, which is a real state
   evidence_url public.https_url,
   evidence_public boolean not null default false,
 
   -- the attestation, per credential
   verified boolean not null default false,
   verified_at timestamptz,
-  verified_by uuid references auth.users (id),
+  -- `set null`, or an admin who leaves and has their account deleted blocks
+  -- that delete against every credential they ever checked
+  verified_by uuid references auth.users (id) on delete set null,
 
   -- what `anon` may read: the URL only when the practitioner has opted in.
   -- `text`, not `https_url` — a generated column inherits the constraint's
@@ -547,6 +894,14 @@ create table public.practitioner_credentials (
 
 create index practitioner_credentials_practitioner_id_idx
   on public.practitioner_credentials (practitioner_id);
+
+-- you cannot claim the same credential twice. Not expressible while `label` was
+-- free text, because `Prompt engineering` and `Prompt Engineering` are two strings
+alter table public.practitioner_credentials
+  add constraint practitioner_credentials_one_claim_each
+  unique (practitioner_id, catalogue_id);
+
+alter table public.practitioner_credentials enable row level security;
 ```
 
 **The generated column is the mechanism that makes `evidence_public` enforceable.**
@@ -560,6 +915,14 @@ privilege layer exactly like every other rule here.
 `earned_at` is a `date`. A certificate is earned on a day, not at an instant, and a
 timestamp would invite a timezone bug for no gain.
 
+**Both new columns are `not null` and the form has no value for "not answered yet", which is a trap this document has hit before.** A `<select>` with nothing chosen is `""` and a date input left alone is `""`; neither is a legal `catalogue_id` or `earned_at`. The old `job_function` proposal documented the same collision and resolved it by mapping `""` to null on the way in — **that resolution is not available here**, because these columns reject null outright rather than treating it as "not saying". So the mapping is not `"" → null`, it is `"" → do not submit this row`: an incomplete credential is not a credential, and the form holds it as draft state that never reaches the database. Worth stating because the failing version type-checks — `""` is a `string`, and only Postgres refuses it.
+
+**`on delete restrict` on `catalogue_id` is the load-bearing half of the `active` flag.**
+Without it, an admin tidying the catalogue deletes a course and silently destroys every
+practitioner's claim to it — including verified ones, which is the badge coming apart in a
+way nothing else in this design permits. `restrict` makes that attempt fail loudly and
+points at `active` instead, which is the operation that was actually meant.
+
 ### `practitioner_contacts`
 
 ```sql
@@ -568,11 +931,16 @@ create table public.practitioner_contacts (
   contact_email text not null,
   contact_phone text,
   contact_note text,
-  -- who wrote the row, so it has an owner before any profile points at it
-  created_by uuid not null default auth.uid() references auth.users (id),
+  -- who wrote the row, so it has an owner before any profile points at it.
+  -- Nullable, and `set null`: `not null` here would make the account deletion
+  -- fail rather than the profile withdraw, and `set null` is not available on a
+  -- `not null` column. See below for why losing it fails closed
+  created_by uuid default auth.uid() references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.practitioner_contacts enable row level security;
 ```
 
 **The contact is the parent, and the profile points at it.** `practitioners.contact_id` is `not null unique`, so a profile is structurally incapable of existing without a contact — no RPC, no deferred constraint, no application check. The `not null` is the entire enforcement.
@@ -585,6 +953,8 @@ Three consequences, all accepted:
 
 - **Orphaned contacts accumulate.** Someone fills in step one and abandons step two. They are cheap to sweep (`where not exists (select 1 from practitioners p where p.contact_id = id)`) and nothing depends on them being swept promptly. Worth doing before the table holds enough addresses to be worth stealing.
 - **`created_by` exists so the row has an owner before a profile does.** Without it there is no way to express "you may read back the contact you just wrote", because the usual route — *the profile pointing at this row is yours* — has nothing to traverse yet.
+
+  **It is nullable, and that is forced rather than chosen.** It references `auth.users`, so it has to survive an account deletion, and `on delete set null` is not available on a `not null` column — the alternatives were refusing the account deletion, which is the bug the Deletion section exists to avoid, or `on delete cascade`, which would delete a contact row out from under a profile whose `contact_id` is `not null` and be refused by *that* foreign key instead. What null means is "the account that wrote this is gone", and it fails closed: `created_by = (select auth.uid())` is null rather than true for every caller, so the first clause of `contacts_rw_own` stops matching and the row is reachable only through the profile that points at it. An orphan whose author deleted their account therefore becomes unreadable by everybody but an admin, which is the right outcome for a stray address nobody claimed — it is sweepable, not lost.
 - **Erasure is two deletes, not a cascade.** `on delete cascade` used to take the contact with the profile, which mattered because it is PII. Reversed, the profile goes first and the contact is deleted after it. See Deletion.
 
 ### `practitioner_review_notes`
@@ -595,10 +965,12 @@ create table public.practitioner_review_notes (
     references public.practitioners (id) on delete cascade,
   note text not null,
   written_at timestamptz not null default now(),
-  written_by uuid references auth.users (id),
+  written_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.practitioner_review_notes enable row level security;
 ```
 
 A table rather than the `review_note` column #35 put on the profile. The reason is that the column could not be scoped to the person it is about: column privileges are per **role** and RLS is per **row**, so `grant select (review_note) … to authenticated` meant every signed-in practitioner could read Bluehex's feedback about every other one. `approve_practitioner()` clearing it on approval narrowed the window without closing it, since an admin setting `status` by `PATCH` leaves the note in place.
@@ -614,16 +986,20 @@ Nobody but `bluehex_admin` can write it. The owner reads it and cannot reply —
 ```sql
 -- practitioners --------------------------------------------------------------
 grant select (id, name, headline, location, country_code, bio, focus,
+              services, availability,
               website_url, github_url, linkedin_url, booking_url)
   on public.practitioners to anon;
 grant select (id, name, headline, location, country_code, bio, focus,
+              services, availability,
               website_url, github_url, linkedin_url, booking_url,
               status, created_at, updated_at)
   on public.practitioners to authenticated;
 grant insert (user_id, contact_id, name, headline, location, country_code, bio, focus,
+              services, availability,
               website_url, github_url, linkedin_url, booking_url)
   on public.practitioners to authenticated;
 grant update (name, headline, location, country_code, bio, focus,
+              services, availability,
               website_url, github_url, linkedin_url, booking_url)
   on public.practitioners to authenticated;
 -- deliberately no `delete`: leaving is `withdraw_profile()`, erasure is an admin
@@ -632,17 +1008,27 @@ grant update (name, headline, location, country_code, bio, focus,
 grant select, delete on public.practitioners to bluehex_admin;
 grant insert, update on public.practitioners to bluehex_admin;   -- incl. user_id
 
+-- credential_catalogue -------------------------------------------------------
+-- readable by everyone: the picker needs it, and so does the progress surface,
+-- which is why `anon` gets it too — a public profile renders held credentials
+-- against the whole set. No insert, update or delete to anyone but an admin, and
+-- that omission is the entire enforcement of "a practitioner cannot invent a
+-- credential"
+grant select (id, source, label, active, sort_order)
+  on public.credential_catalogue to anon, authenticated;
+grant select, insert, update, delete on public.credential_catalogue to bluehex_admin;
+
 -- practitioner_credentials ---------------------------------------------------
-grant select (id, practitioner_id, source, label, earned_at, verified,
+grant select (id, practitioner_id, catalogue_id, earned_at, verified,
               evidence_url_public)
   on public.practitioner_credentials to anon;
-grant select (id, practitioner_id, source, label, earned_at, verified, verified_at,
+grant select (id, practitioner_id, catalogue_id, earned_at, verified, verified_at,
               evidence_url, evidence_public, evidence_url_public,
               created_at, updated_at)
   on public.practitioner_credentials to authenticated;
-grant insert (practitioner_id, source, label, earned_at, evidence_url, evidence_public)
+grant insert (practitioner_id, catalogue_id, earned_at, evidence_url, evidence_public)
   on public.practitioner_credentials to authenticated;
-grant update (source, label, earned_at, evidence_url, evidence_public)
+grant update (catalogue_id, earned_at, evidence_url, evidence_public)
   on public.practitioner_credentials to authenticated;
 grant delete on public.practitioner_credentials to authenticated;
 
@@ -668,7 +1054,15 @@ grant select, insert, update, delete on public.practitioner_review_notes to blue
 
 `created_by` is **not** in the `authenticated` insert list — it defaults to `auth.uid()` and a practitioner cannot name someone else as the author of a contact row. Nor is it readable: it is plumbing for the read policy, not information.
 
+**The catalogue's grant list is where "a practitioner cannot invent a credential" is actually enforced.** The check constraint that used to hold `source` is gone and the narrowness now rests on two things: `catalogue_id` being a foreign key, and nobody but `bluehex_admin` holding `insert` on the table it points at. Both are needed — a practitioner who could insert a catalogue row would simply add "AWS Solutions Architect" and then reference it, which is the free-text hole reopened one table along. This is the same "not reachable beats not named in the grant list" reasoning as `public.admins`, and it is the line to check first if the credential model ever looks like it has stopped constraining anything.
+
+`anon` reads the catalogue deliberately, and it is worth being explicit that this is not a leak: it is a list of courses Anthropic publishes, containing nothing about any practitioner.
+
+**What needs it is narrower than it first looks, and the grant survives on the narrow version.** The public profile page defaults to showing held credentials only — see "Where progress may be shown" — so the whole catalogue is fetched for a control the visitor may never touch. That is still an anonymous read of a public list and the grant is right, but do not re-derive it from "the profile renders the whole catalogue", because after that decision it no longer does. If the profile page ever stops offering the *Not earned* view, this grant should be re-read rather than inherited.
+
 Note what `anon` never gets: `user_id`, `contact_id`, `status`, any provenance column, `evidence_url`, `evidence_public`, and every column of `practitioner_contacts` and `practitioner_review_notes`. `verified_by` is admin-only on credentials too — who performed a check is not public.
+
+`source` and `label` are no longer on `practitioner_credentials` at all, so they are absent from these lists rather than withheld. A reader diffing against the previous version should confirm that: a column that quietly reappeared on the credential row would be free text back in the model.
 
 **`user_id` and `contact_id` are not readable by `authenticated` either**, which closes the gap review found on this grant. Column privileges are per *role* and RLS is per *row*, so a column readable "by the owner" is really readable by every signed-in caller on every row they can see — and both of these are handles to somebody else's account or PII. Nothing needs them: a practitioner knows their own `auth.uid()` without reading it back, `practitioners_read_own` filters on `user_id` without granting it, and the contact row is reached through its own table rather than through the pointer.
 
@@ -712,6 +1106,21 @@ create policy credentials_admin_all on public.practitioner_credentials
   for all to bluehex_admin using (true) with check (true);
 ```
 
+The catalogue is the one table in the design whose rows are public reference data rather than anybody's record, so its policies are correspondingly dull — and it is the table on which forgetting `enable row level security` would cost nothing, which is why the line lives at every `create table` above rather than being written where it happens to matter:
+
+```sql
+create policy catalogue_read_all on public.credential_catalogue
+  for select to anon, authenticated using (true);
+
+create policy catalogue_admin_all on public.credential_catalogue
+  for all to bluehex_admin using (true) with check (true);
+```
+
+**Retired entries are readable rather than filtered here.** `active` is not in the `using`
+clause, because a profile holding a retired credential still has to render its label —
+hiding the row would make an earned credential display as nothing at all. `active` filters
+the *picker*, which is a query, not a policy.
+
 Two things this leans on, both established in #35: a policy expression is **not** subject
 to the caller's column privileges, so `p.status` and `p.user_id` are readable here even
 though `anon` cannot select them; and `auth.uid() = user_id` is null rather than true for
@@ -740,6 +1149,8 @@ The first clause covers the row you just wrote, including an orphan whose profil
 
 `with check` deliberately names only the first clause. You may write rows you own; you may not write a contact row into existence with somebody else's `created_by`, and you may not reassign an existing row to yourself. Reading through the profile is a right you inherit by claiming; writing is not.
 
+**`created_by` is nullable**, because it references `auth.users` and has to survive an account deletion — see the table. Both clauses stay correct: a null `created_by` makes the first comparison null rather than true, so it fails closed, and the second clause is unaffected because it never mentions the column.
+
 ```sql
 -- review notes: the owner reads, only Bluehex writes
 create policy review_notes_read_own on public.practitioner_review_notes
@@ -755,7 +1166,7 @@ create policy review_notes_admin_all on public.practitioner_review_notes
 
 ### Triggers
 
-Two guards and one clearing rule, the last of which is shared by three triggers. `clear_profile_verification()` is the only privileged function among them; `withdraw_profile()` under Deletion is the other `security definer` in the design, which makes two overall.
+Three guards, one clearing rule shared by three triggers, and one timestamp bump shared by two tables. `clear_profile_verification()` is the only privileged function among them; `withdraw_profile()` under Deletion is the other `security definer` in the design, which makes two overall.
 
 Written out rather than described, because the three mistakes these are here to prevent are all invisible in prose: a `before insert or update` trigger that reads `OLD`, an `update of` clause read as though it fired on change, and an ownership rule read as a permission when it is a state machine.
 
@@ -826,9 +1237,10 @@ Written out rather than described, because the three mistakes these are here to 
      new.verified_by := old.verified_by;
 
      -- an edit to the claim invalidates the check of it; `evidence_public` is
-     -- deliberately absent — it changes the claim's visibility, not the claim
-     if new.source     is distinct from old.source
-        or new.label      is distinct from old.label
+     -- deliberately absent — it changes the claim's visibility, not the claim.
+     -- `catalogue_id` replaces the old `source` and `label` pair: changing which
+     -- credential you claim is the largest edit there is, and it is now one column
+     if new.catalogue_id is distinct from old.catalogue_id
         or new.earned_at  is distinct from old.earned_at
         or new.evidence_url is distinct from old.evidence_url then
        new.verified    := false;
@@ -845,7 +1257,55 @@ Written out rather than described, because the three mistakes these are here to 
      for each row execute function public.credentials_guard();
    ```
 
-3. **`clear_profile_verification()`** — one `security definer` function, called by **three** triggers. Each fires when something about *who this profile is* has changed, and none of them is a change to a credential:
+   **There is deliberately no trigger clearing verification when a *catalogue* row is
+   edited**, and the omission is worth stating because the analogy with
+   `practitioners_rename_clears_credentials` makes one look missing. Renaming a profile
+   clears every badge on it because `name` is attested and the practitioner writes it —
+   the person the credentials belong to may have changed. A catalogue label is Bluehex's
+   own text, editable only by Bluehex, and correcting a typo in "Prompt engineering" does
+   not make anybody's certificate less checked. Clearing on it would let an admin
+   tidying the catalogue silently drop every badge in the directory.
+
+   The case that *would* justify one — repointing an entry at a different credential entirely, so everyone's claim now says something they did not claim — is not an edit anybody should make, and **saying so is not enough**. `active` and `on delete restrict` both act on *deletion*: `restrict` refuses `delete from credential_catalogue` while claims exist, and `active` offers retirement instead. Neither touches `update`, and `bluehex_admin` holds unrestricted `update` on the table — so the equally destructive repoint would be one statement, refused by a paragraph. That is the pattern `AGENTS.md` names on `verified`. It is `catalogue_guard` that refuses it.
+
+3. **`catalogue_guard`** — `before update` on `credential_catalogue`. Bumps `updated_at`, which is otherwise never written after insert on a table whose stated correction path is an admin `UPDATE`. And it refuses a change to `source` or `label` on an entry that has claims against it, unless the caller has declared the change a correction:
+
+   ```sql
+   create function public.catalogue_guard()
+   returns trigger language plpgsql
+   set search_path = ''
+   as $$
+   begin
+     new.updated_at := now();
+
+     if (new.source is distinct from old.source
+         or new.label is distinct from old.label)
+        and current_setting('bluehex.catalogue_correction', true) is distinct from 'on'
+        and exists (select 1 from public.practitioner_credentials c
+                     where c.catalogue_id = old.id)
+     then
+       raise exception 'a claimed catalogue entry cannot be repointed'
+         using errcode = '23514',
+               hint = 'add a new entry and retire this one with active = false, '
+                      'or call correct_catalogue_entry() if the wording is wrong';
+     end if;
+
+     return new;
+   end;
+   $$;
+
+   create trigger catalogue_guard
+     before update on public.credential_catalogue
+     for each row execute function public.catalogue_guard();
+   ```
+
+   **The rename path this appears to block is the reason the escape hatch exists.** The seeding rule above says a course Anthropic renames is an admin `UPDATE` rather than a second migration, and that is still true — but Postgres cannot tell a wording fix from a repoint, because the two are the same statement and differ only in intent. So intent is declared: `correct_catalogue_entry()` sets a transaction-local setting the trigger reads, and is the only sanctioned way to change either column on a claimed entry. Everything else raises.
+
+   The trigger is the enforcement and the RPC is only the signal, which is why this does not repeat the mistake `assign_profile_owner()` was deleted for — an RPC that *is* the enforcement can be bypassed by anyone holding the `update` grant, and this one cannot be, because bypassing it means arriving at the trigger without the setting.
+
+   Deliberately **not** the other available fix — clearing verification on the dependent rows. It would drop every badge in the directory the first time an admin corrects a typo, which is the outcome the paragraph above rules out, and it would treat the repoint as something to compensate for rather than something to refuse.
+
+4. **`clear_profile_verification()`** — one `security definer` function, called by **three** triggers. Each fires when something about *who this profile is* has changed, and none of them is a change to a credential:
 
    ```sql
    create function public.clear_profile_verification(profile_id uuid)
@@ -902,6 +1362,30 @@ Written out rather than described, because the three mistakes these are here to 
      execute function public.contacts_email_change_clears_credentials();
    ```
 
+5. **`set_updated_at()`** — the two tables with no guard of their own. `updated_at` is maintained by trigger everywhere it works: `practitioners_guard`, `credentials_guard` and `catalogue_guard` each bump their own. That leaves `practitioner_contacts` and `practitioner_review_notes` with a column that takes its default at insert and is never written again — and `practitioner_contacts.updated_at` is in the `authenticated` select grant, so it is a column the API serves and that would be wrong. `contacts_email_change_clears_credentials` cannot do the job: it is an `after` trigger returning null, so it has no `NEW` to assign to.
+
+   ```sql
+   create function public.set_updated_at()
+   returns trigger language plpgsql
+   set search_path = ''
+   as $$
+   begin
+     new.updated_at := now();
+     return new;
+   end;
+   $$;
+
+   create trigger contacts_set_updated_at
+     before update on public.practitioner_contacts
+     for each row execute function public.set_updated_at();
+
+   create trigger review_notes_set_updated_at
+     before update on public.practitioner_review_notes
+     for each row execute function public.set_updated_at();
+   ```
+
+   A timestamp that silently lies is worse than an absent one, which is the alternative this rejects: dropping the column from the tables that will not maintain it. It is kept because both tables are edited after creation — a practitioner changes their contact details, an admin rewrites a rejection note — and "when was this last touched" is the first question asked of either.
+
 **Every function here pins `search_path`**, and the `security definer` one qualifies every name inside it. A `security definer` function runs as its owner — `postgres`, since migrations run as `postgres` — and resolves unqualified names through whatever `search_path` is live at call time. PostgREST does not let a client set it per request, so this is hardening rather than a live hole, but Supabase's linter raises it as `function_search_path_mutable` and it costs one line.
 
 **What the schema cannot reach.** None of this constrains a malicious *admin*, who can edit the contact email, claim the profile and re-verify it in three steps. Postgres has no answer to that and neither does any amount of policy. What the design buys is that each of those steps is attributed and the badge visibly drops in between, so the sequence leaves a trail rather than happening silently — proportionate when the admins are Bluehex itself and there are very few. It also bounds the damage from every *non*-admin path: the worst outcome of a claim that should not have happened is an **unverified** profile carrying somebody's name, which is vandalism an admin can undo, not a stolen credential.
@@ -912,17 +1396,42 @@ Written out rather than described, because the three mistakes these are here to 
 
 - `approve_practitioner(profile_id)` / `reject_practitioner(profile_id, note)` — as #35, except that both now touch `practitioner_review_notes` rather than a column: `reject` upserts the note, `approve` deletes it.
 - `set_credential_verified(credential_id, value)` — replaces `set_practitioner_verified`. Verification is per credential now.
+- `correct_catalogue_entry(entry_id, new_source, new_label)` — the sanctioned way to fix the wording of a catalogue entry that already has claims against it. It declares intent and nothing else:
 
-**`assign_profile_owner()` is gone.** Claiming is a plain `PATCH` setting `user_id`, and `practitioners_guard` stamps `owner_assigned_at/by` on the way through — which is strictly better than the RPC was, because an RPC can be bypassed by anyone holding the `update` grant and a trigger cannot. The three that remain earn their place: two write across tables atomically, and all three write provenance from `auth.uid()` rather than from whatever the caller passes.
+  ```sql
+  create function public.correct_catalogue_entry(
+    entry_id uuid, new_source text, new_label text)
+  returns void language plpgsql
+  set search_path = ''
+  as $$
+  begin
+    perform set_config('bluehex.catalogue_correction', 'on', true);
+    update public.credential_catalogue
+       set source = new_source, label = new_label
+     where id = entry_id;
+  end;
+  $$;
+  ```
+
+  `security invoker`, like the rest — an admin already holds `update` on the table, so this borrows no privilege and adds no reach. `set_config(..., true)` is transaction-local, so the setting does not survive the statement into another caller's session. What it buys is that the destructive version of the same statement now requires a different call, which is the whole of `catalogue_guard`'s value: `active` and `on delete restrict` already make the destructive *delete* the harder path, and this makes the destructive *update* match.
+
+**`assign_profile_owner()` is gone.** Claiming is a plain `PATCH` setting `user_id`, and `practitioners_guard` stamps `owner_assigned_at/by` on the way through — which is strictly better than the RPC was, because an RPC can be bypassed by anyone holding the `update` grant and a trigger cannot. The ones that remain earn their place: two write across tables atomically, three write provenance from `auth.uid()` rather than from whatever the caller passes, and the fourth carries an intent no `PATCH` can express.
 
 ### The rollup, in the client
 
 The badge is derived where it is rendered:
 
 ```
-badge = credentials.some(c => c.earned_at)          // at least one earned
-     && credentials.filter(c => c.earned_at)        // and every earned one
-                   .every(c => c.verified)          // is verified
+badge = credentials.length > 0                      // at least one credential
+     && credentials.every(c => c.verified)          // and every one is verified
+```
+
+It lost its `earned_at` filters when in-progress rows were removed — every row is earned
+now, so there is no subset to take. The progress figure beside it is the other half of the
+same derivation, and it needs the catalogue rather than the profile:
+
+```
+progress = { held: credentials.length, total: catalogue.filter(e => e.active).length }
 ```
 
 The directory is a client component that fetches every profile and filters in the
@@ -943,15 +1452,15 @@ the most valuable one in the suite and it transfers directly.
 
 - Adding a credential to a verified profile leaves the existing credentials verified and
   the new one unverified — the incentive property the whole design turns on.
-- Editing a credential's `label`, `source`, `earned_at` or `evidence_url` clears *that*
+- Editing a credential's `catalogue_id`, `earned_at` or `evidence_url` clears *that*
   credential's verification. Editing `evidence_public` does **not**.
 - Renaming a profile clears verification on **every** credential. And the negative case,
   which is the one that actually bites: saving a profile whose `name` is **unchanged** —
   the whole form object round-tripped, `name` included — leaves every credential verified.
   `update of name` fires on targeting rather than on change, so this asserts the trigger's
   `when (old.name is distinct from new.name)` clause is present.
-- Editing `bio`, `headline`, `focus`, `location` or any of the four published link
-  columns clears nothing, and leaves `status` untouched.
+- Editing `bio`, `headline`, `focus`, `services`, `availability`, `location` or any of the
+  four published link columns clears nothing, and leaves `status` untouched.
 - **`https_url` refuses what it is there to refuse.** `javascript:alert(1)`, `data:…`,
   `http://example.com` and `https:///foo` are all rejected on `practitioners.website_url`
   *and* on `practitioner_credentials.evidence_url`; `HTTPS://Example.com` is accepted, so
@@ -965,10 +1474,57 @@ the most valuable one in the suite and it transfers directly.
 - `anon` has no access to `practitioner_contacts` by any route, including a filter.
 - A practitioner cannot insert a credential against a profile that is not theirs, and
   cannot see credentials of an unclaimed profile.
+
+**Row level security, which every assertion above is blind to.** These are written from a *second* signed-in account rather than from the row's owner, and that is the whole point: an owner-access assertion passes identically whether RLS is on or off, so a suite made entirely of them proves nothing about whether the policies ever execute. One per table, and each fails loudly if the `enable row level security` line is dropped from a later migration:
+
+- **A second practitioner cannot read another's `practitioner_contacts` row** — not by id, not by filter, not by selecting the whole table. Without RLS the `authenticated` select grant hands every contact email and phone number in the database to any signed-in account, which is the entire content of the table whose reason for existing is that it cannot be leaked.
+- **A second practitioner cannot update another's contact row.** With RLS off this is the sharpest path in the schema: repoint an unclaimed profile's `contact_email` at your own address and then claim it. `contacts_email_change_clears_credentials` means the profile arrives unverified, so the badge holds — but the profile is taken.
+- **A second practitioner cannot read another's `practitioner_review_notes` row.** This is the assertion that moving `review_note` off the profile was supposed to buy, and it is bought by the policy rather than by the table, so it has to be tested against the policy.
+- **A second practitioner cannot update or delete another's `practitioner_credentials` row**, and `anon` cannot see credentials belonging to a `pending`, `rejected` or `withdrawn` profile. The grants to `authenticated` are table-wide on purpose; only `credentials_rw_own` narrows them.
+
+**The catalogue, where the whole point is what a practitioner cannot do:**
+
+- **A practitioner cannot insert, update or delete a `credential_catalogue` row.** This is
+  the assertion that the credential model still constrains anything: the free-text hole did
+  not close by removing `label`, it closed by making the only source of labels admin-owned.
+  Assert it directly rather than inferring it from the absent grant, because a later
+  migration re-granting the table would leave every other test in the suite passing.
+- **A credential cannot reference a catalogue row that does not exist**, refused by the
+  foreign key rather than by a trigger.
+- **The same catalogue entry cannot be claimed twice by one practitioner**, refused by
+  `unique (practitioner_id, catalogue_id)` — and *can* be claimed by two different
+  practitioners, which is the normal case and would be broken by a unique constraint
+  written one column short.
+- **A credential cannot be inserted with `earned_at` null.** In-progress rows are gone and
+  `not null` is the whole enforcement; a test asserting it stops the concept returning as
+  data after the prose that removed it has been forgotten.
+- **Deleting a catalogue entry that has claims against it is refused** (`on delete
+  restrict`), and setting `active = false` on the same row succeeds and leaves every claim
+  verified. This is the pair that stops a tidy-up from silently dropping badges across the
+  directory.
+- A retired (`active = false`) entry is still readable by `anon`, so a profile holding it
+  still renders. The picker's filtering of `active` is a query concern and is not asserted
+  here.
+- **Repointing a claimed entry is refused with an exception**, and the same statement through `correct_catalogue_entry()` succeeds and leaves every claim verified. Assert on the error rather than on the row being unchanged, as with `A → B` below. The pair with the `on delete restrict` assertion above is the point: the destructive `update` and the destructive `delete` are now equally hard, where before only one of them was.
+- **An unclaimed entry is renamable by a plain `UPDATE`**, which is the case the guard must not catch — it fires on claims, not on the columns.
+- **`updated_at` moves when a catalogue row is corrected.** Trivial to assert and easy to ship broken, because a column with a default reads plausibly forever — and this is the table whose corrections are `UPDATE`s by design, so it is the one where a frozen timestamp misleads most.
+
+**`services`, where the constraint is doing work a form cannot:**
+
+- A fourth service is refused by the `cardinality` check, and a value outside the closed
+  set is refused by the `<@` check — both at the database rather than in the form, since a
+  form-only rule is not a rule.
+- **A repeated service is refused**, by `is_distinct` rather than by either of those two: `['Code review', 'Code review', 'Implementation']` has cardinality 3 and is contained in the allowed set, so it passes both of the checks above and is exactly the row the cap exists to prevent.
+- An empty `services` array is legal, and such a profile is still publicly readable. A
+  practitioner who has not said what they sell is not a broken profile.
+
+**`practitioner_contacts`:**
+
 - **A profile cannot be inserted without a `contact_id`.** The insert is refused by `not null` on the column, not by a trigger or a check — so this asserts the foreign key points the way the design needs it to. Two profiles cannot share a contact row either, which is the `unique`.
 - A practitioner can read back a contact row they wrote before any profile pointed at it, and cannot read one written by somebody else.
 - After claiming a curated profile, the new owner can read and edit the contact row **Bluehex** wrote — the second clause of `contacts_rw_own`, which is easy to omit and fails as "my own details are invisible to me".
 - A practitioner cannot write a contact row with somebody else's `created_by`, and cannot reassign an existing one to themselves. `with check` names only the first clause of that policy for this reason.
+- **`updated_at` moves when a contact row or a review note is edited.** It is in the `authenticated` select grant on contacts, so it is a column the API serves; neither table has a guard trigger of its own, and `set_updated_at` is the only thing writing it.
 
 **Ownership, where the rule is a state machine rather than a permission:**
 
@@ -993,6 +1549,8 @@ the most valuable one in the suite and it transfers directly.
 - Deleting an `auth.users` row leaves the profile present, unowned and `withdrawn` —
   rather than erroring on a dangling reference, which is what happens if the guard
   trigger pins `user_id` back.
+- **The account being deleted must have *done* things, or the assertion above passes on a fixture that never exercises the failure.** The one that bites is a self-service practitioner who wrote their own contact row: `created_by` defaults to `auth.uid()`, so a `NO ACTION` foreign key there refuses the delete outright with `23503` on `practitioner_contacts_created_by_fkey`, and the profile never gets as far as being withdrawn. So the fixture is a practitioner who wrote their own contact row, whose profile is approved and whose credential is verified, and the assertion is that the delete succeeds, the profile is present, unowned and withdrawn, and the contact row survives with `created_by` null.
+- **Deleting an admin's `auth.users` row succeeds** with `approved_by`, `owner_assigned_by`, `verified_by` and `written_by` all nulled, rather than being blocked by every profile they ever approved and every credential they ever checked. Attribution is the thing this design trades away at account deletion, and the test is what says so out loud.
 - A withdrawn profile is invisible to `anon` and to other practitioners, and still
   visible and editable to its owner.
 - `withdraw_profile()` affects only the caller's own row, and a practitioner cannot use
@@ -1010,8 +1568,7 @@ caller on the same `permission denied`. The status code reports who asked, not w
 decided — asserting on it as though it were the authorization outcome will write a test
 that passes for the wrong reason.
 
-**Not tested, deliberately:** the rollup rule. It is client-side derivation over data the
-tests already cover, and a test of it would assert a boolean expression against itself.
+**Not tested, deliberately:** the rollup rule and the progress figure. Both are client-side derivation over data the tests already cover, and a test of either would assert an expression against itself.
 
 ## Deletion: withdrawal, erasure, and the seam for downstream records
 
@@ -1051,6 +1608,8 @@ value for non-admin callers, which would undo the FK action and leave a dangling
 reference. `supabase_auth_admin` must be in the guard's allow-list alongside
 `bluehex_admin`, `service_role` and `postgres`. The assertion is: deleting an
 `auth.users` row leaves the profile present, unowned and withdrawn, rather than erroring.
+
+**A second trap, and it fires earlier than the first.** `user_id` is not the only reference to `auth.users`: `approved_by`, `owner_assigned_by`, `verified_by`, `written_by` and `practitioner_contacts.created_by` all point at the same table, and a foreign key with no `on delete` action is `NO ACTION`, which *refuses* the delete rather than doing anything to the child row. So one row anywhere in that set and the delete raises `23503` before `practitioners` is reached at all — the `set null` above and the `supabase_auth_admin` entry in the allow-list are both correct and both unreachable. Every one of them is `on delete set null`; `created_by` gave up its `not null` to be able to say it. The failing case is not exotic: a practitioner who wrote their own contact row and later deletes their account is the ordinary self-service path, and it is the fixture the test has to use.
 
 ### Erasure is hard, and it is an admin action
 
