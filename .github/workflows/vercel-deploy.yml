@@ -1,9 +1,21 @@
 name: Vercel Deploy
 
 on:
-  push:
-    branches:
-      - main
+  # Deploys follow CI rather than the push, so a commit that fails `Build and lint`
+  # never reaches production. `workflow_run` is the only way to order two separate
+  # workflows — a `needs:` cannot cross a workflow boundary — and it fires on every
+  # completion, success or not, so the job below has to check the conclusion itself.
+  #
+  # Two consequences worth knowing. The workflow file is read from the default branch,
+  # not from the commit being deployed, so a change to this file only takes effect once
+  # it is on `main`. And `github.sha` here is `main`'s tip at trigger time rather than
+  # the commit CI validated, which is why the checkout below pins
+  # `workflow_run.head_sha` — without that, a second merge landing mid-run would ship a
+  # commit that nothing had checked.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
   # Shipping is normally a consequence of landing on `main`, and that stays the rule.
   # This is for the case where the push happened and the run did not: a workflow
@@ -30,16 +42,32 @@ env:
 jobs:
   deploy-production:
     runs-on: ubuntu-latest
-    # The `push` trigger above can only fire on `main`, but a dispatch is run against a
-    # ref the caller picks, and every step below passes `--prod`. Without this, choosing
-    # any branch in the dispatch dropdown ships it to production. Belongs on the job
-    # rather than in the deploy step, so a wrong ref costs nothing but a skipped run.
-    if: github.ref == 'refs/heads/main'
+    # Two gates in one condition, because the two triggers fail differently.
+    #
+    # `workflow_run` fires whenever CI completes, including when it failed or was
+    # cancelled, so the conclusion has to be checked here or a red commit ships. The
+    # `branches:` filter above already restricts it to `main`.
+    #
+    # A dispatch runs against whichever ref the caller picks in the dropdown, and every
+    # step below passes `--prod` — so without the ref check, choosing any branch there
+    # ships it to production. Both sit on the job rather than in a step, so a wrong ref
+    # or a failed CI run costs a skipped run rather than a half-finished deploy.
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     steps:
       # Actions are pinned to commit SHAs, not tags: a major-version tag can be
       # retargeted, and this job holds VERCEL_TOKEN. Comments record the version each
       # SHA corresponds to; bump both together.
+      #
+      # `ref` pins the exact commit CI validated. On a `workflow_run` event the default
+      # checkout is the default branch's tip, which is usually the same commit and
+      # silently is not when two merges land close together — the failure mode being a
+      # deploy of something no run ever checked. `github.sha` is the fallback for a
+      # dispatch, where there is no triggering run to read.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       # pnpm/action-setup must come before setup-node, or the cache step finds no
       # lockfile it understands. Omitting `version` makes the action read
