@@ -31,8 +31,6 @@ export function AdminQueuePrototype() {
       current.map((profile) => (profile.id === profileId ? change(profile) : profile)),
     );
 
-  const now = new Date().toISOString();
-
   const actions: QueueActions = {
     /* Deliberately does NOT bump `updatedAt`. Drift means "the practitioner
        edited their profile since we checked it", and an admin changing the
@@ -47,6 +45,14 @@ export function AdminQueuePrototype() {
 
     setVerified: (profileId, credentialId, verified) =>
       patch(profileId, (profile) => {
+        /* Stamped when the button is clicked, not when the page last rendered.
+           Nothing re-renders this page while an admin reads a profile, so a
+           `now` captured in the render body records when the profile was opened
+           — and a session that opens one at 23:50 and checks it at 00:05 dates
+           the attestation yesterday. The badge means a named human looked on a
+           given day, so the day is the one part that cannot be approximate. */
+        const now = new Date().toISOString();
+
         const credentials = profile.credentials.map((credential) =>
           credential.id === credentialId
             ? {
@@ -58,10 +64,20 @@ export function AdminQueuePrototype() {
             : credential,
         );
         /* Drift is `updated_at > verified_at`, so the marker only clears when
-           the newest check is newer than the newest edit. */
-        const stamps = credentials
-          .map((credential) => credential.verifiedAt)
-          .filter((stamp): stamp is string => Boolean(stamp));
+           the newest check is newer than the newest edit — and this stamp must
+           only ever go up. A `max()` taken over the live rows alone is not
+           monotonic: undoing the most recent check drops back to an older one,
+           and `updated_at` is suddenly greater than a timestamp that moved
+           underneath it, so a profile nobody edited reads "Edited since
+           checked". Drift decides queue membership now, which makes that a
+           phantom queue item rather than a cosmetic marker. Including the
+           current value is the whole fix, and it is also the truer statement:
+           undoing a check says something about one credential, and does not
+           unmake the fact that a human looked at this profile on that day. */
+        const stamps = [
+          profile.lastVerifiedAt,
+          ...credentials.map((credential) => credential.verifiedAt),
+        ].filter((stamp): stamp is string => Boolean(stamp));
         return {
           ...profile,
           credentials,

@@ -86,6 +86,8 @@ It is also the wrong thing to hand an admin. `evidence_url` is submitted by an u
 
 So: a link, `rel="noopener noreferrer"`, and nothing embedded. The settled design already had this right.
 
+**The URL itself is shown as text, and that is the opposite decision rather than a softening of it.** Every objection above is to Bluehex *fetching* or *rendering* what is at the other end; text is neither — it embeds nothing, frames nothing and issues no request. It is also most of what the admin is actually judging. `Open certificate` as the only thing on screen renders a Skilljar certificate page and a file on somebody's Drive identically, which costs Marcus Bell one of his four stacked signals, and it hides the slug that is the sole reason Tomas Novak is catchable by a human who reviewed Priya last week. Withholding the URL from the one screen where the judgement is made was never part of the argument for not rendering certificates.
+
 ## In progress cannot be verified, and that is an argument about the model
 
 Asked directly: is there a way to verify an in-progress credential, given you could claim to be working on everything?
@@ -103,6 +105,10 @@ So an in-progress credential is a free, unfalsifiable claim rendering in the cre
 **This is a spec decision, not a prototype tweak.** It changes `docs/spec/profile-and-credentials.md` and what `earnedAt: null` means or whether it exists, and no schema lands before the model it encodes is settled. Recorded; not acted on.
 
 ## Still open
+
+**Undoing a check is drawn as an absence, and it is probably an event.** `Undo check` nulls `verified`, `verifiedBy` and `verifiedAt`, which erases the fact that a named human ever looked and records nothing about who reversed it or why. Point 5 above says those two fields are the substance of the attestation; withdrawing one is a second attestation by a second named human, not the deletion of the first. Drawing it as `Undo` is what would teach the built version to model it that way. Not acted on here, because the fix is a column — a revocation row, or `unverified_by`/`unverified_at` — and no schema lands before the model it encodes is settled. It belongs in `docs/spec/profile-and-credentials.md` alongside the in-progress question above, and the prototype should not invent a shape for it first.
+
+The related bug **is** fixed: `lastVerifiedAt` no longer moves backwards when the newest check is undone. A `max()` over live credential rows is not monotonic, and since drift decides queue membership rather than merely marking a row, a stamp that slides down manufactures a queue item on a profile nobody edited.
 
 **It is ugly, and that was not the question this round asked.** The shape is right and the look is not — density, spacing, the weight of the two panels. That was offered as a separate direction at the start of the round and set aside in favour of decision support. It is still there, and it is now the obvious next thing.
 

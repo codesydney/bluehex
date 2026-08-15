@@ -52,6 +52,7 @@ import { useEffect, useState } from "react";
 import {
   admin,
   badgeShows,
+  checkable,
   outstanding,
   unchecked,
   type QueueCredential,
@@ -77,8 +78,13 @@ export function ReviewQueue({ queue, actions }: VariantProps) {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
-      if (!keys.includes(event.key)) return;
+      /* Left and right only, and never with a modifier held. Up and down are
+         how you scroll — the profile column is long and the queue beside it is
+         sticky, so scrolling it is the normal reading action — and Alt+Left is
+         Back in Chrome and Firefox. A shortcut added for throughput must not
+         take away two the admin already had. */
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
 
       const target = event.target as HTMLElement | null;
       if (
@@ -91,7 +97,7 @@ export function ReviewQueue({ queue, actions }: VariantProps) {
       }
 
       event.preventDefault();
-      step(event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1);
+      step(event.key === "ArrowRight" ? 1 : -1);
     };
 
     window.addEventListener("keydown", onKey);
@@ -158,7 +164,7 @@ export function ReviewQueue({ queue, actions }: VariantProps) {
             </button>
             <p className="text-sm text-t-muted">
               {index + 1} of {ordered.length}
-              <span className="ml-2 hidden sm:inline">· arrow keys move</span>
+              <span className="ml-2 hidden sm:inline">· ← → move</span>
             </p>
             <button
               type="button"
@@ -242,13 +248,7 @@ export function ReviewQueue({ queue, actions }: VariantProps) {
           <section className="mt-10 rounded-card border border-stroke bg-surface p-6 md:p-8">
             <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
               <h3 className="text-lg font-medium">Credentials</h3>
-              <p className="text-sm text-t-muted">
-                {badgeShows(selected.credentials)
-                  ? "Badge showing"
-                  : unchecked(selected).length > 0
-                    ? `No badge — ${unchecked(selected).length} earned still unchecked`
-                    : "No badge — nothing earned yet"}
-              </p>
+              <p className="text-sm text-t-muted">{badgeLine(selected)}</p>
             </div>
 
             {selected.credentials.length === 0 ? (
@@ -259,6 +259,7 @@ export function ReviewQueue({ queue, actions }: VariantProps) {
                   <li key={credential.id} className="py-5 first:pt-0 last:pb-0">
                     <CredentialRow
                       credential={credential}
+                      status={selected.status}
                       onCheck={() => actions.setVerified(selected.id, credential.id, true)}
                       onUndo={() => actions.setVerified(selected.id, credential.id, false)}
                     />
@@ -272,8 +273,13 @@ export function ReviewQueue({ queue, actions }: VariantProps) {
             <summary className="cursor-pointer text-sm text-t-muted">
               Note to the practitioner{selected.reviewNote ? " · written" : ""}
             </summary>
+            {/* The summary above says what this is but names nothing, and a
+                placeholder is only a last-resort accessible name — without the
+                label the field announces as "Why this was rejected, or what is
+                missing…", which is the prompt rather than the field. */}
             <textarea
               rows={3}
+              aria-label="Note to the practitioner"
               value={selected.reviewNote ?? ""}
               onChange={(event) => actions.setNote(selected.id, event.target.value)}
               placeholder="Why this was rejected, or what is missing…"
@@ -296,6 +302,32 @@ export function ReviewQueue({ queue, actions }: VariantProps) {
       ) : null}
     </div>
   );
+}
+
+/**
+ * What the badge is doing, and why, in one line.
+ *
+ * The middle branch is the one worth reading. `unchecked` is what the badge is
+ * waiting on; `checkable` is what an admin can move. Hae-Won Park is the
+ * difference — one earned credential with no evidence URL — and calling that
+ * "still unchecked" describes as pending work what the row below correctly
+ * calls permanent. The header has to make the same distinction `queue-data.ts`
+ * went out of its way to keep, or it re-creates the never-completing task.
+ */
+function badgeLine(profile: QueueProfile) {
+  if (badgeShows(profile.credentials)) return "Badge showing";
+
+  /* Nothing is pending on a profile nobody can see. */
+  if (profile.status === "rejected" || profile.status === "withdrawn") {
+    return "No badge — the profile is not visible";
+  }
+
+  const waiting = unchecked(profile).length;
+  if (waiting === 0) return "No badge — nothing earned yet";
+  if (checkable(profile).length === 0) {
+    return `No badge — ${waiting} earned, no certificate supplied`;
+  }
+  return `No badge — ${waiting} earned still unchecked`;
 }
 
 function QueueRow({
@@ -331,13 +363,23 @@ function QueueRow({
 
 function CredentialRow({
   credential,
+  status,
   onCheck,
   onUndo,
 }: {
   credential: QueueCredential;
+  status: QueueProfile["status"];
   onCheck: () => void;
   onUndo: () => void;
 }) {
+  /* A profile nobody can see generates no verification work — `outstanding()`
+     returns nothing at all for these two statuses, and for the same reason the
+     actions have to go with it. A live Verify button on a rejected profile
+     stamps a named human onto spam, and it sits above a footer saying there is
+     nothing left to do. The rows still render, because the evidence is part of
+     why it was rejected; only the action column goes read-only. */
+  const closed = status === "rejected" || status === "withdrawn";
+
   return (
     <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0 flex-1">
@@ -354,19 +396,34 @@ function CredentialRow({
         ) : null}
 
         {credential.evidenceUrl ? (
-          <a
-            href={credential.evidenceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 inline-flex text-sm underline underline-offset-4"
-          >
-            Open certificate
-          </a>
+          /* The URL is on screen as text as well as being linked, because the
+             URL is a large part of what is being judged. `Open certificate`
+             renders identically for a Skilljar certificate page and for a file
+             on somebody's Drive, and it hides a slug an admin has already read
+             on another profile this week — the two things the awkward fixtures
+             exist to test. Text embeds nothing, frames nothing and issues no
+             request, so none of the reasoning in NOTES.md against rendering a
+             certificate argues against showing where it lives. */
+          <div className="mt-2">
+            <a
+              href={credential.evidenceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex text-sm underline underline-offset-4"
+            >
+              Open certificate
+            </a>
+            <p className="mt-1 text-sm break-all text-t-muted">{credential.evidenceUrl}</p>
+          </div>
         ) : null}
       </div>
 
       <div className="shrink-0">
-        {!credential.earnedAt ? (
+        {closed ? (
+          <p className="max-w-48 text-sm text-t-muted">
+            {status === "rejected" ? "Rejected" : "Withdrawn"}, so there is nothing to check
+          </p>
+        ) : !credential.earnedAt ? (
           <p className="text-sm text-t-muted">Nothing to check yet</p>
         ) : !credential.evidenceUrl ? (
           /* Earned, claimed, nothing behind it. Not a rejection and not a task —
