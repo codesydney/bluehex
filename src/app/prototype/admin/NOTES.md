@@ -30,7 +30,11 @@ It also absorbs the third queue for free. `updated_at > verified_at` means "edit
 
 **5. `verified_by` and `verified_at` are the substance, not bookkeeping.** The badge means a named human looked on a given day.
 
-**6. A profile with only in-progress credentials has nothing to verify, ever.** It needs approving and then it waits. A queue that counted it as pending verification would show a permanent unclearable item — belonging to precisely the group the directory exists to include.
+**6. ~~A profile with only in-progress credentials has nothing to verify, ever.~~ Superseded 2026-08-16 — there are no in-progress credentials.** It read: *"It needs approving and then it waits. A queue that counted it as pending verification would show a permanent unclearable item — belonging to precisely the group the directory exists to include."*
+
+The premise went, so the rule has nothing left to warn about: every credential row is earned and therefore checkable. This is the deletion the round-two recommendation below predicted, arriving by a better route than the one it proposed.
+
+**One permanently-open item survives and it is a different thing.** An earned credential with no `evidence_url` — Hae-Won Park — is approvable, never badgeable, and not a rejection, so the queue must still distinguish "the badge is waiting on this" from "a human can move this forward". `unchecked()` and `checkable()` in `queue-data.ts` are that distinction and both stay. What changed is who can close it: nobody could ever act on an in-progress row, and she can, by pasting a link. That is why the state was kept when the other was cut.
 
 **7. The drift marker has false positives.** An admin edit bumps `updated_at` too. Per the spec, at this volume that is cheaper than a column to suppress them.
 
@@ -69,7 +73,13 @@ Three alternatives were drawn. **None of them beat it**, and the reasons differ 
 
 **A design that makes Aroha look like Marcus is wrong**, and that is the most useful thing this population can tell you. Keep them.
 
+**All four survive the catalogue, and one of them got sharper.** Nothing about these cases depended on free-text labels — three of them are about the URL and one is about a name on a certificate, and the catalogue touches neither. Marcus now maxes out `services` at three while carrying five focus areas, which is the cap doing its job on the profile most willing to claim everything.
+
+**Devon Achebe was reworked, because the case he tested no longer exists.** He was an in-progress-only profile: one credential nobody could ever check, in the queue forever. He now has no credentials and a bio saying what he is working through, which is what the model offers in place of the row. He is still distinct from Ines Delacroix, and the difference is worth keeping: Ines is unclaimed, curated by Bluehex, asserting nothing; Devon is a self-service profile whose *prose* claims progress nobody can verify. **If a design tempts an admin to treat "working through the Academy track" as something to check, the confusion in-progress rows caused has moved into the bio rather than been removed** — which is the one thing worth watching for in whatever gets built.
+
 **The known gap moved.** Tomas Novak is the concrete cost of a profile-centric queue: nothing in it can see the same certificate on two profiles, so the theft that most directly attacks the badge is the one thing the shape structurally cannot catch. That is now a known hole rather than an unexamined assumption. A cross-profile duplicate check was offered as a carry-over and declined; it belongs in whatever gets built, not in a drawing.
+
+**The catalogue does not close that gap, and it is worth saying so because it looks like it might.** `unique (practitioner_id, catalogue_id)` stops one person claiming the same credential twice; two people claiming the same entry is the normal case, which is exactly what makes Tomas's row legal. He and Priya hold the *same* catalogue row now rather than two identical strings, which makes the duplication marginally more legible to a query somebody might one day write — and not at all more visible on this screen.
 
 ## Nothing renders a certificate, and nothing should
 
@@ -90,6 +100,16 @@ So: a link, `rel="noopener noreferrer"`, and nothing embedded. The settled desig
 
 ## In progress cannot be verified, and that is an argument about the model
 
+> **Resolved 2026-08-16, and by a better mechanism than this section proposed.** The spec removed in-progress credentials — `earned_at` is `not null` — so everything below about an unfalsifiable claim wearing a checked claim's shape is now a description of what the model refuses to represent. Kept because the argument is what produced the change, and because the *way* it was resolved is the part worth learning from.
+>
+> **The recommendation was "in progress belongs in the bio, not the credential table". What landed was the bio *and* a catalogue.** The recommendation only deleted; on its own it would have taken the motivating surface with the unverifiable claim, and the director's objection to that was correct — a practitioner working through the Academy track wants to see the whole track and their place in it, and that is a reason to come back rather than decoration.
+>
+> The catalogue satisfies that while still deleting the row, which is why it is a resolution rather than a trade. Every credential that exists is already a row Bluehex wrote, so showing somebody the ones they do not hold requires no assertion *from* them: the surface renders the catalogue and marks what is held, and "2 of 23" is derived by comparing two sets. You cannot claim to be working on something because there is nothing to write. The visibility is strictly better than the rows gave — it shows the whole track rather than only the parts somebody remembered to type in — and the unfalsifiable claim is gone.
+>
+> This is the shape to reach for next time the answer looks like "delete the feature that is being abused": ask what it was buying, and whether something Bluehex already owns can buy it instead.
+>
+> What remains true and unchanged below: there is no mechanism to verify enrolment and there never will be one, so nothing about this reopens if somebody asks for in-progress rows again. The answer is the catalogue, not a screenshot.
+
 Asked directly: is there a way to verify an in-progress credential, given you could claim to be working on everything?
 
 **No, and there is no mechanism to invent.** Skilljar issues a certificate on completion; there is no public proof of enrolment, and progress data sits behind an API tenant-scoped to Anthropic. A screenshot of a course dashboard is a picture of evidence — the Marcus Bell problem — and attests to nothing.
@@ -102,11 +122,11 @@ So an in-progress credential is a free, unfalsifiable claim rendering in the cre
 
 **It also dissolves machinery rather than adding it.** Point 6 above — "a profile with only in-progress credentials has nothing to verify, ever" — exists to stop the queue showing a permanently unclearable item. Devon is that profile: one credential reading "Not checkable until earned", no action, forever. Remove the premise and he is simply a profile to approve or not, and point 6 has nothing left to warn about. That is the `AGENTS.md` rule about revisiting a requirement when its premise goes, running in the direction that deletes code.
 
-**This is a spec decision, not a prototype tweak.** It changes `docs/spec/profile-and-credentials.md` and what `earnedAt: null` means or whether it exists, and no schema lands before the model it encodes is settled. Recorded; not acted on.
+**This is a spec decision, not a prototype tweak.** It changes `docs/spec/profile-and-credentials.md` and what `earnedAt: null` means or whether it exists, and no schema lands before the model it encodes is settled. Recorded; not acted on. *(It was acted on, in the spec first and then here — see the note at the top of this section. The sequence is the point: the prototype recorded the argument and did not change the model to suit itself.)*
 
 ## Still open
 
-**Undoing a check is drawn as an absence, and it is probably an event.** `Undo check` nulls `verified`, `verifiedBy` and `verifiedAt`, which erases the fact that a named human ever looked and records nothing about who reversed it or why. Point 5 above says those two fields are the substance of the attestation; withdrawing one is a second attestation by a second named human, not the deletion of the first. Drawing it as `Undo` is what would teach the built version to model it that way. Not acted on here, because the fix is a column — a revocation row, or `unverified_by`/`unverified_at` — and no schema lands before the model it encodes is settled. It belongs in `docs/spec/profile-and-credentials.md` alongside the in-progress question above, and the prototype should not invent a shape for it first.
+**Undoing a check is drawn as an absence, and it is probably an event.** `Undo check` nulls `verified`, `verifiedBy` and `verifiedAt`, which erases the fact that a named human ever looked and records nothing about who reversed it or why. Point 5 above says those two fields are the substance of the attestation; withdrawing one is a second attestation by a second named human, not the deletion of the first. Drawing it as `Undo` is what would teach the built version to model it that way. Not acted on here, because the fix is a column — a revocation row, or `unverified_by`/`unverified_at` — and no schema lands before the model it encodes is settled. It belongs in `docs/spec/profile-and-credentials.md` alongside the in-progress question above — which has since been answered there, while this one has not, so it is now the only spec question this file is still holding.
 
 The related bug **is** fixed: `lastVerifiedAt` no longer moves backwards when the newest check is undone. A `max()` over live credential rows is not monotonic, and since drift decides queue membership rather than merely marking a row, a stamp that slides down manufactures a queue item on a profile nobody edited.
 

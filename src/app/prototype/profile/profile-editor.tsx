@@ -15,6 +15,12 @@
  * Review step while the preview quietly contradicted it — and the preview
  * showing a rule beats a sentence claiming it, which is the argument the whole
  * design rests on.
+ *
+ * The clearing list is three columns now rather than four: `catalogue_id`,
+ * `earned_at` and `evidence_url`. `catalogue_id` absorbed the `source` and
+ * `label` pair, so "which credential you claim" moved from two free-text fields
+ * to one reference — see `claimEdited` in `draft.ts`, which is the only place
+ * the list is written down.
  */
 
 import { useState } from "react";

@@ -10,29 +10,52 @@
  * goodwill with exactly the people the directory is trying to attract."
  *
  *   grant insert (user_id, contact_id, name, headline, location, country_code,
- *                 bio, focus)                    on practitioners
- *   grant update (name, headline, location, country_code, bio, focus)
+ *                 bio, focus, services, availability,
+ *                 website_url, github_url, linkedin_url, booking_url)
+ *                                                on practitioners
+ *   grant update (name, headline, location, country_code, bio, focus,
+ *                 services, availability,
+ *                 website_url, github_url, linkedin_url, booking_url)
  *                                                on practitioners
  *   grant insert (contact_email, contact_phone, contact_note)
  *                                                on practitioner_contacts
- *   grant insert (practitioner_id, source, label, earned_at, evidence_url,
+ *   grant insert (practitioner_id, catalogue_id, earned_at, evidence_url,
  *                 evidence_public)               on practitioner_credentials
  *
  * What is deliberately absent is the point: `verified`, `verified_at`,
  * `verified_by`, `status`, `approved_at`, `approved_by`, `owner_assigned_at`
  * and `owner_assigned_by` are not here, because a practitioner cannot set them.
  * `BluehexControlled` below is how the editor shows them without offering them.
+ *
+ * `source` and `label` are absent for a different reason, and it is worth
+ * keeping the two kinds of absence apart. They are not withheld from the
+ * practitioner — they are not on the credential row at all. They belong to the
+ * catalogue entry the row points at, so a credential names a credential and can
+ * never describe one.
  */
 
-export type CredentialSource = "Claude Certification" | "Anthropic Academy";
+import { claimableCount, entryByLabel } from "../catalogue";
+import type { Service } from "@/lib/practitioners";
 
 export type DraftCredential = {
   /** Client-side only, for React keys and for pairing with verification state. */
   key: string;
-  source: CredentialSource;
-  label: string;
-  /** `earned_at date`. Null means working towards — and unverifiable. */
-  earnedAt: string | null;
+  /**
+   * `catalogue_id`. `""` while nothing is picked, because a `<select>` has no
+   * null and the unset option has to have a value — the same form-model
+   * convenience the country code uses. It must not travel: the column is a
+   * `not null` foreign key, so an unpicked credential is not a row the database
+   * would accept, and whatever writes this refuses to submit rather than
+   * mapping `""` to anything.
+   */
+  catalogueId: string;
+  /**
+   * `earned_at date`, and `not null` in the column. `""` here means the date
+   * field has not been filled in yet, which is a state of the form and never a
+   * state of a credential — there is no in-progress row to represent, and
+   * nothing may be submitted without a date.
+   */
+  earnedAt: string;
   evidenceUrl: string;
   /**
    * `evidence_public boolean not null default false`. Private by default, and
@@ -47,38 +70,40 @@ export type DraftCredential = {
 export type ProfileDraft = {
   name: string;
   headline: string;
-  /**
-   * NOT IN THE SPEC YET — proposed here, which is what the prototype is for.
-   *
-   * The case is the `country_code` case again. `headline` is prose ("Staff
-   * engineer, agent platforms") and `focus` is technology ("Agents", "MCP"), so
-   * neither answers "show me the designers" — a closed set beside the free text
-   * is the only thing that filters. Single-select rather than an array, because
-   * `focus` is already the plural axis and a multi-select job function would let
-   * everyone tick everything, which is how a filter stops narrowing anything.
-   *
-   * Nullable in the column, `""` in this model — a `<select>` has no null and
-   * the unset option has to have a value. That is a form-model convenience and
-   * must not travel into the DDL: `""` and `null` are different values to
-   * `where job_function = ...`, only one of them can mean "not saying", and a
-   * table holding both filters wrongly for the rest of its life. So whatever
-   * writes this maps `""` to `null` on the way in, and the column needs a check
-   * constraint rejecting `''` so it cannot arrive the other way — the spec's
-   * `country_code text check (country_code ~ '^[A-Z]{2}$')` already does this
-   * for the field beside it, which is why `countryCode` is `""` here safely.
-   * `DraftCredential.earnedAt` answers the same question in the type instead,
-   * as `string | null`, because a date input does have an empty state.
-   *
-   * If this survives the prototype it needs `job_function` added to the spec's
-   * DDL, its practitioner-writable grant lists and the directory's filters
-   * before #49 — no schema lands before the model it encodes is settled.
-   */
-  jobFunction: string;
   location: string;
-  /** `country_code`. `""` here, null in the column — see `jobFunction` above. */
+  /**
+   * `country_code`. `""` here, null in the column: a `<select>` has no null and
+   * the unset option has to have a value. That is a form-model convenience and
+   * must not travel into the DDL — `""` and `null` are different values to
+   * `where country_code = ...`, only one of them can mean "not saying", and a
+   * table holding both filters wrongly for the rest of its life. The spec's
+   * `check (country_code ~ '^[A-Z]{2}$')` is what stops it arriving.
+   */
   countryCode: string;
   bio: string;
+  /** What they know. Free text, and no longer what the directory filters on. */
   focus: string[];
+  /**
+   * What they can be hired for, and the axis the directory filters on. Closed
+   * set, at most `maxServices` from `@/lib/practitioners` — capped because a
+   * multi-select everyone maxes
+   * out is a filter that narrows nothing. The form shows the cap and enforces
+   * it, and the column enforces it again with a `cardinality` check, because a
+   * cap enforced only in a form is not a cap.
+   */
+  services: Service[];
+  /** A sentence, not a calendar. Nullable in the column, `""` here. */
+  availability: string;
+  /**
+   * Published links — a route to a page, not to a person, which is the test
+   * that admitted them while the contact details below stay unpublished. `""`
+   * for unset, and each is `https_url` in the column: the scheme is constrained
+   * at the database because every one of these becomes an `href`.
+   */
+  websiteUrl: string;
+  githubUrl: string;
+  linkedinUrl: string;
+  bookingUrl: string;
   /** `practitioner_contacts`. Never published — the enquiry routes via Bluehex. */
   contactEmail: string;
   contactPhone: string;
@@ -103,25 +128,12 @@ export type BluehexControlled = {
   reviewNote: string | null;
 };
 
-export const sources: CredentialSource[] = ["Claude Certification", "Anthropic Academy"];
-
-/**
- * Job functions. Kept deliberately short — a long list filters as badly as free
- * text, because every extra option splits the same people into smaller buckets
- * until no chip has anyone behind it. No "Other": it reliably becomes the
- * largest bucket and means nothing, and leaving the field unset says the same
- * thing more honestly.
- */
-export const jobFunctions = [
-  "Engineering",
-  "Product",
-  "Design",
-  "Data and analytics",
-  "Research",
-  "Content and docs",
-  "Consulting",
-  "Leadership",
-];
+/* `sources` used to be exported from here for the credential picker's first
+   select. There is no such select any more, and the picker's `<optgroup>`s are
+   derived from the catalogue's own sort order — one ordering fact rather than
+   two that can disagree. `source` is still a two-value check constraint on the
+   catalogue, because what it describes is weight, and unlike the list of course
+   names that has not grown. */
 
 /**
  * A short country list rather than the full ISO set. `Intl` exposes region
@@ -159,9 +171,8 @@ export const focusSuggestions = [
 export function newCredential(): DraftCredential {
   return {
     key: Math.random().toString(36).slice(2),
-    source: "Anthropic Academy",
-    label: "",
-    earnedAt: null,
+    catalogueId: "",
+    earnedAt: "",
     evidenceUrl: "",
     evidencePublic: false,
   };
@@ -169,35 +180,43 @@ export function newCredential(): DraftCredential {
 
 /**
  * A part-filled draft, so the editor is judged with content in it rather than
- * empty. Deliberately mid-flow: one credential earned and verified, one still
- * being worked towards, and a profile still `pending`.
+ * empty. Deliberately mid-flow: two credentials, one checked and one waiting,
+ * and a profile still `pending`.
+ *
+ * It used to hold one earned credential and one being worked towards, which is
+ * no longer a row anybody can write. The mid-flow state it existed to draw is
+ * kept — the second credential is earned and unchecked, which is the state a
+ * practitioner is actually in while Bluehex works through the queue.
  */
 export const initialDraft: ProfileDraft = {
   name: "Mara Ellison",
   headline: "Staff engineer, agent platforms",
-  jobFunction: "Engineering",
   location: "Sydney",
   countryCode: "AU",
-  bio: "Builds evaluation harnesses for tool-using agents. Ten years in distributed systems before that, which mostly taught me how to make failures legible.",
+  bio: "Builds evaluation harnesses for tool-using agents. Ten years in distributed systems before that, which mostly taught me how to make failures legible. Working through the rest of the Academy track on weekends.",
   focus: ["Agents", "Evals", "MCP"],
+  services: ["Architecture and advisory", "Evaluation and testing"],
+  availability: "Evenings and weekends, and about one day a fortnight.",
+  websiteUrl: "https://example.invalid/mara",
+  githubUrl: "https://github.com/example-invalid",
+  linkedinUrl: "",
+  bookingUrl: "",
   contactEmail: "mara@example.invalid",
   contactPhone: "",
   contactNote: "Best reached weekday mornings.",
   credentials: [
     {
       key: "c1",
-      source: "Anthropic Academy",
-      label: "Building with the Claude API",
+      catalogueId: entryByLabel("Building with the Claude API").id,
       earnedAt: "2026-01-22",
       evidenceUrl: "https://example.invalid/certificate/mara-ellison",
       evidencePublic: true,
     },
     {
       key: "c2",
-      source: "Claude Certification",
-      label: "Claude Certification",
-      earnedAt: null,
-      evidenceUrl: "",
+      catalogueId: entryByLabel("Tool use and function calling").id,
+      earnedAt: "2026-06-04",
+      evidenceUrl: "https://example.invalid/certificate/mara-tools",
       evidencePublic: false,
     },
   ],
@@ -210,9 +229,13 @@ export const initialControlled: BluehexControlled = {
 };
 
 /**
- * Whether an edit to a credential invalidates the check of it — the four
+ * Whether an edit to a credential invalidates the check of it — the three
  * columns `credentials_guard()` clears `verified` on, in the spec's own order:
- * `source`, `label`, `earned_at`, `evidence_url`.
+ * `catalogue_id`, `earned_at`, `evidence_url`.
+ *
+ * It was four. `catalogue_id` replaces the `source` and `label` pair, which is
+ * a simplification rather than a loss: changing which credential you claim is
+ * the largest edit there is, and it is now one column.
  *
  * `evidencePublic` is deliberately absent, exactly as it is from the trigger:
  * it changes the claim's visibility, not the claim. That exemption is the one a
@@ -222,8 +245,7 @@ export const initialControlled: BluehexControlled = {
  */
 export function claimEdited(before: DraftCredential, after: DraftCredential) {
   return (
-    before.source !== after.source ||
-    before.label !== after.label ||
+    before.catalogueId !== after.catalogueId ||
     before.earnedAt !== after.earnedAt ||
     before.evidenceUrl !== after.evidenceUrl
   );
@@ -233,14 +255,33 @@ export function claimEdited(before: DraftCredential, after: DraftCredential) {
  * The badge rollup, as the spec states it. Shown in the editor read-only, so a
  * practitioner can see why they do or do not have a badge without being given
  * anything that would let them change it.
+ *
+ * It lost its `earned` filter with in-progress rows: every credential counts
+ * now, because every credential is checkable.
  */
 export function badgeState(draft: ProfileDraft, controlled: BluehexControlled) {
-  const earned = draft.credentials.filter((credential) => credential.earnedAt);
-  const verified = earned.filter((credential) => controlled.verified[credential.key]);
-  return {
-    shows: earned.length > 0 && verified.length === earned.length,
-    earned: earned.length,
-    verified: verified.length,
-    inProgress: draft.credentials.length - earned.length,
-  };
+  const held = draft.credentials.length;
+  const verified = draft.credentials.filter(
+    (credential) => controlled.verified[credential.key],
+  ).length;
+  return { shows: held > 0 && verified === held, held, verified };
+}
+
+/**
+ * Progress: how much of the catalogue this profile holds.
+ *
+ * Derived by comparing two sets, which is what replaced the in-progress
+ * credential. Nobody asserts anything to make this number move — the catalogue
+ * is Bluehex's, the holdings are checked, and "not yet" is the absence of a row
+ * rather than a claim wearing the same shape as a verified one.
+ *
+ * **It is shown in the editor and nowhere else, deliberately.** "2 of 23" reads
+ * as encouragement to its owner and as 9% to an employer, so the public profile
+ * shows what somebody holds rather than what they lack. That is the spec's
+ * recommendation and drawing it did not change my mind: on the Credentials step
+ * the whole track is the motivating thing, and on a roster row the same number
+ * would be a score nobody asked to be ranked by.
+ */
+export function catalogueProgress(draft: ProfileDraft) {
+  return { held: draft.credentials.length, total: claimableCount };
 }

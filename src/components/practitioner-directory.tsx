@@ -5,7 +5,14 @@ import { useId, useMemo, useRef, useState } from "react";
 import { CredentialMark, Tick, earnedLabel } from "@/components/credential-mark";
 import { Close, Search, Sparkle } from "@/components/icons";
 import { Badge, Card } from "@/components/ui";
-import { countryName, hasVerifiedBadge, profilePath, type Practitioner } from "@/lib/practitioners";
+import {
+  countryName,
+  hasVerifiedBadge,
+  profilePath,
+  services as serviceOptions,
+  type Practitioner,
+  type Service,
+} from "@/lib/practitioners";
 
 /**
  * The practitioner directory: a search box, filters, and a roster of profiles
@@ -21,6 +28,13 @@ import { countryName, hasVerifiedBadge, profilePath, type Practitioner } from "@
  * with the page — the directory is small enough that a round trip per keystroke
  * would only add latency. If the list outgrows that, this is the seam to move
  * behind a route handler; the props stay the same.
+ *
+ * **The filter axis is `services`, not `focus`.** A visitor arrives to hire
+ * somebody rather than to survey the community's skill distribution, and
+ * "one-to-one tutoring" is what they came to type. `focus` answers a question
+ * they did not ask — knowing RAG does not say whether you can be hired for an
+ * afternoon — so it survives as free text on the profile page and no longer
+ * drives the roster.
  *
  * Two things here are load-bearing rather than stylistic:
  *
@@ -44,6 +58,12 @@ import { countryName, hasVerifiedBadge, profilePath, type Practitioner } from "@
  * nobody while the chip built from the same `countryCode` selected them. The
  * raw code is deliberately not indexed — two-letter queries would hit far more
  * than they were aimed at.
+ *
+ * `services` goes in for the same reason the country name does: it is what the
+ * chips are labelled with now, so leaving it out would recreate exactly that
+ * disagreement. `focus` stays indexed even though it no longer has chips —
+ * typing "RAG" should still find people, and free text with no chip behind it
+ * cannot disagree with a filter that does not exist.
  */
 function searchIndex(person: Practitioner) {
   return [
@@ -53,7 +73,11 @@ function searchIndex(person: Practitioner) {
     person.countryCode ? countryName(person.countryCode) : "",
     person.bio ?? "",
     ...person.focus,
-    ...person.credentials.flatMap((credential) => [credential.label, credential.source]),
+    ...person.services,
+    ...person.credentials.flatMap((credential) => [
+      credential.entry.label,
+      credential.entry.source,
+    ]),
   ]
     .join(" ")
     .toLowerCase();
@@ -74,13 +98,19 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
   const [query, setQuery] = useState("");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [countryFilters, setCountryFilters] = useState<string[]>([]);
-  const [focusFilters, setFocusFilters] = useState<string[]>([]);
+  const [serviceFilters, setServiceFilters] = useState<string[]>([]);
   const searchBox = useRef<HTMLInputElement>(null);
 
-  /* Focus areas are whatever the published profiles actually claim — there is
-     no separate taxonomy to drift out of sync with. */
-  const focusAreas = useMemo(
-    () => [...new Set(practitioners.flatMap((person) => person.focus))].sort(),
+  /* Only services somebody actually offers get a chip, rather than the whole
+     closed set — a chip that always returns nothing is worse than no chip. But
+     the order comes from the closed set instead of `sort()`, because unlike the
+     focus areas this replaced there is a canonical order, and alphabetical
+     would put "Architecture and advisory" first for no reason. */
+  const offered = useMemo(
+    () =>
+      serviceOptions.filter((service) =>
+        practitioners.some((person) => person.services.includes(service)),
+      ),
     [practitioners],
   );
 
@@ -104,18 +134,21 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
         if (countryFilters.length) {
           if (!person.countryCode || !countryFilters.includes(person.countryCode)) return false;
         }
-        if (focusFilters.length && !focusFilters.some((item) => person.focus.includes(item))) {
+        if (
+          serviceFilters.length &&
+          !serviceFilters.some((item) => person.services.includes(item as Service))
+        ) {
           return false;
         }
         return matchesQuery(person, query);
       }),
-    [practitioners, query, verifiedOnly, countryFilters, focusFilters],
+    [practitioners, query, verifiedOnly, countryFilters, serviceFilters],
   );
 
   const filtering =
-    query.trim() !== "" || verifiedOnly || countryFilters.length > 0 || focusFilters.length > 0;
+    query.trim() !== "" || verifiedOnly || countryFilters.length > 0 || serviceFilters.length > 0;
 
-  const toggle = (setter: typeof setFocusFilters) => (value: string) =>
+  const toggle = (setter: typeof setServiceFilters) => (value: string) =>
     setter((current) =>
       current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
     );
@@ -124,7 +157,7 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
     setQuery("");
     setVerifiedOnly(false);
     setCountryFilters([]);
-    setFocusFilters([]);
+    setServiceFilters([]);
   };
 
   return (
@@ -140,7 +173,7 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
       {/* Search ------------------------------------------------------- */}
       <div className="mt-10 max-w-3xl">
         <label htmlFor="practitioner-search" className="sr-only">
-          Search practitioners by name, skill, credential or location
+          Search practitioners by name, service, skill, credential or location
         </label>
         {/* The focus ring lives on the pill rather than the input, so it traces
             the rounded shape instead of boxing the text. Matches the global
@@ -153,7 +186,7 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by skill, credential, role or location"
+            placeholder="Search by service, skill, credential or location"
             /* The native search affordances duplicate the clear button and the
                icon this box already draws. */
             className="w-full bg-transparent text-base outline-none placeholder:text-t-faint md:text-lg [&::-webkit-search-cancel-button]:appearance-none"
@@ -202,15 +235,15 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
           </FilterGroup>
         ) : null}
 
-        {focusAreas.length > 0 ? (
-          <FilterGroup label="Focus">
-            {focusAreas.map((area) => (
+        {offered.length > 0 ? (
+          <FilterGroup label="Services">
+            {offered.map((service) => (
               <FilterChip
-                key={area}
-                pressed={focusFilters.includes(area)}
-                onClick={() => toggle(setFocusFilters)(area)}
+                key={service}
+                pressed={serviceFilters.includes(service)}
+                onClick={() => toggle(setServiceFilters)(service)}
               >
-                {area}
+                {service}
               </FilterChip>
             ))}
           </FilterGroup>
@@ -253,7 +286,7 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
               >
                 <span>Practitioner</span>
                 <span>Credentials</span>
-                <span>Focus</span>
+                <span>Services</span>
                 <span />
               </div>
 
@@ -276,6 +309,12 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
             <div className="flex flex-col items-start gap-3 border-t border-dashed border-stroke p-8 first:border-t-0 md:p-10">
               <Sparkle className="size-6 text-t-faint" />
               <p className="text-xl font-medium">Your profile here</p>
+              {/* "Working towards it" is a statement about people, not about a
+                  row anybody can enter — there is no in-progress credential and
+                  a profile with none is an ordinary profile. The invitation is
+                  still true and is deliberately not narrowed to the credentialed:
+                  a practitioner says what they are working through in their bio,
+                  in their own words. */}
               <p className="max-w-md text-sm leading-relaxed text-t-muted">
                 Certified, or working towards it. Both belong in the directory.
               </p>
@@ -361,19 +400,10 @@ function PractitionerRow({ person }: { person: Practitioner }) {
         ) : (
           <ul className="flex flex-col gap-2">
             {person.credentials.map((credential) => (
-              <li
-                key={`${credential.source}:${credential.label}`}
-                className="flex items-start gap-2 text-sm"
-              >
+              <li key={credential.entry.id} className="flex items-start gap-2 text-sm">
                 <CredentialMark credential={credential} />
                 <span className="min-w-0">
-                  <span
-                    className={`break-words ${
-                      credential.earnedAt ? "text-t-medium" : "text-t-faint italic"
-                    }`}
-                  >
-                    {credential.label}
-                  </span>
+                  <span className="break-words text-t-medium">{credential.entry.label}</span>
                   <span className="ml-2 text-xs whitespace-nowrap text-t-faint">
                     {earnedLabel(credential)}
                   </span>
@@ -385,7 +415,10 @@ function PractitionerRow({ person }: { person: Practitioner }) {
                       className="ml-2 text-xs text-t-muted underline decoration-stroke underline-offset-4 transition-colors hover:text-t-bright hover:decoration-current"
                     >
                       Certificate
-                      <span className="sr-only"> for {credential.label}, opens in a new tab</span>
+                      <span className="sr-only">
+                        {" "}
+                        for {credential.entry.label}, opens in a new tab
+                      </span>
                     </a>
                   ) : null}
                 </span>
@@ -395,10 +428,16 @@ function PractitionerRow({ person }: { person: Practitioner }) {
         )}
       </div>
 
-      {/* Focus. Self-described and never vetted — which is how every directory
-          works, and the reason the badge's placement above is load-bearing. */}
+      {/* Services. Self-described and never vetted — which is how every
+          directory works, and the reason the badge's placement above is
+          load-bearing. `services` sharpens that: somebody filtering by "code
+          review" and landing on a badged profile is one step from reading the
+          badge as Bluehex endorsing the service, which it never does.
+
+          Empty renders nothing rather than a placeholder. A practitioner who
+          has not said what they sell is a normal profile, not a gap. */}
       <div className="flex flex-wrap gap-1.5">
-        {person.focus.map((item) => (
+        {person.services.map((item) => (
           <Badge key={item}>{item}</Badge>
         ))}
       </div>
