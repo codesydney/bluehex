@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { ProfileDetail } from "@/app/p/_lib/profile-detail";
 import { PractitionerDirectory } from "@/components/practitioner-directory";
+import { catalogue } from "../catalogue";
 import { launchPopulation } from "./fixtures";
 
 /**
@@ -65,6 +67,34 @@ export default function DirectoryPrototypePage() {
       </div>
 
       <PractitionerDirectory practitioners={launchPopulation} />
+
+      {/* The page behind that link, drawn here because it cannot be reached:
+          `/p/<handle>` resolves against the real practitioners and there are
+          none, so every row 404s by design. This is the **real**
+          `ProfileDetail` with a fixture person and the prototype catalogue
+          passed in — not a copy, for the same reason the roster above is not a
+          copy of the directory.
+
+          The dependency points from the drawing into production and never the
+          other way. Production's own route passes `credentialCatalogue`, which
+          is empty until there is a query behind it; the prototype is the only
+          place the Not earned control has anything to show. */}
+      <section className="container-x pb-24">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-xs font-medium tracking-wide text-t-faint uppercase">
+            Behind “View profile”
+          </h2>
+          <p className="mt-3 text-sm text-t-muted">
+            The credentials block opens on what Mara holds.{" "}
+            <strong className="font-medium text-t-bright">Not earned</strong> reveals the
+            rest of the catalogue, and is a fact about her record rather than a claim about
+            what she is working on — which is why it does not say “in progress”.
+          </p>
+        </div>
+        <div className="mt-8">
+          <ProfileDetail person={launchPopulation[0]} catalogue={catalogue} />
+        </div>
+      </section>
     </>
   );
 }

@@ -22,6 +22,11 @@
  * false positives; at this volume that is cheaper than a column to suppress
  * them.
  *
+ * A credential names a row in `credential_catalogue` and carries no text of its
+ * own, so every label on this screen came from a list Bluehex wrote. There is
+ * nothing for a practitioner to type into a credential, which is why nothing in
+ * this file types one either.
+ *
  * ## The population is adversarial on purpose
  *
  * It was five benign people, and that made the surface impossible to judge:
@@ -38,14 +43,33 @@
  *
  * If a design makes q8 look like q6, it is wrong, and that is the single most
  * useful thing this population can tell you.
+ *
+ * Devon Achebe (q1) is the one this round reworked. He was an in-progress-only
+ * profile — one credential nobody could ever check — and that row is gone from
+ * the model. What replaced him is the same person with no credentials and a bio
+ * that says what he is working through, which is the shape the spec says
+ * carries it now. See his comment below.
+ *
+ * **q9 now carries weight it did not before.** In-progress credentials are gone
+ * from the model, so the thing that used to demonstrate "in the queue, nothing
+ * anybody can do about it" is q9 alone: earned, no evidence URL, approvable,
+ * never badgeable, and not a rejection. It is the only permanently-open item
+ * left, and unlike the rows it replaced it is one the *practitioner* can close.
  */
+
+import { entryByLabel } from "../catalogue";
 
 export type QueueCredential = {
   id: string;
-  source: "Claude Certification" | "Anthropic Academy";
-  label: string;
-  /** Null means working towards — unverifiable, and outside the badge rollup. */
-  earnedAt: string | null;
+  /**
+   * `catalogue_id` — the entry this credential names. There is no `source` or
+   * `label` here: they are properties of the catalogue row, so a credential
+   * claiming `Anthropic Academy` + `Claude Certification` is not representable
+   * and nobody but Bluehex can add a name to the list.
+   */
+  catalogueId: string;
+  /** `earned_at`, and `not null`: there is no in-progress credential. */
+  earnedAt: string;
   evidenceUrl: string | null;
   evidencePublic: boolean;
   verified: boolean;
@@ -60,6 +84,8 @@ export type QueueProfile = {
   location: string;
   bio: string;
   focus: string[];
+  /** What they sell. Closed set, at most three — the directory's filter axis. */
+  services: string[];
   contactEmail: string;
   status: "pending" | "approved" | "rejected" | "withdrawn";
   /** Null means unclaimed — curated intake, written up by Bluehex. */
@@ -71,41 +97,45 @@ export type QueueProfile = {
   credentials: QueueCredential[];
 };
 
-/** The badge rollup: at least one earned credential, and every earned one verified. */
+/**
+ * The badge rollup: at least one credential, and every one of them verified.
+ *
+ * It used to take the earned subset first, because an in-progress row could
+ * never be checked and would have denied the badge forever. Every row is earned
+ * now, so the filter went with the premise rather than being kept as a
+ * defensive no-op.
+ */
 export function badgeShows(credentials: QueueCredential[]) {
-  const earned = credentials.filter((credential) => credential.earnedAt);
-  return earned.length > 0 && earned.every((credential) => credential.verified);
+  return credentials.length > 0 && credentials.every((credential) => credential.verified);
 }
 
 /**
- * Earned credentials nobody has checked yet.
+ * Credentials nobody has checked yet.
  *
  * This is what the badge is waiting on, and it is NOT the same as what an admin
  * can act on — see `checkable`. Hae-Won Park is the difference: she has an
  * earned credential with no evidence URL, so she appears here forever and there
- * is nothing anybody can do about it.
+ * is nothing anybody at Bluehex can do about it.
  */
 export function unchecked(profile: QueueProfile) {
-  return profile.credentials.filter(
-    (credential) => credential.earnedAt && !credential.verified,
-  );
+  return profile.credentials.filter((credential) => !credential.verified);
 }
 
 /**
- * Credentials an admin can actually do something about right now: earned, with
- * evidence to open, and not yet checked.
+ * Credentials an admin can actually do something about right now: with evidence
+ * to open, and not yet checked.
  *
- * The `evidenceUrl` clause is the whole point of this existing separately. A
- * credential claimed as earned with nothing behind it cannot be checked today,
- * cannot be checked tomorrow, and would otherwise sit in the queue as a task
- * that never completes — belonging to somebody who has done nothing wrong. That
- * is the permanently-unclearable item NOTES.md warns about, and it is only
- * avoidable by distinguishing "the badge is waiting on this" from "a human can
- * move this forward".
+ * The `evidenceUrl` clause is the whole point of this existing separately, and
+ * it is the *only* clause left — the earned check went with in-progress rows. A
+ * credential with nothing behind it cannot be checked today, cannot be checked
+ * tomorrow, and would otherwise sit in the queue as a task that never completes,
+ * belonging to somebody who has done nothing wrong. The distinction between
+ * "the badge is waiting on this" and "a human can move this forward" is what
+ * keeps that item out of the queue, and it now rests on Hae-Won Park alone.
  */
 export function checkable(profile: QueueProfile) {
   return profile.credentials.filter(
-    (credential) => credential.earnedAt && credential.evidenceUrl && !credential.verified,
+    (credential) => credential.evidenceUrl && !credential.verified,
   );
 }
 
@@ -152,33 +182,60 @@ export function hasDrifted(profile: QueueProfile) {
   return profile.updatedAt > profile.lastVerifiedAt;
 }
 
+/**
+ * One credential, naming a catalogue entry by its label.
+ *
+ * The lookup is the point rather than a convenience: a credential references a
+ * row Bluehex wrote, so a fixture that typed its own labels would be drawing
+ * the free text this model removed. `entryByLabel` throws on a name that is not
+ * in the catalogue, which is the foreign key doing its job.
+ */
+function credential(
+  id: string,
+  label: string,
+  earnedAt: string,
+  rest: Partial<Omit<QueueCredential, "id" | "catalogueId" | "earnedAt">> = {},
+): QueueCredential {
+  return {
+    id,
+    catalogueId: entryByLabel(label).id,
+    earnedAt,
+    evidenceUrl: null,
+    evidencePublic: false,
+    verified: false,
+    verifiedAt: null,
+    verifiedBy: null,
+    ...rest,
+  };
+}
+
 export const initialQueue: QueueProfile[] = [
   {
+    /* No credentials at all, and he used to have one that could never be
+       checked. That row is gone from the model, so what is left is the case it
+       was standing in front of: a self-service profile whose *bio* says what
+       the person is working through. It is a claim in prose, nobody can check
+       it, and nobody is meant to — the queue has one decision to make here and
+       must not offer a second. Distinct from Ines below, who is unclaimed,
+       curated, and asserting nothing at all.
+
+       If a design tempts an admin to treat "working through the Academy track"
+       as something to verify, the confusion in-progress rows caused has simply
+       moved into the bio, which was the objection to them in the first place. */
     id: "q1",
     name: "Devon Achebe",
     headline: "Backend developer, moving into AI work",
     location: "Melbourne",
-    bio: "Writing Go for payments by day, working through the Academy track on weekends.",
+    bio: "Writing Go for payments by day, working through the Academy track on weekends. Two courses down, aiming at the Certification next year.",
     focus: ["Agents", "MCP"],
+    services: [],
     contactEmail: "devon@example.invalid",
     status: "pending",
     owner: "devon@example.invalid",
     updatedAt: "2026-08-14T09:12:00Z",
     lastVerifiedAt: null,
     reviewNote: null,
-    credentials: [
-      {
-        id: "q1c1",
-        source: "Claude Certification",
-        label: "Claude Certification",
-        earnedAt: null,
-        evidenceUrl: null,
-        evidencePublic: false,
-        verified: false,
-        verifiedAt: null,
-        verifiedBy: null,
-      },
-    ],
+    credentials: [],
   },
   {
     id: "q2",
@@ -187,6 +244,7 @@ export const initialQueue: QueueProfile[] = [
     location: "Brisbane",
     bio: "Interfaces for things that stream. Interested in how you show a model thinking without lying about it.",
     focus: ["Frontend", "Streaming"],
+    services: ["Implementation", "Code review"],
     contactEmail: "susanna@example.invalid",
     status: "pending",
     owner: "susanna@example.invalid",
@@ -194,17 +252,10 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: null,
     reviewNote: null,
     credentials: [
-      {
-        id: "q2c1",
-        source: "Anthropic Academy",
-        label: "Prompt engineering",
-        earnedAt: "2026-07-19",
+      credential("q2c1", "Prompt engineering", "2026-07-19", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/susanna-wrobel",
         evidencePublic: true,
-        verified: false,
-        verifiedAt: null,
-        verifiedBy: null,
-      },
+      }),
     ],
   },
   {
@@ -214,6 +265,7 @@ export const initialQueue: QueueProfile[] = [
     location: "Singapore",
     bio: "Moved from recommender systems to LLM tooling in 2025 and has not looked back.",
     focus: ["Evals", "Fine-tuning", "Agents"],
+    services: ["Evaluation and testing", "Implementation"],
     contactEmail: "priya@example.invalid",
     status: "approved",
     owner: "priya@example.invalid",
@@ -221,39 +273,22 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: "2026-08-12T11:05:00Z",
     reviewNote: null,
     credentials: [
-      {
-        id: "q3c1",
-        source: "Claude Certification",
-        label: "Claude Certification",
-        earnedAt: "2026-02-14",
+      credential("q3c1", "Claude Certified Developer", "2026-02-14", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/priya-raghavan",
         evidencePublic: true,
         verified: true,
         verifiedAt: "2026-08-10T08:30:00Z",
         verifiedBy: "david",
-      },
-      {
-        id: "q3c2",
-        source: "Anthropic Academy",
-        label: "Tool use and function calling",
-        earnedAt: "2026-04-30",
+      }),
+      credential("q3c2", "Tool use and function calling", "2026-04-30", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/priya-tools",
-        evidencePublic: false,
         verified: true,
         verifiedAt: "2026-08-12T11:05:00Z",
         verifiedBy: "david",
-      },
-      {
-        id: "q3c3",
-        source: "Anthropic Academy",
-        label: "Claude Code in practice",
-        earnedAt: "2026-08-01",
+      }),
+      credential("q3c3", "Claude Code in practice", "2026-08-01", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/priya-code",
-        evidencePublic: false,
-        verified: false,
-        verifiedAt: null,
-        verifiedBy: null,
-      },
+      }),
     ],
   },
   {
@@ -263,6 +298,7 @@ export const initialQueue: QueueProfile[] = [
     location: "London",
     bio: "Helps teams work out whether they need an agent or a for-loop. Usually a for-loop.",
     focus: ["Architecture", "Agents"],
+    services: ["Architecture and advisory", "One-to-one tutoring"],
     contactEmail: "kofi@example.invalid",
     status: "approved",
     owner: "kofi@example.invalid",
@@ -270,17 +306,13 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: "2026-08-09T14:00:00Z",
     reviewNote: null,
     credentials: [
-      {
-        id: "q4c1",
-        source: "Anthropic Academy",
-        label: "Tool use and function calling",
-        earnedAt: "2026-06-08",
+      credential("q4c1", "Tool use and function calling", "2026-06-08", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/kofi-mensah",
         evidencePublic: true,
         verified: true,
         verifiedAt: "2026-08-09T14:00:00Z",
         verifiedBy: "david",
-      },
+      }),
     ],
   },
   {
@@ -290,6 +322,7 @@ export const initialQueue: QueueProfile[] = [
     location: "Perth",
     bio: "Documentation for developer tools. Joined to be findable, not to be certified.",
     focus: ["Docs", "DX"],
+    services: ["Team training"],
     contactEmail: "ines@example.invalid",
     status: "pending",
     owner: null,
@@ -316,6 +349,11 @@ export const initialQueue: QueueProfile[] = [
     location: "Remote",
     bio: "Passionate about leveraging cutting-edge AI solutions to drive transformative business outcomes. Extensive experience delivering scalable, robust systems that unlock value for stakeholders across the enterprise.",
     focus: ["AI", "LLM", "Prompt Engineering", "Automation", "Consulting"],
+    /* Maxed out, which is what the cap is for. `focus` is free text and he has
+       five of them; `services` stops at three however hard he leans on it, so
+       the axis a visitor filters by cannot be flooded by the profile most
+       willing to claim everything. */
+    services: ["One-to-one tutoring", "Team training", "Implementation"],
     contactEmail: "marcus.bell.ai@mailinator.com",
     status: "pending",
     owner: "marcus.bell.ai@mailinator.com",
@@ -323,28 +361,14 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: null,
     reviewNote: null,
     credentials: [
-      {
-        id: "q6c1",
-        source: "Claude Certification",
-        label: "Claude Certification",
-        earnedAt: "2026-08-14",
+      credential("q6c1", "Claude Certified Agent Engineer", "2026-08-14", {
         evidenceUrl: "https://drive.google.com/file/d/1Xk9mQ/view",
         evidencePublic: true,
-        verified: false,
-        verifiedAt: null,
-        verifiedBy: null,
-      },
-      {
-        id: "q6c2",
-        source: "Anthropic Academy",
-        label: "Prompt engineering",
-        earnedAt: "2026-08-14",
+      }),
+      credential("q6c2", "Prompt engineering", "2026-08-14", {
         evidenceUrl: "https://drive.google.com/file/d/1Xk9mR/view",
         evidencePublic: true,
-        verified: false,
-        verifiedAt: null,
-        verifiedBy: null,
-      },
+      }),
     ],
   },
   {
@@ -355,13 +379,22 @@ export const initialQueue: QueueProfile[] = [
        exists to produce.
 
        Note it is also the case a per-profile check passes: open the URL, and
-       there is a real certificate at the other end. It just is not his. */
+       there is a real certificate at the other end. It just is not his.
+
+       The catalogue does not help here and it is worth being explicit about
+       that, because `unique (practitioner_id, catalogue_id)` looks like it
+       might. It is scoped to one practitioner — two people claiming the same
+       entry is the normal case, which is exactly what makes this claim legal.
+       He and Priya now hold the *same* catalogue row, so the theft is a little
+       more legible than it was against two free-text labels, and still only to
+       somebody who looks across profiles. */
     id: "q7",
     name: "Tomas Novak",
     headline: "Machine learning engineer",
     location: "Prague",
     bio: "Recommender systems and LLM tooling.",
     focus: ["Evals", "Agents"],
+    services: ["Implementation"],
     contactEmail: "t.novak.ml@example.invalid",
     status: "pending",
     owner: "t.novak.ml@example.invalid",
@@ -369,17 +402,10 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: null,
     reviewNote: null,
     credentials: [
-      {
-        id: "q7c1",
-        source: "Claude Certification",
-        label: "Claude Certification",
-        earnedAt: "2026-02-14",
+      credential("q7c1", "Claude Certified Developer", "2026-02-14", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/priya-raghavan",
         evidencePublic: true,
-        verified: false,
-        verifiedAt: null,
-        verifiedBy: null,
-      },
+      }),
     ],
   },
   {
@@ -399,6 +425,7 @@ export const initialQueue: QueueProfile[] = [
     location: "Auckland",
     bio: "Teaching teams to use Claude without outsourcing their judgement to it.",
     focus: ["Advocacy", "Education", "MCP"],
+    services: ["Team training", "One-to-one tutoring"],
     contactEmail: "aroha@example.invalid",
     status: "pending",
     owner: "aroha@example.invalid",
@@ -406,17 +433,9 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: null,
     reviewNote: null,
     credentials: [
-      {
-        id: "q8c1",
-        source: "Anthropic Academy",
-        label: "Claude Code in practice",
-        earnedAt: "2026-07-02",
+      credential("q8c1", "Claude Code in practice", "2026-07-02", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/a-te-rangi-ngata",
-        evidencePublic: false,
-        verified: false,
-        verifiedAt: null,
-        verifiedBy: null,
-      },
+      }),
     ],
   },
   {
@@ -425,34 +444,27 @@ export const initialQueue: QueueProfile[] = [
        never carry the badge until she supplies a URL. The only useful action is
        the note, which makes this the case that justifies the note existing.
 
-       Distinct from q1, whose credential is unverifiable because it has not
-       been earned yet. Same outcome on screen, completely different reason, and
-       a queue that renders them identically is hiding the difference. */
+       **She is now the only profile in this shape, and that is why she matters
+       more than she did.** She used to be one of a pair with Devon, whose
+       credential could not be checked because it had not been earned. That row
+       no longer exists, so everything the queue does to keep a
+       permanently-open item from reading as an unfinished task rests on her
+       alone — and unlike Devon's, her item is one *she* can close by pasting a
+       link, which is the difference the spec kept the state for. */
     id: "q9",
     name: "Hae-Won Park",
     headline: "Data engineer",
     location: "Seoul",
     bio: "Pipelines, mostly. Took the Academy track to work out where a model fits in one.",
     focus: ["Data", "Pipelines"],
+    services: ["Implementation", "Evaluation and testing"],
     contactEmail: "haewon@example.invalid",
     status: "pending",
     owner: "haewon@example.invalid",
     updatedAt: "2026-08-12T09:00:00Z",
     lastVerifiedAt: null,
     reviewNote: null,
-    credentials: [
-      {
-        id: "q9c1",
-        source: "Anthropic Academy",
-        label: "Prompt engineering",
-        earnedAt: "2026-06-27",
-        evidenceUrl: null,
-        evidencePublic: false,
-        verified: false,
-        verifiedAt: null,
-        verifiedBy: null,
-      },
-    ],
+    credentials: [credential("q9c1", "Prompt engineering", "2026-06-27")],
   },
 ];
 

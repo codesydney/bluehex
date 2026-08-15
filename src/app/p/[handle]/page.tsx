@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { profilePath } from "@/lib/practitioners";
+import { credentialCatalogue, profilePath } from "@/lib/practitioners";
 import { findByHandle } from "../_lib/handles";
 import { ProfileDetail } from "../_lib/profile-detail";
 
@@ -51,7 +51,11 @@ export default async function ProfilePage({ params }: PageProps<"/p/[handle]">) 
         / {person.name}
       </p>
 
-      <ProfileDetail person={person} />
+      {/* The whole catalogue, so the credentials block can offer the rest of it
+          behind the Not earned control. Empty until the query behind it lands,
+          which is the case the control is written to survive: nothing to
+          reveal, so nothing renders. */}
+      <ProfileDetail person={person} catalogue={credentialCatalogue} />
     </div>
   );
 }

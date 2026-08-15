@@ -22,9 +22,14 @@
  * an email address and **the preview does not move** — which is the model's
  * rule that contact details are never published, demonstrated instead of
  * asserted. Same for an evidence link with its opt-in switched off, and same
- * for the clearing rule: retype a verified credential's label and its ✓ leaves
- * the preview, while flipping the publish opt-in leaves it alone. That last
- * pair is `credentials_guard()`, mocked in `profile-editor.tsx`.
+ * for the clearing rule: repick a verified credential and its ✓ leaves the
+ * preview, while flipping the publish opt-in leaves it alone. That last pair is
+ * `credentials_guard()`, mocked in `profile-editor.tsx`.
+ *
+ * The published links sit on the first step rather than beside the contact
+ * details, and that placement is the model's own test drawn: a route to a page
+ * is public, a route to a person is not. Putting them on the Contact step would
+ * have broken the demonstration that step exists for.
  *
  * Note what is absent: nothing here sets `verified` or `status`. Both are shown
  * read-only, because this is the only place a practitioner ever learns who
@@ -36,8 +41,10 @@
  */
 
 import { useState } from "react";
+import { catalogueEntry, pickable } from "../catalogue";
 import {
   badgeState,
+  catalogueProgress,
   newCredential,
   type BluehexControlled,
   type ProfileDraft,
@@ -47,7 +54,7 @@ import {
   CredentialFields,
   Field,
   FocusPicker,
-  JobFunctionSelect,
+  ServicesPicker,
   TextArea,
   TextInput,
 } from "./fields";
@@ -121,19 +128,6 @@ export function ProfileForm({
                 )}
               </Field>
 
-              <Field
-                label="Job function"
-                hint="The kind of work you do, rather than the technology. What someone looking for a designer filters on."
-              >
-                {(id) => (
-                  <JobFunctionSelect
-                    id={id}
-                    value={draft.jobFunction}
-                    onChange={(value) => set("jobFunction", value)}
-                  />
-                )}
-              </Field>
-
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Where you are" hint="However specific you like.">
                   {(id) => (
@@ -161,12 +155,119 @@ export function ProfileForm({
                 )}
               </Field>
 
+              {/* Services before focus, because it is the more consequential
+                  answer now: it is what a visitor filters the roster by, and
+                  focus is read afterwards on the profile page. The order of two
+                  adjacent pickers is the cheapest way to say which one
+                  matters. */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium">Focus areas</span>
+                <span className="text-sm font-medium">What you can be hired for</span>
+                <ServicesPicker
+                  value={draft.services}
+                  onChange={(value) => set("services", value)}
+                />
+                <p className="text-xs text-t-muted">
+                  This is what the directory filters on — it is the question a visitor
+                  arrives with. Self-described, and the Verified badge does not cover it:
+                  it attests to credentials a human checked, never to an offer of work.
+                </p>
+              </div>
+
+              <Field
+                label="Availability"
+                hint="A sentence, not a calendar. “Evenings and weekends”, “booked until March”. Nobody browses by this — it is read once, by someone who has already decided they are interested."
+              >
+                {(id) => (
+                  <TextInput
+                    id={id}
+                    value={draft.availability}
+                    onChange={(value) => set("availability", value)}
+                    placeholder="e.g. Evenings and weekends"
+                  />
+                )}
+              </Field>
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium">What you know</span>
                 <FocusPicker value={draft.focus} onChange={(value) => set("focus", value)} />
                 <p className="text-xs text-t-muted">
-                  These drive the directory&apos;s filters. Self-described — the Verified
-                  badge does not cover them.
+                  Shown on your profile page rather than on the directory row. Knowing RAG
+                  does not tell somebody whether they can hire you for an afternoon, which
+                  is why the filters ask the question above instead.
+                </p>
+              </div>
+
+              {/* Links are public and belong on this step, not on Contact.
+                  That is not tidiness: the Contact step's whole demonstration
+                  is that you type an address and the preview does not move, and
+                  a published link on the same panel would contradict it. The
+                  test the model actually applies is a route to a *page* against
+                  a route to a *person* — so the two live one step apart and
+                  each says why. */}
+              <div className="flex flex-col gap-4 border-t border-stroke pt-5">
+                <div>
+                  <p className="text-sm font-medium">Where to find you</p>
+                  <p className="mt-1 text-xs text-t-muted">
+                    All four are published on your profile. They are links to pages rather
+                    than ways of reaching you personally, which is exactly why they can be
+                    public while your email address on the next step cannot.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Website">
+                    {(id) => (
+                      <TextInput
+                        id={id}
+                        type="url"
+                        value={draft.websiteUrl}
+                        onChange={(value) => set("websiteUrl", value)}
+                        placeholder="https://"
+                      />
+                    )}
+                  </Field>
+                  <Field label="GitHub">
+                    {(id) => (
+                      <TextInput
+                        id={id}
+                        type="url"
+                        value={draft.githubUrl}
+                        onChange={(value) => set("githubUrl", value)}
+                        placeholder="https://github.com/…"
+                      />
+                    )}
+                  </Field>
+                  <Field label="LinkedIn">
+                    {(id) => (
+                      <TextInput
+                        id={id}
+                        type="url"
+                        value={draft.linkedinUrl}
+                        onChange={(value) => set("linkedinUrl", value)}
+                        placeholder="https://www.linkedin.com/in/…"
+                      />
+                    )}
+                  </Field>
+                  <Field
+                    label="Booking page"
+                    hint="If you have one, this is how somebody reaches you without Bluehex in the way."
+                  >
+                    {(id) => (
+                      <TextInput
+                        id={id}
+                        type="url"
+                        value={draft.bookingUrl}
+                        onChange={(value) => set("bookingUrl", value)}
+                        placeholder="https://"
+                      />
+                    )}
+                  </Field>
+                </div>
+
+                <p className="text-xs text-t-muted">
+                  Editing any of these never affects your badge. A repository looks like
+                  evidence of work; it is not evidence <em>Bluehex checked</em>, which is
+                  the only thing the badge claims.
                 </p>
               </div>
             </StepPanel>
@@ -175,8 +276,10 @@ export function ProfileForm({
           {step === 1 ? (
             <StepPanel
               title="Your credentials"
-              note="Claude Certifications and Anthropic Academy certificates. Include what you are working towards — the directory lists both, and in-progress ones never count against you."
+              note="Claude Certifications and Anthropic Academy certificates, picked from the list Bluehex keeps. Only what you have finished — there is nothing to enter for a course you are partway through, and the track below shows where you are without you having to claim anything."
             >
+              <Progress draft={draft} />
+
               {draft.credentials.map((credential, index) => (
                 <div key={credential.key} className="rounded-tight border border-stroke p-5">
                   <div className="mb-4 flex items-center justify-between">
@@ -199,6 +302,11 @@ export function ProfileForm({
                   <CredentialFields
                     credential={credential}
                     verified={Boolean(controlled.verified[credential.key])}
+                    /* `unique (practitioner_id, catalogue_id)` — you cannot
+                       claim the same credential twice, so the picker greys out
+                       what is already on the profile rather than letting the
+                       insert be refused after the fact. */
+                    taken={draft.credentials.map((item) => item.catalogueId).filter(Boolean)}
                     onChange={(next) =>
                       set(
                         "credentials",
@@ -223,7 +331,7 @@ export function ProfileForm({
           {step === 2 ? (
             <StepPanel
               title="How Bluehex reaches you"
-              note="None of this is published. Enquiries come through Bluehex rather than going to you directly, so your address never appears on your profile — watch the preview as you type and you will see it does not move."
+              note="None of this is published — unlike the links on the first step, which are. The difference is what they reach: a page can be public, a person's address cannot. Enquiries come through Bluehex rather than going to you directly, so your address never appears on your profile — watch the preview as you type and you will see it does not move."
             >
               <Field label="Email" hint="Where work enquiries should go. Can differ from your login.">
                 {(id) => (
@@ -270,35 +378,45 @@ export function ProfileForm({
                   half-finished one.
                 </ReviewStep>
                 <ReviewStep n={2} title="Bluehex checks each credential, one at a time">
-                  Every earned credential gets opened and read against the name on it. The
-                  Verified badge appears once every earned credential has been checked.
-                  {badge.inProgress > 0 ? (
-                    <>
-                      {" "}
-                      The {badge.inProgress === 1 ? "one" : badge.inProgress} you are working
-                      towards {badge.inProgress === 1 ? "does" : "do"} not count either way.
-                    </>
-                  ) : null}
+                  Each one gets opened and read against the name on it. The Verified badge
+                  appears once every credential on your profile has been checked — so
+                  adding a fourth later leaves the first three checked and waits on the
+                  new one, rather than dropping the badge until somebody re-reads all
+                  four.
                 </ReviewStep>
                 <ReviewStep n={3} title="You can edit any time">
                   Editing does not send it back to the queue. Changing what a credential
-                  claims — its type, its name, when you earned it, or its certificate link —
-                  clears that credential&apos;s check until Bluehex looks again, and you can
-                  watch the ✓ leave the preview as you type. Switching the certificate
-                  link&apos;s publish opt-in does not, because that changes who can see the
-                  claim rather than the claim. Neither does your bio or focus areas, which
-                  the badge never covered.
+                  claims — which credential it is, when you earned it, or its certificate
+                  link — clears that credential&apos;s check until Bluehex looks again, and
+                  you can watch the ✓ leave the preview as you change it. Switching the
+                  certificate link&apos;s publish opt-in does not, because that changes who
+                  can see the claim rather than the claim. Neither do your bio, your focus
+                  areas, what you offer or your links, which the badge never covered.
                 </ReviewStep>
               </ol>
 
+              {/* Three counts, not two. This step's whole job is saying who
+                  decides what, and "waiting on Bluehex" over a credential with
+                  no certificate link names the wrong party — nobody at Bluehex
+                  can move it, and the practitioner can, with one field. The
+                  credential panel already says so; the summary used to
+                  contradict it two clicks later.
+
+                  `badge.held` rather than the row count, so an added-and-untouched
+                  credential does not appear in a sentence beginning "Submitting". */}
               <div className="rounded-card bg-surface p-6">
                 <p className="text-sm">
-                  <strong className="font-medium">
-                    Submitting {draft.credentials.length}
-                  </strong>{" "}
-                  {draft.credentials.length === 1 ? "credential" : "credentials"} —{" "}
-                  {badge.earned} earned, {badge.inProgress} in progress.
+                  <strong className="font-medium">Submitting {badge.held}</strong>{" "}
+                  {badge.held === 1 ? "credential" : "credentials"} — {badge.verified}{" "}
+                  already checked, {badge.awaitingCheck} waiting on Bluehex,{" "}
+                  {badge.awaitingProof} waiting on you.
                 </p>
+                {badge.awaitingProof > 0 ? (
+                  <p className="mt-1.5 text-sm text-t-muted">
+                    Waiting on you means the certificate link is missing. Bluehex cannot
+                    check a credential it has no proof of, so that one is yours to move.
+                  </p>
+                ) : null}
                 <p className="mt-1.5 text-sm text-t-muted">
                   You do not set the badge and neither does anything on this form. Only
                   Bluehex does.
@@ -344,6 +462,66 @@ export function ProfileForm({
         </p>
         <RowPreview draft={draft} controlled={controlled} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Progress against the whole catalogue — what replaced the in-progress
+ * credential.
+ *
+ * The premise it rests on is that the catalogue is a known set Bluehex wrote,
+ * so showing somebody the entries they do not hold requires no assertion *from*
+ * them. There is nothing to type and therefore nothing to be unfalsifiable
+ * about: an entry you have not earned is an entry you have not earned.
+ *
+ * **This is the editor and only the editor.** "2 of 23" reads as encouragement
+ * to its owner and as 9% to an employer, so the public profile shows what
+ * somebody holds and never what they lack. The whole track is collapsed rather
+ * than laid out, because the step's job is entering credentials and the track
+ * is context for it — expanded, twenty-three rows of mostly "not yet" is the
+ * same discouraging reading the public page is being spared.
+ */
+function Progress({ draft }: { draft: ProfileDraft }) {
+  const { held, total } = catalogueProgress(draft);
+  const holdings = new Set(draft.credentials.map((credential) => credential.catalogueId));
+
+  return (
+    <div className="rounded-card bg-surface p-5">
+      <p className="text-sm">
+        <strong className="font-medium">
+          {held} of {total}
+        </strong>{" "}
+        Claude credentials{held === 0 ? " so far" : ""}.
+      </p>
+      <details className="mt-3">
+        <summary className="cursor-pointer text-sm text-t-muted">See the whole track</summary>
+        <ul className="mt-3 flex flex-col gap-1.5">
+          {pickable().map((item) => {
+            const has = holdings.has(item.id);
+            return (
+              <li key={item.id} className="flex items-start gap-2 text-sm">
+                <span
+                  aria-hidden="true"
+                  className={`mt-1 grid size-4 shrink-0 place-items-center rounded-full ${
+                    has ? "bg-ink text-t-invert" : "border border-stroke"
+                  }`}
+                >
+                  {has ? <span className="text-[8px]">✓</span> : null}
+                </span>
+                <span className={has ? "" : "text-t-muted"}>
+                  {item.label}
+                  <span className="sr-only">{has ? " — held" : " — not held"}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-3 text-xs text-t-muted">
+          Nobody but you sees this list against your name — your profile shows what you
+          hold, not what you do not. Bluehex keeps the list; ask if something is missing.
+        </p>
+      </details>
     </div>
   );
 }
@@ -411,14 +589,9 @@ function RowPreview({
             {draft.headline ? (
               <p className="mt-0.5 text-sm break-words text-t-muted">{draft.headline}</p>
             ) : null}
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-t-faint">
-              {draft.jobFunction ? (
-                <span className="rounded-full border border-stroke px-2 py-0.5">
-                  {draft.jobFunction}
-                </span>
-              ) : null}
-              {draft.location ? <span className="break-words">{draft.location}</span> : null}
-            </p>
+            {draft.location ? (
+              <p className="mt-1.5 text-xs break-words text-t-faint">{draft.location}</p>
+            ) : null}
           </div>
 
           <div className="min-w-0">
@@ -433,17 +606,18 @@ function RowPreview({
             ) : (
               <ul className="flex flex-col gap-2">
                 {draft.credentials.map((credential) => {
-                  const verified =
-                    Boolean(credential.earnedAt) && Boolean(controlled.verified[credential.key]);
+                  const verified = Boolean(controlled.verified[credential.key]);
+                  /* Nothing picked yet is a state of the form, not of a
+                     credential — the row still has to draw as something, and
+                     saying so is better than inventing a label for it. */
+                  const entry = credential.catalogueId
+                    ? catalogueEntry(credential.catalogueId)
+                    : null;
                   return (
                     <li key={credential.key} className="flex items-start gap-2 text-sm">
                       <span
                         className={`mt-1 grid size-4 shrink-0 place-items-center rounded-full ${
-                          verified
-                            ? "bg-ink text-t-invert"
-                            : credential.earnedAt
-                              ? "border border-stroke"
-                              : "border border-dashed border-stroke"
+                          verified ? "bg-ink text-t-invert" : "border border-stroke"
                         }`}
                       >
                         {verified ? <span className="text-[8px]">✓</span> : null}
@@ -451,14 +625,12 @@ function RowPreview({
                       <span className="min-w-0">
                         <span
                           className={`break-words ${
-                            credential.earnedAt ? "text-t-medium" : "text-t-faint italic"
+                            entry ? "text-t-medium" : "text-t-faint italic"
                           }`}
                         >
-                          {credential.label || "Untitled credential"}
+                          {entry ? entry.label : "Nothing picked yet"}
                         </span>
-                        {credential.earnedAt &&
-                        credential.evidencePublic &&
-                        credential.evidenceUrl ? (
+                        {credential.evidencePublic && credential.evidenceUrl ? (
                           <span className="ml-2 text-xs text-t-muted underline decoration-stroke underline-offset-4">
                             Certificate
                           </span>
@@ -471,8 +643,12 @@ function RowPreview({
             )}
           </div>
 
+          {/* Services, matching the real row — the roster's third column is
+              what you can be hired for, and focus is on the profile page. A
+              preview that drew the wrong column would be teaching the wrong
+              thing about which answer the directory uses. */}
           <div className="flex flex-wrap gap-1.5">
-            {draft.focus.map((item) => (
+            {draft.services.map((item) => (
               <span
                 key={item}
                 className="rounded-full border border-stroke px-3 py-1 text-xs font-medium text-t-muted"

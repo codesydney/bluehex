@@ -49,6 +49,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { catalogueEntry } from "../catalogue";
 import {
   admin,
   badgeShows,
@@ -185,16 +186,39 @@ export function ReviewQueue({ queue, actions }: VariantProps) {
 
             <p className="mt-6 max-w-prose">{selected.bio}</p>
 
-            <div className="mt-5 flex flex-wrap gap-1.5">
-              {selected.focus.map((item) => (
-                <span
-                  key={item}
-                  className="rounded-full border border-stroke px-2.5 py-0.5 text-xs text-t-muted"
-                >
-                  {item}
-                </span>
-              ))}
-            </div>
+            {/* Services and focus, kept apart and labelled. They are two
+                different claims — what you can buy, and what somebody knows —
+                and running them together as one pile of chips would hide the
+                one an admin is most likely to find telling. Marcus Bell's five
+                focus areas beside his three services is a signal; the same
+                eight in one row is decoration. */}
+            {selected.services.length > 0 ? (
+              <p className="mt-5 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-t-faint uppercase">Offers</span>
+                {selected.services.map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-full border border-stroke-strong px-2.5 py-0.5 text-t-bright"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </p>
+            ) : null}
+
+            {selected.focus.length > 0 ? (
+              <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-t-faint uppercase">Knows</span>
+                {selected.focus.map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-full border border-stroke px-2.5 py-0.5 text-t-muted"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </p>
+            ) : null}
 
             <p className="mt-5 text-sm text-t-muted">
               {selected.contactEmail} · never published
@@ -322,12 +346,17 @@ function badgeLine(profile: QueueProfile) {
     return "No badge — the profile is not visible";
   }
 
+  /* Nothing claimed at all, which is a normal profile rather than a gap. It
+     used to read "nothing earned yet", which was true of a profile holding only
+     in-progress rows; there are no such rows now, so the only way to have
+     nothing to check is to hold nothing. */
+  if (profile.credentials.length === 0) return "No badge — no credentials claimed";
+
   const waiting = unchecked(profile).length;
-  if (waiting === 0) return "No badge — nothing earned yet";
   if (checkable(profile).length === 0) {
-    return `No badge — ${waiting} earned, no certificate supplied`;
+    return `No badge — ${waiting} claimed, no certificate supplied`;
   }
-  return `No badge — ${waiting} earned still unchecked`;
+  return `No badge — ${waiting} still unchecked`;
 }
 
 function QueueRow({
@@ -379,14 +408,18 @@ function CredentialRow({
      nothing left to do. The rows still render, because the evidence is part of
      why it was rejected; only the action column goes read-only. */
   const closed = status === "rejected" || status === "withdrawn";
+  /* The label and the source are read off the catalogue rather than off the
+     credential, which is the whole of the change here: the practitioner chose
+     an entry from a list Bluehex wrote, so what an admin reads on this row is
+     Bluehex's own text and the only untrusted string left is the URL. */
+  const entry = catalogueEntry(credential.catalogueId);
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0 flex-1">
-        <p className="font-medium">{credential.label}</p>
+        <p className="font-medium">{entry.label}</p>
         <p className="mt-0.5 text-sm text-t-muted">
-          {credential.source} ·{" "}
-          {credential.earnedAt ? `earned ${credential.earnedAt}` : "working towards it"}
+          {entry.source} · earned {credential.earnedAt}
         </p>
 
         {credential.verified ? (
@@ -423,8 +456,6 @@ function CredentialRow({
           <p className="max-w-48 text-sm text-t-muted">
             {status === "rejected" ? "Rejected" : "Withdrawn"}, so there is nothing to check
           </p>
-        ) : !credential.earnedAt ? (
-          <p className="text-sm text-t-muted">Nothing to check yet</p>
         ) : !credential.evidenceUrl ? (
           /* Earned, claimed, nothing behind it. Not a rejection and not a task —
              it waits on them, and must never sit in the queue as work that
