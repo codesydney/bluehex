@@ -236,6 +236,9 @@ about 250 MB of the tree, and you get it whether or not you ever deploy.
 
 ## Contributing
 
+Start with [`CONTRIBUTING.md`](./CONTRIBUTING.md) — what you need before your first pull
+request, including the two rules that are easiest to breach.
+
 Repository conventions and architecture notes for both humans and AI coding agents
 live in [`AGENTS.md`](./AGENTS.md). `CLAUDE.md` is a one-line file importing it, so
 there is a single source of truth — edit `AGENTS.md`.
