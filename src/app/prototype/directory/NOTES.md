@@ -2,6 +2,8 @@
 
 One surface, because they stopped being separable. `pnpm dev`, then <http://localhost:3000/prototype/directory>. Three profiles, the population it launches with; click **View profile** on any row.
 
+**The click-through is dead here, on purpose.** Each row's *View profile* is `profilePath(person)`, so it goes to `/p/<handle>` — the real product URL, not a prototype copy of one. That route resolves against the real practitioner data, which is empty and stays empty until real people are in it, so every row on this page 404s when clicked. The alternative was a prototype-only detail route, and it was rejected: it would stand a second resolver beside the real one and let the two disagree, which is the exact failure recorded under *The identifier* below — a prototype handle scheme that disagreed with production, deleted rather than reconciled. The drawing owns the roster; the page behind the link is production's to fill.
+
 They were two prototypes until the production CTA changed. The directory could not reach a profile while the roster's only control was *Enquire*, so the profile prototype drew its own list to have something to click — and that second list doubled up with this one. Pointing the real roster at `/p/<handle>` removed the reason for the copy.
 
 ## Part one — the directory
@@ -113,7 +115,7 @@ Asked, and worth recording because the intuition is reasonable and the answer is
 
 **Where it does matter is withdrawal, not scraping.** An indexed name-slug URL keeps the person's name in search caches and third-party link databases after they have left. That is the longest-lived trace a withdrawn profile leaves, and it belongs to #52.
 
-**And the design already makes it a free choice.** Because the lookup ignores the slug, `/p/9f3c1a` and `/p/mara-ellison-9f3c1a` are the same page with no extra machinery — the flag only decides which one gets linked to. `profileHandle(person, named)` takes it as an argument today.
+**And the design already makes it a free choice.** Because the lookup ignores the slug, `/p/2f1a3c` and `/p/mara-ellison-2f1a3c` are the same page with no extra machinery — a flag would only decide which one gets linked to. Nothing implements it: `profilePath(person)` in `@/lib/practitioners` takes one argument and always emits the name slug, so choosing the opaque form means giving the generator a second argument, not flipping one it already has.
 
 **Open: what the default is, and who owns the flag.** The model has this shape already in `evidence_public` — a privacy trade the practitioner makes for themselves rather than one the schema makes for them — and the same reasoning applies here. Recommended: default to the name slug, since the link is worth less without it and publishing a profile is already a decision to be found, with an opt-out for anyone who wants the opaque URL. If it becomes a stored preference it needs a column and a place on the editor.
 

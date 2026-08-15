@@ -26,18 +26,25 @@ function academy(
   return { source: "Anthropic Academy" as const, label, earnedAt, verified, evidenceUrl };
 }
 
-/** Started, not finished. True of everybody right now. */
-const certificationInProgress = {
-  source: "Claude Certification" as const,
-  label: "Claude Certification",
-  earnedAt: null,
-  verified: false,
-  evidenceUrl: null,
-};
+/** Started, not finished. Nobody has completed one yet — that is the point. */
+function certificationInProgress() {
+  return {
+    source: "Claude Certification" as const,
+    label: "Claude Certification",
+    earnedAt: null,
+    verified: false,
+    evidenceUrl: null,
+  };
+}
+
+/* The ids are uuid-shaped because `profilePath` takes the first six characters
+   of the row's uuid, and a two-character stand-in makes that truncation a no-op
+   — the surface would serve `/p/mara-ellison-l1` and never show the URL this
+   drawing exists to look at. */
 
 export const launchPopulation: Practitioner[] = [
   {
-    id: "l1",
+    id: "2f1a3c9d-4b7e-4c21-9a86-1d0f5e83b7c4",
     name: "Mara Ellison",
     headline: "Staff engineer, agent platforms",
     location: "Sydney",
@@ -51,11 +58,11 @@ export const launchPopulation: Practitioner[] = [
         true,
         "https://example.invalid/certificate/mara-ellison",
       ),
-      certificationInProgress,
+      certificationInProgress(),
     ],
   },
   {
-    id: "l2",
+    id: "8c5d1e07-3a94-4f6b-b2d8-06e7a1c94f52",
     name: "Toby Nakamura",
     headline: "Independent consultant",
     location: "Wellington",
@@ -65,116 +72,14 @@ export const launchPopulation: Practitioner[] = [
     credentials: [academy("Prompt engineering", "2026-05-02", true)],
   },
   {
-    id: "l3",
+    id: "b41f6a2e-9c30-4d85-8e17-5fa2c3d70b19",
     name: "Devon Achebe",
     headline: "Backend developer, moving into AI work",
     location: "Melbourne",
     countryCode: "AU",
     bio: "Writing Go for payments by day, working through the Academy track on weekends.",
     focus: ["Agents", "MCP"],
-    credentials: [certificationInProgress, academy("Building with the Claude API", null, false)],
-  },
-  {
-    id: "l4",
-    name: "Priya Raghavan",
-    headline: "ML engineer",
-    location: "Singapore",
-    countryCode: "SG",
-    bio: "Moved from recommender systems to LLM tooling in 2025 and has not looked back.",
-    focus: ["Evals", "Fine-tuning", "Agents"],
-    credentials: [
-      academy("Tool use and function calling", "2026-04-30", true),
-      academy("Claude Code in practice", "2026-08-01", false),
-      certificationInProgress,
-    ],
-  },
-  {
-    id: "l5",
-    name: "Susanna Wróbel",
-    headline: "Product engineer",
-    location: "Brisbane",
-    countryCode: "AU",
-    bio: "Interfaces for things that stream. Interested in how you show a model thinking without lying about it.",
-    focus: ["Frontend", "Streaming"],
-    credentials: [academy("Prompt engineering", "2026-07-19", false)],
-  },
-  {
-    id: "l6",
-    name: "Kofi Mensah",
-    headline: "Solutions architect",
-    location: "London",
-    countryCode: "GB",
-    bio: "Helps teams work out whether they need an agent or a for-loop. Usually a for-loop.",
-    focus: ["Architecture", "Agents"],
-    credentials: [
-      academy(
-        "Tool use and function calling",
-        "2026-06-08",
-        true,
-        "https://example.invalid/certificate/kofi-mensah",
-      ),
-      certificationInProgress,
-    ],
-  },
-  {
-    id: "l7",
-    name: "Ines Delacroix",
-    headline: "Technical writer",
-    location: "Perth",
-    countryCode: "AU",
-    bio: "Documentation for developer tools. Joined to be findable, not to be certified.",
-    focus: ["Docs", "DX"],
-    credentials: [],
-  },
-  {
-    id: "l8",
-    name: "Rahim Osman",
-    headline: "Data engineer",
-    location: "Kuala Lumpur",
-    countryCode: "MY",
-    bio: "Pipelines, warehouses, and the long tail of data that never fits the schema.",
-    focus: ["Data", "RAG"],
-    credentials: [academy("Building with the Claude API", "2026-03-30", true)],
-  },
-  {
-    id: "l9",
-    name: "Elena Vasquez",
-    headline: "Design lead",
-    location: "Sydney",
-    countryCode: "AU",
-    bio: "Designs for products where the model is part of the interface, not behind it.",
-    focus: ["Design", "Frontend"],
-    credentials: [certificationInProgress],
-  },
-  {
-    id: "l10",
-    name: "Nguyen Thi Lan",
-    headline: "Full-stack developer",
-    location: "Ho Chi Minh City",
-    countryCode: "VN",
-    bio: "Ships small tools quickly. Most of them stay small on purpose.",
-    focus: ["Claude Code", "Agents"],
-    credentials: [academy("Claude Code in practice", "2026-06-21", true)],
-  },
-  {
-    id: "l11",
-    name: "Sam Okafor",
-    headline: "Engineering manager",
-    location: "Auckland",
-    countryCode: "NZ",
-    bio: "Spends most of the week helping other people decide what not to build.",
-    focus: ["Architecture", "Evals"],
-    credentials: [academy("Prompt engineering", "2026-02-11", true), academy("Evaluations", "2026-07-30", false)],
-  },
-  {
-    id: "l12",
-    name: "Aisha Rahman",
-    headline: "Research engineer",
-    location: "Bengaluru",
-    countryCode: "IN",
-    bio: "Works on retrieval quality. Reads more papers than is strictly healthy.",
-    focus: ["RAG", "Evals", "Fine-tuning"],
-    credentials: [certificationInProgress, academy("Tool use and function calling", null, false)],
+    credentials: [certificationInProgress(), academy("Building with the Claude API", null, false)],
   },
 ];
 

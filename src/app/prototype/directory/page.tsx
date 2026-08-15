@@ -58,7 +58,7 @@ export default function DirectoryPrototypePage() {
         </p>
       </div>
 
-      <PractitionerDirectory practitioners={launchPopulation.slice(0, 3)} />
+      <PractitionerDirectory practitioners={launchPopulation} />
     </>
   );
 }
