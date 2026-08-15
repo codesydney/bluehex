@@ -135,12 +135,16 @@ sign-in links work locally with no mail provider configured.
 `db:reset` and `db:types` both read the running stack, so `pnpm db:start` first. Note
 `pnpm dev` does not start it either.
 
-**The database is empty.** There are no migrations yet — the schema starts with the
-practitioners table, which is still being designed. So the stack comes up with nothing
-in it, `src/lib/database.types.ts` describes no tables, and nothing in the app queries
-anything. That is the honest state rather than an oversight: a health-check table
-invented to have something to read would have to live in the migration history
-permanently to prove a point that the first real query proves for free.
+**There is one migration, and it holds no product data.** It creates the `bluehex_admin`
+role, the `public.admins` list and the `custom_access_token_hook` that stamps the role
+onto an access token — the groundwork every later policy and grant refers to. So
+`src/lib/database.types.ts` describes `admins` and that function and nothing else, the
+product schema still starts with the practitioners table, which is being designed, and
+nothing in the app queries anything yet.
+
+That the stack came up empty before this was the honest state rather than an oversight: a
+health-check table invented to have something to read would have to live in the migration
+history permanently to prove a point that the first real query proves for free.
 
 Schema changes are migrations, created with
 `pnpm exec supabase migration new <name>` and committed. Changing the schema through
