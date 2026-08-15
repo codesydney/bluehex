@@ -1,15 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowUpRight } from "@/components/icons";
 
 /**
- * Index for the three design mocks. Never production, and linked from nowhere.
+ * Index for the three design mocks. Served in production, linked from nowhere.
  *
- * All three routes below 404 in a production build, which is the confusing
- * failure to know about: `pnpm start` serves the rest of the site perfectly well
- * and returns 404 only for these, which reads like a broken route rather than a
- * working guard. Use `pnpm dev`.
+ * These used to 404 outside development. The guard was removed deliberately so
+ * the designs can be handed to someone as a URL rather than as a screenshot or a
+ * checkout — which is the only way a non-contributor can actually use them.
+ *
+ * What that costs, stated plainly because it is easy to forget once these look
+ * like ordinary pages: the people in the directory mock are invented, the review
+ * queue shows a Bluehex admin approving and verifying them, and none of it is
+ * behind auth. On a site whose product is a trust badge, anyone who finds these
+ * without context can reasonably read them as real. They stay `noindex` and stay
+ * unlinked from the site's own navigation for that reason. Do not link to them
+ * from the hero, the footer or the directory.
  */
 
 export const metadata: Metadata = {
@@ -41,15 +47,14 @@ const designs: { href: string; title: string; blurb: string }[] = [
 ];
 
 export default function DesignIndex() {
-  if (process.env.NODE_ENV === "production") notFound();
-
   return (
     <section className="container-x pt-32 pb-32 md:pt-40">
       <h1 className="display-2">Designs</h1>
       <p className="mt-5 max-w-2xl text-t-muted">
         Working mocks of three surfaces — the directory as it ships today, and the two
-        that do not exist yet. Nothing here saves, and none of them is reachable in
-        production.
+        that do not exist yet. Nothing here saves and nothing here is real: the people
+        are invented, their badges attest to nothing, and no button reaches a database.
+        The real directory is on the home page.
       </p>
 
       <ul className="mt-12 flex max-w-3xl flex-col gap-4">
