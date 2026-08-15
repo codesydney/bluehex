@@ -105,8 +105,9 @@ Small, and none of them blocked on a decision.
 | Country flag on profile cards | 0.25d | a day | Add `countryCode` to `Practitioner`. SVG assets, not emoji — Windows has no flag glyphs. Lands as `country_code` in the schema later; the spec keeps it separate from free-text `location` for exactly this reason. Good first ticket, and delegable. |
 | Prototype route with sample profiles | 0.5d | a day | Not linked from the site, never in production. Doubles as the recruiting artifact — a candidate can see what their profile will look like. |
 | Credential proof URL | 0.25d | a day | Optional field on `Credential` so a badge can link to the evidence a human checked. Becomes `evidence_url` on the credential row; note the spec pairs it with `evidence_public`, so collect the opt-in alongside it. |
+| Compile the credential catalogue | 0.25d | a day | List every Anthropic Academy course and every Claude Certification, with its `source`. Data entry, not engineering, and it is on the critical path: the spec's `credential_catalogue` seeds from it and nobody can enter a credential against an empty table. Needs somebody who can enumerate the Academy track — Engramar is taking it and is the obvious owner. |
 
-**Subtotal: ~1d effort, a couple of days elapsed.** No buffer applied — these are small
+**Subtotal: ~1.25d effort, a couple of days elapsed.** No buffer applied — these are small
 and well understood.
 
 Both field additions are **prerequisites rather than independents**: they want to exist
@@ -130,11 +131,13 @@ or the site sits empty while auth gets written.
 | Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
 | **1 — Curated intake** | 1–1.5d | ~2 days | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. Mail template, PR template, and the checklist Bluehex verifies against. No database, no accounts, no secrets. |
-| **2a — Schema and the read path** | 3.5–5d | ~1 week | #49, #50, #45, #41, #48, #53. No auth in the application. Includes the four published link columns, the `https_url` domain and their tests. |
+| **2a — Schema and the read path** | 4.5–6d | ~1.5 weeks | #49, #50, #45, #41, #48, #53. No auth in the application. Includes the four published link columns and the `https_url` domain; `credential_catalogue` with its seed data; `services` and `availability`; and the tests for all of it. |
 | **2b — Authentication** | 3–4d | ~1 week | Supabase Auth: accounts, sessions, sign-up with email verification, password reset, route protection. |
 | **2c — Profile writes** | 8–10d | ~2–2.5 weeks | #14, #52. Profile CRUD, avatar upload, validation, claiming, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
 
-**Total for phase two: 14.5–19 days**, about **four to five weeks** elapsed.
+**Total for phase two: 15.5–20 days**, about **four to five weeks** elapsed.
+
+**Worth stating plainly for anyone reading "milestone one" as a short thing:** profile creation, the full credential catalogue and published profiles is phase one *plus all of phase two* — four to five weeks of elapsed time at this capacity, not a weekend. What lands in about two days is curated intake, which puts real profiles in the directory with no database, no accounts and no self-service. That is most of the visible value and almost none of the cost, and it is the reason the phases are ordered the way they are.
 
 **2a moved, and it moved in both directions.** The plumbing that made up much of the
 original 2–3d estimate has landed — local stack, migrations in version control, generated
@@ -191,14 +194,19 @@ how ownership works, and the DDL; `docs/profile-lifecycle.md` for the lifecycle,
 and the write path; `CONTEXT.md` for the vocabulary; ADR-0001 for how admin privilege is
 held. All four are settled and proved against the local stack.
 
-Four things this document previously described and got wrong, recorded here only so nobody
+Five things this document previously described and got wrong, recorded here only so nobody
 reintroduces them from an old copy:
 
 - **`status` is `pending`, `approved`, `rejected`, `withdrawn`** — four values, not three.
   There is no `registered`. `withdrawn` is the practitioner's own lever, not Bluehex's.
 - **`verified` lives on the credential row, not the profile.** The badge is *derived* —
-  at least one earned credential, and every earned credential verified. `certified` is
-  derived too and is not stored at all.
+  at least one credential, and every credential verified. `certified` is derived too and
+  is not stored at all.
+- **There is no "working towards" credential.** In-progress rows were removed on
+  2026-08-16; every credential row is earned. What a practitioner has not earned is shown
+  as progress against `credential_catalogue`, which is derived and asserts nothing.
+  A practitioner also cannot type a credential name at all — they pick a catalogue entry
+  Bluehex wrote.
 - **Editing an approved profile does not send it back for re-approval.** Edit in place,
   no kick-back; the badge clears instead when attested content changes.
 - **A profile cannot change owners.** `null → A` claims, `A → null` unassigns and forces
@@ -216,7 +224,31 @@ to Supabase in #28 and this document's claim that it was stale is no longer true
 
 ### Still open
 
-- **Nothing.** The enquiry destination was the open item here and it is settled: the form mails Bluehex. Delivering to the practitioner is deferred with a gate in the spec rather than open.
+- **What a Pearson VUE pass is evidenced by.** The four Claude Certifications are examined through Pearson VUE rather than issued through Skilljar, and this whole design rests on evidence being a shareable URL. Whether a Pearson VUE result produces one — a Credly badge, a public score report, anything linkable — is not known and should not be guessed. Not blocking: nobody in the community holds a Certification yet, so the first person to earn one answers it. If the answer is "no URL", `evidence_url` needs a companion and that is a spec change rather than a workaround.
+- **Where the progress figure may be shown.** "2 of 23" reads as encouragement on a practitioner's own editor and as 9% on a public profile in front of an employer. Recommended split is in the spec; it is a presentation decision with no schema consequence, and it should be settled before it is drawn.
+
+### Talking to users, before more of this gets built
+
+| Item | Effort | Elapsed | Notes |
+| --- | --- | --- | --- |
+| Five practitioner conversations | 0.5d | a week or two | The easier half, and partly self-answering — the Meetup is a room full of them, and the prototype already works as the artifact to react to. |
+| Five client conversations | 1d | two to three weeks | The unknown, and the one worth the effort. Nobody in the project has a warm client-side network, so this is cold outreach rather than a room to walk into. |
+
+**This is the cheapest item in the document and it is not engineering at all.** Costed here because it competes for the same attention as everything else, and because "we'll validate it later" is how it does not happen.
+
+**The client conversations are what retire the closing question below.** *What does Verified attest to for the first fifty profiles?* is a question about what a **buyer** will accept, and it has been argued entirely among people building the thing. Five conversations answer it better than any amount of further design, and it currently gates the badge copy — which is the product.
+
+Practitioner-side leads exist: Jay at Seiment is Claude-certified and co-organises the weekly meetup. Worth being honest that this is the side that was never the risk.
+
+### Key partners on the home page
+
+| Item | Effort | Elapsed | Notes |
+| --- | --- | --- | --- |
+| Partner logos and links | 0.5d | a day | Seiment (AU), dataengineering.ph (PH), tutorialsdojo.com (PH/AU). A logo row with links; assets need collecting from each partner, which is the part that takes elapsed time rather than effort. |
+
+**Proposed, not scheduled, and it costs something the estimate does not show.** `AGENTS.md` says marketing copy beyond the hero is deliberately absent, and the directory is the product. This is the first breach of that, so it should be a decision rather than a drive-by — the rule has held the home page down to one job and it will not hold once there is a precedent for adding a section.
+
+**Recommended sequencing: after the directory has people in it.** Three partner logos above an empty roster claims more than the page can show, which is the same failure as marketing copy above an empty directory. The partners are not going anywhere.
 
 ### Meetup banner
 
@@ -250,7 +282,11 @@ Delivering the enquiry to the practitioner instead was specified on 2026-08-16 a
 
 **Decided 2026-08-16 — a profile may publish links, but never an address or a phone number.** `website_url`, `github_url`, `linkedin_url` and `booking_url` are public, practitioner-writable columns; `practitioner_contacts` keeps every protection it had. The test is a route to a *page* versus a route to a *person*; `docs/adr/0002-links-are-published-addresses-are-not.md` owns the argument.
 
-**One repricing, and it is in the table above rather than only in this paragraph.** 2a goes **3–4.5d → 3.5–5d**: four columns, the `https_url` domain, four grant-list edits and the tests that prove the domain refuses what it is there to refuse. That is half a day, and it is the cheap direction — the columns cost a fraction now of what collecting them from twenty-five people later would.
+**Two repricings, and they are in the table above rather than only in these paragraphs.**
+
+2a went **3–4.5d → 3.5–5d** on 2026-08-16: four link columns, the `https_url` domain, four grant-list edits and the tests that prove the domain refuses what it is there to refuse. That is half a day, and it is the cheap direction — the columns cost a fraction now of what collecting them from twenty-five people later would.
+
+2a goes **3.5–5d → 4.5–6d** on the credential catalogue and the service fields. A fifth table with its own grants, policies and seed data; `source` and `label` moving off the credential row and `catalogue_id` replacing them; `services` and `availability` on the profile with a check constraint that has to be tested at the database rather than in a form; and roughly ten new assertions, of which the load-bearing one is that a practitioner cannot write a catalogue row. Called out because **it is the second time this document has gone up for finding work rather than inventing it** — the free-text credential hole was in the model from the start and nobody had looked at it. That is the document working, and it is also the reason the capacity figure stays short of the observed rate.
 
 **Links change what #2 is worth, not what it costs.** The enquiry form stops being the only way to reach a practitioner, so a strained relay throttles Bluehex's lead flow rather than the directory's usefulness. #2 is unchanged in scope and is now sequenceable *after* the link fields rather than before them.
 
@@ -265,9 +301,15 @@ Explicitly **not** being built, and not to be inferred from the word "marketplac
 - Matching, ranking or recommendation
 - Payments, invoicing, contracts or escrow
 - Ratings and reviews
-- Availability, rates, or booking and scheduling *in the app* — a `booking_url` pointing
+- Rates, or booking and scheduling *in the app* — a `booking_url` pointing
   at a practitioner's own scheduling page is a link, not a booking system, and was
   admitted on 2026-08-16; Bluehex holds no calendar, no slots and no reservations
+- **Availability as state the application maintains** — slots, reservations, a calendar
+  that can be out of date. An `availability` *sentence* the practitioner typed
+  ("evenings and weekends", "booked until March") was admitted on 2026-08-16 and is not
+  this: it carries no state and nothing in the app has to keep it true. The word alone was
+  doing too much work in an earlier version of this list, which read as excluding the
+  field as well as the system
 
 Any of these can be proposed later, and would be broken down and sized then. None is
 scheduled and none should be assumed. Naming the exclusions is what makes the
@@ -290,6 +332,20 @@ no authentication, so the banner requires no API, no secret and no Pro subscript
 Skilljar, whose API is tenant-scoped to Anthropic and therefore closed to Bluehex.
 Mirroring to Credly was the only remaining route to an automated check and is not
 being pursued.
+
+**Cross-referencing a certificate against a LinkedIn profile — deferred 2026-08-16, and it is not the item above.** Proposed as "tiny smarts": compare the name on a submitted certificate against the name on the practitioner's LinkedIn and flag a mismatch for the admin.
+
+Keep it filed separately, because the entry above is about a *different* thing and reading it as covering this one is the mistake to avoid. That one is **cut permanently and structurally** — the issuer's API is closed to Bluehex and no amount of wanting it changes that. This one is merely **deferred**: it is buildable, and the reasons not to are judgement rather than impossibility.
+
+**It is also not verification, and should not be called that.** It checks whether two things the *practitioner supplied* agree with each other. Someone who fabricates both passes it cleanly, so it attests to nothing and must never be allowed to feed `verified`. At most it is an identity-consistency signal shown to a human who is about to decide.
+
+Three reasons it is not worth building now:
+
+- **The false-positive case is the one that matters and it is common.** The review-queue fixtures already carry it: Aroha Ngata's certificate is in her legal name and her profile in the name she goes by. A design that makes her look like the spam profile is wrong, and an automated name comparison does exactly that on the most sympathetic user in the set.
+- **It would mean Bluehex fetching a URL a practitioner controls**, which the review-queue work already argued against at length — SSRF against a host running Supabase locally, and leaking the admin's address and review timing back to the person under review. LinkedIn also blocks automated access as a matter of course.
+- **The cheap version is free and already available.** `linkedin_url` is a column as of 2026-08-16, so the review queue can show it as text beside the evidence URL and a human compares both names in one glance. No fetching, no subsystem, no false positives — the same reasoning that shows `evidence_url` as text rather than rendering it.
+
+**Gate:** revisit if the manual name check becomes the bottleneck in review — which needs a volume of profiles nobody has, and would be obvious when it arrives.
 
 Verification stays **manual, by design**. A practitioner supplies proof, a human at
 Bluehex checks it, and `verified` is set by hand. This is not a stopgap awaiting
@@ -322,10 +378,12 @@ different one from the original brief, and the badge copy has to say so.
 can start immediately and should — nothing in phase one waits on this. What waits is the
 copy, and any public claim about what the badge means.
 
-The spec sharpens the question rather than dissolving it. Verification is now per
-credential, and the profile badge is derived from *evidence-backed* credentials — at least
-one earned, all earned ones verified. So a practitioner working towards a certification
-has credentials that can never roll up to a badge, because in-progress credentials sit
-outside the rollup entirely. The mechanism is decided; what it is allowed to mean is not.
+The spec sharpens the question rather than dissolving it. Verification is per credential and the profile badge is derived — at least one credential, every one verified. Since an Anthropic Academy certificate *is* a credential and the spec is explicit that the two sources "differ in weight, not in kind", **badges appear from week one, earned entirely on Academy certificates while nobody holds a Certification.** That is not a bug to fix in the copy: it is the mechanism already having chosen the second branch. Making it Certification-only would be a schema change that denied the badge to everybody at launch, and it would have to be argued as one.
+
+So the honest reading of what exists is *"Bluehex checked the credentials on this profile"* — which claims less than a certification badge, and is the right amount to claim.
+
+**The in-progress framing this paragraph used to carry has been removed**, because in-progress credentials no longer exist. A practitioner working through the Academy is not somebody with unverifiable credential rows; they are somebody with fewer credentials, whose progress against the catalogue is visible without their claiming anything. The group is still included — that never depended on the rows.
+
+**What is still genuinely open is what the badge is allowed to *mean*, and that is a question for buyers rather than for this document.** See *Talking to users* above: five client conversations settle it, and nothing else will.
 
 The badge is the entire value proposition. Everything above is plumbing around it.

@@ -306,10 +306,18 @@ checked the credentials. Either can be true without the other, and the badge ref
 `verified` only.
 
 They are two booleans in `practitioners.ts` today, but only `verified` survives as a
-stored column: once credentials are rows of their own, `certified` is "has an earned
-Claude Certification credential" and gets derived rather than stored, so the two cannot
-disagree. The separation of the two *ideas* is the invariant; the second column is not.
-See `docs/spec/profile-and-credentials.md`.
+stored column: once credentials are rows of their own, `certified` is "holds a credential
+whose catalogue entry is a Claude Certification" and gets derived rather than stored, so
+the two cannot disagree. The separation of the two *ideas* is the invariant; the second
+column is not. See `docs/spec/profile-and-credentials.md`.
+
+**A practitioner cannot type a credential name.** Credentials reference
+`credential_catalogue`, a Bluehex-owned list of every Claude credential that exists, and
+the only thing keeping the model narrow is that nobody but `bluehex_admin` can insert into
+it. `CONTEXT.md` always said the word was deliberately narrow; until 2026-08-16 nothing
+enforced it and `label` was free text. If a future change puts a text column back on a
+credential row, that is the invariant breaking — and like the `verified` rule below, it
+fails silently rather than loudly.
 
 Keep the tree this thin until something needs otherwise.
 
@@ -405,8 +413,11 @@ being vouched for, which is the normal case.
 The parts most likely to catch you out:
 
 - **Verification is per credential**, not per profile. The profile-level badge is derived —
-  at least one earned credential, and every earned credential verified — and is not stored.
-  `certified` is not stored either.
+  at least one credential, and every credential verified — and is not stored. `certified`
+  is not stored either, and neither is a practitioner's progress through the catalogue.
+- **There is no in-progress credential.** Every credential row is earned; `earned_at` is
+  `not null`. Someone working towards a certification is shown as holding fewer catalogue
+  entries, not as holding an unverifiable row.
 - **Reads are column-scoped as well as writes**, so `anon` cannot see `user_id`, `status`
   or who approved a profile. **`select *` is refused; every query must name its columns.**
 - **The `config.toml` hook line and the migration creating `custom_access_token_hook` are
