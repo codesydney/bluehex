@@ -52,9 +52,10 @@ export default function DirectoryPrototypePage() {
     <>
       <div className="container-x pt-32 md:pt-40">
         <p className="max-w-2xl text-sm text-t-muted">
-          Click <strong className="font-medium text-t-bright">View profile</strong> on any
-          row to go to that person&rsquo;s page at <code>/p/&lt;handle&gt;</code> — the same
-          URL they would paste into a job application.
+          Each row&rsquo;s <strong className="font-medium text-t-bright">View profile</strong>{" "}
+          points at that person&rsquo;s real URL, <code>/p/&lt;handle&gt;</code> — the one they
+          would paste into a job application. Clicking it 404s: that route resolves against
+          the real practitioners, and there are none yet.
         </p>
       </div>
 
