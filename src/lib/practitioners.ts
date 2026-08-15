@@ -92,6 +92,30 @@ export function hasVerifiedBadge(credentials: Credential[]) {
   return earned.length > 0 && earned.every((credential) => credential.verified);
 }
 
+/**
+ * Where a profile lives.
+ *
+ * `mara-ellison-9f3c1a`: the short id is what resolves and the slug is
+ * decoration, so a rename changes the URL without breaking the old one — the
+ * route reads only the trailing id and serves a canonical redirect when the
+ * slug no longer matches. Readable enough to paste into a job application,
+ * which is the reason a profile has a URL at all.
+ *
+ * The id is the first six characters of the row's uuid. It must never be
+ * derived from the name: hashing the name would move the id whenever the name
+ * changed, which is the exact failure this scheme exists to prevent.
+ */
+export function profilePath(person: Pick<Practitioner, "id" | "name">) {
+  const slug = person.name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return `/p/${slug}-${person.id.slice(0, 6)}`;
+}
+
 /* `Intl` already ships every country name, so a lookup table here would be a
    few kilobytes of data to maintain for no gain. Built once, not per render. */
 const regionNames = new Intl.DisplayNames(["en"], { type: "region" });

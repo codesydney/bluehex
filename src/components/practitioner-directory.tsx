@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useMemo, useRef, useState } from "react";
 import { Close, Search, Sparkle } from "@/components/icons";
 import { Badge, Card } from "@/components/ui";
 import {
   countryName,
   hasVerifiedBadge,
+  profilePath,
   type Credential,
   type Practitioner,
 } from "@/lib/practitioners";
@@ -396,15 +398,29 @@ function PractitionerRow({ person }: { person: Practitioner }) {
         ))}
       </div>
 
-      {/* Enquiries go through Bluehex: no address on the row, and the link
-          carries who the enquiry is about so the form can say so. */}
-      <a
-        href={`/contact?about=${encodeURIComponent(person.name)}`}
+      {/* One call to action per surface: the directory's job is to get you to a
+          profile, the profile's job is to get you to enquire. Enquiring from the
+          row would ask someone to commit before they have read anything, and it
+          is why the profile page ends in "Enquire about {first name}" instead.
+
+          A `Link` rather than an `<a>`, so the navigation is soft and the route
+          is prefetched. Worth knowing if an overlay is ever attempted here
+          again: route interception applies to soft navigation *only*, so an
+          anchor silently disables it and full-page-loads every profile, and the
+          symptom looks exactly like a misconfigured interceptor. One was built
+          and cut — see the prototype's NOTES.md before re-attempting it.
+
+          NOTE: `/p/` does not exist yet. The directory ships empty, so no row
+          and no link renders today — but the profile route has to land before
+          the first practitioner is added, or this is a 404 and enquiries have no
+          path at all. */}
+      <Link
+        href={profilePath(person)}
         className="inline-flex h-9 w-fit shrink-0 items-center rounded-full border border-stroke-strong px-4 text-sm font-medium transition-colors hover:bg-ink hover:text-t-invert"
       >
-        Enquire
-        <span className="sr-only"> about {person.name}</span>
-      </a>
+        View profile
+        <span className="sr-only"> for {person.name}</span>
+      </Link>
     </>
   );
 }
