@@ -7,6 +7,13 @@ trade-off is a choice rather than a surprise.
 Anything not written here is an idea, not a commitment. Ideas are welcome — this is
 where they get a number attached and become work.
 
+**This document owns cost, not design.** `docs/spec/profile-and-credentials.md` owns what
+a profile contains and how ownership works, `docs/profile-lifecycle.md` owns the lifecycle
+and the write path, `CONTEXT.md` owns the vocabulary, and `docs/adr/` owns the decisions.
+Where this file and any of those disagree, they win — and the disagreement is a bug in this
+file. Sections here point at them rather than restating them, because a document that
+restates a spec drifts from it and a document that points at one cannot.
+
 ## Reading the estimates
 
 Two different things, deliberately separated:
@@ -40,7 +47,17 @@ carries a spike instead of a number.
 | --- | --- |
 | Hero and site chrome | Live at bluehex.au, ported from Code.Sydney |
 | Directory shell | Search and filters; renders invitation cards while empty |
-| CI, Node pin, deploy workflow | Green on `main`; dependency release floor in place |
+| Contact page | `/contact`, with a `mailto:` stopgap — a real backend is #2 |
+| CI, Node pin | `ci.yml` runs build and lint on every PR; dependency release floor in place |
+| End-to-end tests | Playwright against a production build (`pnpm test:e2e`) |
+| Local Supabase stack | CLI stack, committed `config.toml`, `.env.example`, generated types |
+| First migration | `bluehex_admin`, `public.admins`, and the access token hook — ADR-0001 |
+
+**Two workflows are switched off at the GitHub end**: *Vercel Deploy* and *End-to-end
+tests* are both `disabled_manually`. Only *CI* runs on a pull request today, so nothing
+ships on a merge to `main` until deploy is turned back on. Check with
+`gh workflow list --all` rather than assuming — this is toggled by hand and the file
+being present says nothing about whether it runs.
 
 The directory currently holds zero profiles by design — real people only, no
 placeholder entries.
@@ -49,17 +66,22 @@ placeholder entries.
 
 ## In scope now
 
-Small, uncontested, no decision needed first.
+Small, and none of them blocked on a decision.
 
 | Item | Effort | Elapsed | Notes |
 | --- | --- | --- | --- |
-| Country flag on profile cards | 0.25d | days | Add `countryCode` to `Practitioner`; SVG assets, not emoji — Windows has no flag glyphs. Good first ticket, and delegable. |
+| Country flag on profile cards | 0.25d | days | Add `countryCode` to `Practitioner`. SVG assets, not emoji — Windows has no flag glyphs. Lands as `country_code` in the schema later; the spec keeps it separate from free-text `location` for exactly this reason. Good first ticket, and delegable. |
 | Prototype route with sample profiles | 0.5d | days | Not linked from the site, never in production. Doubles as the recruiting artifact — a candidate can see what their profile will look like. |
-| Credential proof URL | 0.25d | days | Optional field on `Credential` so a badge can link to the evidence a human checked. The whole of the verification mechanism — see Settled, below. |
-| Practitioner intake path | 0.5d | days | A documented route from "person agrees" to "profile published" — mail link, PR template, and the checklist Bluehex verifies against. |
+| Credential proof URL | 0.25d | days | Optional field on `Credential` so a badge can link to the evidence a human checked. Becomes `evidence_url` on the credential row; note the spec pairs it with `evidence_public`, so collect the opt-in alongside it. |
 
-**Subtotal: ~1.5 days effort, about a week elapsed.** No buffer applied — these are
-small and well understood.
+**Subtotal: ~1d effort, under a week elapsed.** No buffer applied — these are small and
+well understood.
+
+Both field additions are **prerequisites rather than independents**: they want to exist
+before the first profile is taken in. See *Design the model once*, below.
+
+The intake path itself is not listed here — it is phase one, costed once, in the table
+below. It appeared in both places in an earlier draft and was double-counted.
 
 ---
 
@@ -75,14 +97,24 @@ takes to build, or the site sits empty for a quarter while auth gets written.
 
 | Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
-| **1 — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. No database, no accounts, no secrets. |
-| **2a — Supabase and the read path** | 2–3d | ~2 weeks | Supabase project, local stack via the Supabase CLI, SQL migrations in version control, generated TypeScript types, env plumbing across CI and Vercel, seed of the curated profiles, directory reading from the database. No auth. |
-| **2b — Authentication** | 3–4d | ~2.5 weeks | Supabase Auth: accounts, sessions, sign-up with email verification, password reset, route protection, RLS policies. |
-| **2c — Profile writes** | 8–10d | ~6 weeks | Profile CRUD, avatar upload, validation, claiming of curated profiles, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
+| **1 — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. Mail template, PR template, and the checklist Bluehex verifies against. No database, no accounts, no secrets. |
+| **2a — Schema and the read path** | 3–4.5d | ~2–3 weeks | #49, #50, #45, #41, #48, #53. No auth in the application. |
+| **2b — Authentication** | 3–4d | ~2.5 weeks | Supabase Auth: accounts, sessions, sign-up with email verification, password reset, route protection. |
+| **2c — Profile writes** | 8–10d | ~6 weeks | #14, #52. Profile CRUD, avatar upload, validation, claiming, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
 
-**Total for phase two: 13–17 days**, down from 14–18. Supabase Auth supplies sign-up,
-verification mail, password reset and session handling as product rather than code,
-which is most of what made 2b expensive when it was going to be built by hand.
+**Total for phase two: 14–18.5 days**, about two to three months elapsed.
+
+**2a moved, and it moved in both directions.** The plumbing that made up much of the
+original 2–3d estimate has landed — local stack, migrations in version control, generated
+types, `.env.example`, and env wiring in both workflows. Against that, the grill-spec
+session revealed the schema is materially larger than the estimate assumed: not one table
+but four (`practitioners`, `practitioner_contacts`, `practitioner_credentials`,
+`practitioner_review_notes`), plus guard triggers, column-level grants, and the admin
+RPCs. The second effect is bigger than the first, so 2a goes **up** from 2–3d to 3–4.5d
+even though real work has shipped.
+
+That is the document working as intended rather than an embarrassment: the spike found the
+cost before the calendar did.
 
 The order is a dependency chain, not a preference. Profile *reads* need no auth and
 can come first, which puts the directory on real data early and de-risks everything
@@ -96,140 +128,81 @@ checklist, the profile shape, the `countryCode` and proof-URL fields and the
 published profiles themselves all carry over. The throwaway is the mail template,
 about half a day.
 
-**The profile model is designed once, before intake starts collecting.** Phase one
-does not depend on the phase-two system being built — the `Practitioner` type and
-the directory rendering already exist, so a profile can be taken by mail and
-committed today. It depends on the *schema* being settled, which is a different
-and much cheaper thing.
-
-The reason is asymmetric cost. Migrating twenty-five rows from a typed array into
-Postgres is a script. Going back to twenty-five people to ask for a field that was
-never collected is a fortnight of chasing humans, and it spends goodwill with
-exactly the people the directory is trying to attract. So phase one collects the
-full phase-two field set — including the claim email — even where it renders only
-part of it.
-
-This makes two items listed under "In scope now" prerequisites rather than
-independents: `countryCode` and the credential proof URL both want to exist before
-the first profile is taken in.
-
-Phase two is buffered hardest of anything here, deliberately. Authentication is the
-classic estimate-breaker: the happy path is quick, and the remaining eighty per cent
-— session edge cases, email deliverability, storage permissions, the moderation flow
-nobody specs up front — is where the weeks go.
-
 Both phases end in the same place: a human at Bluehex reads the credentials and
 decides. Verification is manual either way — that is the product. Self-service does
 not remove that work, it changes who types the profile in.
 
-### Profile lifecycle
+### Design the model once, before intake starts collecting
 
-**Decided.** A profile moves through three steps, the third optional:
+Phase one does not depend on the phase-two system being built — the `Practitioner` type
+and the directory rendering already exist, so a profile can be taken by mail and committed
+today. It depends on the *schema* being settled, which is a different and much cheaper
+thing, and which **is now done**: `docs/spec/profile-and-credentials.md`.
 
-1. **Registered** — submitted, not publicly visible.
-2. **Approved** — Bluehex has accepted it for publication. The directory renders it.
-3. **Verified** — optional. Bluehex has checked the credentials. The badge appears.
+The reason it mattered is asymmetric cost. Migrating twenty-five rows from a typed array
+into Postgres is a script. Going back to twenty-five people to ask for a field that was
+never collected is a fortnight of chasing humans, and it spends goodwill with exactly the
+people the directory is trying to attract. So phase one collects the full phase-two field
+set even where it renders only part of it.
 
-Held as **two columns, not one enum**: `status` (`registered`, `approved`,
-`rejected`) governs visibility, and `verified` stays the separate boolean it is
-today. Collapsing them into a single ordered state would make it impossible to
-withdraw a badge without unpublishing the profile, or to publish a profile that has
-not been checked — both of which are wanted. `certified`, the practitioner's own
-claim to hold a Claude Certification, stays exactly as it is and is unaffected.
+**Read the field list off the spec's DDL, not off this document.** One correction worth
+naming because an earlier draft of this file got it wrong: there is no `claim_email` field
+to collect. The spec rejected a separate claim address — two email columns identical in
+almost every row is the same duplicated-fact objection that removed `certified` — and uses
+`practitioner_contacts.contact_email`, the address the practitioner actually replied from.
+Collect that.
 
-Three distinct ideas, then, and each has a different author:
+### Profile lifecycle, ownership, and where the data lives
 
-| Field | Asserted by | Governs |
-| --- | --- | --- |
-| `certified` | the practitioner | nothing, it is a claim |
-| `status` | Bluehex | whether the profile is public |
-| `verified` | Bluehex | whether the badge shows |
+**Owned by the spec.** `docs/spec/profile-and-credentials.md` for what a profile contains,
+how ownership works, and the DDL; `docs/profile-lifecycle.md` for the lifecycle, the roles
+and the write path; `CONTEXT.md` for the vocabulary; ADR-0001 for how admin privilege is
+held. All four are settled and proved against the local stack.
 
-Neither `status` nor `verified` is writable by the practitioner.
+Four things this document previously described and got wrong, recorded here only so nobody
+reintroduces them from an old copy:
 
-**Open: does editing an approved profile return it to `registered`?** The strict
-answer is yes for material changes — otherwise approval is a one-time gate and
-anything can be published through it afterwards. The same argument applies to
-`verified`, more forcefully. At this volume the strict version costs little, so it
-is the recommended default until re-approval traffic makes it annoying.
+- **`status` is `pending`, `approved`, `rejected`, `withdrawn`** — four values, not three.
+  There is no `registered`. `withdrawn` is the practitioner's own lever, not Bluehex's.
+- **`verified` lives on the credential row, not the profile.** The badge is *derived* —
+  at least one earned credential, and every earned credential verified. `certified` is
+  derived too and is not stored at all.
+- **Editing an approved profile does not send it back for re-approval.** Edit in place,
+  no kick-back; the badge clears instead when attested content changes.
+- **A profile cannot change owners.** `null → A` claims, `A → null` unassigns and forces
+  `withdrawn`, `A → B` raises `23514` — admins included.
 
-### Open design questions for phase two
+The one line worth keeping in a *cost* document is the one that carries a cost:
+**`verified` is what the product rests on**, and it is protected by column privileges
+rather than by RLS alone — a policy has no `OLD` to compare against, so "this row is yours
+but this column must not change" is not sayable as a policy. Getting that wrong is not a
+bug that degrades the product, it is the end of it. #45 owns the tests that prove it.
 
-Not blocking phase one, but they shape the schema, so they want answering before
-the database lands.
+**No ORM**, and migrations live in the repository rather than the dashboard. Both are
+settled and both are already recorded in `AGENTS.md`, which is current — it was rewritten
+to Supabase in #28 and this document's claim that it was stale is no longer true.
 
-**How does a practitioner claim a curated profile?** Email address is the join.
-A curated profile carries a pending claim email and no account; when someone signs
-up with a matching address, the profile links to their account.
+### Still open
 
-**Decided: no merge path.** Where the address does not match — the person signs up
-with a different one, or an OAuth provider hands over a private no-reply — an admin
-edits the claim email on the profile through a dashboard, and the account then
-matches. Reconciliation is a human action rather than code.
-
-Two things this depends on:
-
-- **Sign-up must verify the address.** The admin sets who may claim the profile;
-  proof of control comes from the standard verification mail, which phase two
-  includes anyway. Without it, setting the claim email is enough to hand a Verified
-  badge to whoever asks for it.
-- **Set the claim email before inviting the person to sign up.** If they sign up
-  first and create their own profile, there are two records for one person and the
-  email swap collides. That is a process rule, not a code path — at this volume it
-  is cheaper to sequence the invitation correctly than to build duplicate
-  resolution.
-
-Changing a claim email transfers ownership of a verified credential, so it is a
-privileged action worth recording who performed it, even if nothing reads the log
-for a long while.
-
-**Who owns `verified`?** It must remain server-owned and unwritable by the profile
-owner, and material edits to credentials should drop it pending re-check. Without
-that, a profile can be verified on modest claims and then edited to carry larger
-ones, and the badge stops attesting to anything.
-
-With row level security as the enforcement mechanism, this stops being a principle
-and becomes a specific policy: practitioners get write access to their own profile
-with `verified` excluded from the writable columns, and only the service role or an
-admin can set it. That policy is the most load-bearing line in the schema — it is
-what the badge, and therefore the product, actually rests on. It deserves a test
-that tries to set `verified` as a signed-in practitioner and asserts the write is
-refused.
-
-### Where profile data lives
-
-Phase one runs on the typed array already in the repo, where every change is a
-reviewed commit — a real audit trail for a credential claim. Phase 2a moves it to
-Supabase Postgres.
-
-**No ORM.** Queries go through the Supabase client rather than Drizzle, so that
-authorization has one model instead of two. Supabase enforces access with row level
-security, which depends on the request carrying the user's JWT for `auth.uid()` to
-resolve in policy. A direct Postgres connection through an ORM bypasses that, leaving
-authorization to be re-implemented in application code. Types come from
-`supabase gen types typescript` rather than from a schema declared in code.
-
-Two things to settle when 2a starts:
-
-- **`AGENTS.md` is stale on the whole database section.** It names Neon as the
-  deployed target, Drizzle for schema and queries, and the `pg` driver — all decided
-  before Supabase was chosen. The section needs rewriting rather than patching, and
-  it belongs to 2a: every agent working in this repository reads it as the contract.
-- **Migrations live in the repository, not the dashboard.** Schema changes made
-  through the Supabase UI leave no diff and no history. Use the Supabase CLI so every
-  change arrives as a committed SQL migration and is reviewable like anything else.
-  This is the single easiest thing to get wrong once the dashboard is open in a tab.
+- **Where the enquiry email lands** — Bluehex's inbox, or `contact_email` directly.
+  Needed before #14. Not blocking anything before it.
 
 ### Meetup banner
 
 | Item | Effort | Elapsed | Notes |
 | --- | --- | --- | --- |
-| Upcoming events banner | 1–1.5d | ~1 week | Verified 2026-08-14: the group's public iCal feed is live and needs no authentication. Ten upcoming events, weekly Thursdays. Buffered for the parsing details — iCal line folding, `Australia/Sydney` timezone handling against a UTC runtime, and failing soft when the feed is unreachable. |
+| Upcoming events banner | 1–1.5d | ~1 week | #59 (read the iCal feed into a typed `Event`) and #60 (show the next event on the home page), which own the work. Verified 2026-08-14: the group's public iCal feed is live and needs no authentication. Ten upcoming events, weekly Thursdays. Buffered for the parsing details — iCal line folding, `Australia/Sydney` timezone handling against a UTC runtime, and failing soft when the feed is unreachable. |
 
 The Meetup Pro GraphQL API is available but not needed for this. Its cost is not the
-query — it introduces the first secret into a project that currently requires no
-runtime environment variables, and couples production to a personal subscription.
-Worth it only for RSVP counts, past events, member data, or multiple groups.
+query — it would introduce **the first secret** into the project, and couple production to
+a personal subscription. Worth it only for RSVP counts, past events, member data, or
+multiple groups.
+
+Note the premise precisely, because it changed: the project *does* now require runtime
+environment variables — `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. What it still has is **no secret**. The publishable
+key is meant to reach the browser and is protected by row level security rather than by
+secrecy; a Meetup Pro token would be the first credential that has to be kept.
 
 Fail soft: an undocumented upstream feed must not be able to take the homepage down.
 
@@ -237,14 +210,21 @@ Fail soft: an undocumented upstream feed must not be able to take the homepage d
 
 ## Marketplace scope — bounded
 
-The broader marketplace ambition is bounded to **profiles, an approval process, and
-authentication**. That is the whole of it — and it is phase two above, so drawing the
-boundary added no work and no time. The item was already in the plan under a
-different name.
+The broader marketplace ambition is bounded to **profiles, an approval process,
+authentication, and enquiry by email**. That is the whole of it.
+
+**Decided 2026-08-15 — enquiries produce email, and Bluehex stays in the path.** A visitor
+enquires through the app and the enquiry becomes an email, via the existing `/contact` page
+reached from a card button that prefills which practitioner it concerns.
+
+**The test, so a reviewer can apply it without re-deriving the argument: an enquiry form
+that produces an email is not a marketplace. It becomes one the moment a practitioner
+reads and answers enquiries in the app.**
 
 Explicitly **not** being built, and not to be inferred from the word "marketplace":
 
-- Engagement or hire requests, and messaging between visitors and practitioners
+- Practitioner↔visitor messaging in the app — inboxes, threads, notifications, read
+  state, replying in-app
 - Matching, ranking or recommendation
 - Payments, invoicing, contracts or escrow
 - Ratings and reviews
@@ -278,19 +258,35 @@ automation. The badge means Bluehex looked — that is the entire product, and a
 looking is what makes it worth anything. Automating it would remove the only step
 that gives it value.
 
-There are no open spikes.
+**The profile and credential model** — settled by the #35 spike and the #9 grill-spec
+session, and recorded in `docs/profile-lifecycle.md` and
+`docs/spec/profile-and-credentials.md`. **How admins hold privilege** — ADR-0001.
+
+**One spike has run and it is closed.** #35 proved the lifecycle, the roles and the write
+path against the local stack; everything it established is in `docs/profile-lifecycle.md`.
+No spike is currently open.
 
 ---
 
 ## The question that needs answering first
 
 The directory launches with no certified practitioners — two people have started the
-courses and none have finished. Before building either intake option:
+courses and none have finished.
 
 **What does Verified attest to for the first fifty profiles?**
 
 If it means "holds a Claude Certification," the directory is empty at launch. If it
 means "vetted community member, Claude-capable," that is a coherent product but a
 different one from the original brief, and the badge copy has to say so.
+
+**This gates what the badge says, not whether profiles can be collected.** Curated intake
+can start immediately and should — nothing in phase one waits on this. What waits is the
+copy, and any public claim about what the badge means.
+
+The spec sharpens the question rather than dissolving it. Verification is now per
+credential, and the profile badge is derived from *evidence-backed* credentials — at least
+one earned, all earned ones verified. So a practitioner working towards a certification
+has credentials that can never roll up to a badge, because in-progress credentials sit
+outside the rollup entirely. The mechanism is decided; what it is allowed to mean is not.
 
 The badge is the entire value proposition. Everything above is plumbing around it.
