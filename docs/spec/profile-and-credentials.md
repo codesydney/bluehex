@@ -48,38 +48,35 @@ schema could not seed the profiles that exist today.
 
 ### Claiming: an admin assigns the owner
 
-**Decided.** An unclaimed profile gains its owner through
-`assign_profile_owner(profile_id, owner)`, granted to `bluehex_admin` alone. It
-records who performed it and when, because the action transfers a profile that may
-already carry the Verified badge.
+**Decided.** An unclaimed profile gains its owner by an admin setting `user_id` — an ordinary `PATCH`, with no RPC in the path. `practitioners_guard` stamps `owner_assigned_at/by` from `auth.uid()` on any change to `user_id`, so the provenance is written whether or not the caller thought about it.
 
-#35's guard trigger pins `user_id` for everyone else, so no practitioner can hand a
-profile to anyone — but **the RPC is currently the documented path, not the only one.**
-`bluehex_admin` holds an unqualified `update` on `practitioners`, so an admin can `PATCH`
-`user_id` directly and leave `owner_assigned_at/by` null. That is the same shape #35
-accepted for `status` ("an admin *can* also `PATCH` it directly; the RPC is the path that
-records who did it"), and it is inherited from that decision rather than chosen here.
+That is a deliberate reversal of an earlier draft, which put the claim behind `assign_profile_owner()`. An RPC is bypassable by anyone holding the `update` grant, so it recorded provenance only for callers who chose to use it; the trigger records it for everyone. The RPC was doing no other work.
 
-**Open, and worth deciding before the migration:** whether ownership transfer deserves
-stronger treatment than `status` got. It is the one admin action that hands over a profile
-that may already carry the badge, and unlike `status` there is no way to tell after the
-fact that it happened if the provenance columns were skipped. Closing it means
-column-scoping `bluehex_admin`'s update grant to exclude `user_id` and the two
-`owner_assigned_*` columns — which costs a third `security definer` function, since
-`assign_profile_owner()` would then need a privilege its caller lacks. Left open
-deliberately: the cost is real and the exposure is an admin acting carelessly rather than
-a practitioner acting maliciously.
+**A profile cannot change owners.** `user_id` has three transitions and the guard refuses one of them outright:
 
-**Deferred: practitioner self-claim.** A `claim_email` column, a "we have a profile for
-you" prompt after sign-up, and an RPC matching the caller's *verified* email against it.
-Not now, because curated intake is a bootstrap: a handful of profiles, all of them
-already getting a human's attention during verification. The machinery — a column, an
-RPC, a verified-email check, and the GitHub-OAuth `no-reply` address that will never
-match — costs more than the sixty seconds per profile it saves.
+| transition | meaning | verdict |
+| --- | --- | --- |
+| `null → A` | claiming an unclaimed profile | legal, and clears the badge |
+| `A → null` | the account was deleted, or an admin unassigns | legal, and forces `withdrawn` |
+| `A → B` | — | **refused** |
 
-**Gate:** revisit when either is true — **(a)** an unclaimed profile exists that Bluehex
-did not write, or **(b)** more than ten profiles are unclaimed at once. Either means
-intake has outgrown the bootstrap and the admin step stops being a minute's work.
+This is a state machine, not a permission. A profile is a record *about a person*, and there is no story in which the record about one person legitimately becomes another person's account's. Treating it as a privilege to withhold leads to warning dialogs and audit columns defending an operation that should not be expressible; refusing it in the trigger costs four lines and holds for admins too.
+
+A mis-assignment is still recoverable without database access: unassign (`A → null`, which withdraws the profile while its ownership is in question), then claim it to the right account.
+
+### The claim is checked against the contact email
+
+**Decided.** An unclaimed profile is claimed by matching the claimer's **verified** account email against `practitioner_contacts.contact_email` — the address the practitioner actually replied from during curated intake.
+
+No new column: requiring a contact row at profile creation means Bluehex already recorded that address, and it is already the one they corresponded with. An earlier draft proposed a separate `claim_email`; two email columns identical in almost every row is the "two representations of one fact that can disagree" this document rejects `certified` for.
+
+The reason it works as a lock is that it is not editable by the person who wants to claim — an unclaimed profile has no owner, so every owner policy evaluates to null and only admins can touch it at all. What that leaves is an admin editing the address, so **changing `contact_email` while the profile is unclaimed clears verification**, the same way a rename does. See Triggers.
+
+**Known limitation: GitHub OAuth returns a `no-reply` address**, which can never match. Those practitioners claim by signing in with magic link instead, or an admin overrides — and the override is exactly where social engineering comes back, so it is a human check rather than a mechanism.
+
+**Deferred: practitioner self-claim.** The "we have a profile for you" prompt after sign-up. The matching logic is now specified, so what remains is the prompt and the flow rather than the hard part. Not now, because curated intake is a bootstrap: a handful of profiles, all of them already getting a human's attention during verification.
+
+**Gate:** revisit when either is true — **(a)** an unclaimed profile exists that Bluehex did not write, or **(b)** more than ten profiles are unclaimed at once. Either means intake has outgrown the bootstrap and the admin step stops being a minute's work.
 
 ## Credentials
 
@@ -311,23 +308,15 @@ This is also load-bearing rather than tidy: **an unclaimed profile has no `user_
 no `auth.users` row, so no address anywhere.** Without this table Bluehex cannot contact
 a person it wrote up itself, and curated intake does not work at all.
 
-`contact_email` is **not null**, so a contact row cannot exist without an address. Note
-what that does *not* buy: `not null` constrains rows that exist, and nothing here requires
-a contact row to exist at all. The foreign key points child → parent, so a profile can be
-inserted — and approved, and published — with no `practitioner_contacts` row behind it.
-"The enquiry button goes somewhere" is still a workflow guarantee rather than a schema
-one; what the constraint rules out is an enquiry button pointing at an empty string.
+**"The enquiry button goes somewhere" is a schema invariant**, and the mechanism is the direction of the foreign key rather than a constraint or a check. The contact row is written first and `practitioners.contact_id` is `not null unique`, so a profile without a contact cannot be represented — there is no state to validate, no RPC to route through, and no application code to remember. `contact_email` being `not null` on top of that rules out the address being empty.
 
-**Open:** whether to close that gap in the schema or in the application. A deferrable
-constraint, an `insert_profile_with_contact()` RPC, or a check on approval would each do
-it; so would accepting it and asserting the property in a test, which is what the Testing
-section currently assumes. Worth settling before the migration rather than discovering
-which one happened.
+An earlier draft had the foreign key the other way, which made a contact row optional in the schema and left the guarantee to a deferred constraint or an RPC. Reversing it deleted the problem instead of policing it.
 
-Self-service defaults the address to the account email; curated intake uses whatever
-address the person replied from. The constraint lands on Bluehex's workflow — a curated
-profile cannot be created before they have an address — and that is the right place for
-it.
+**Creating a profile is two requests** — contact, then profile — because whichever table holds the pointer has to be written second. The failure mode is deliberately the harmless one: an abandoned signup leaves a contact row nobody references, not a published profile nobody can reach. See `practitioner_contacts` under Program design for what that costs.
+
+Self-service defaults the address to the account email; curated intake uses whatever address the person replied from. The constraint lands on Bluehex's workflow — a curated profile cannot be created before they have an address — and that is the right place for it.
+
+That address does **double duty while the profile is unclaimed**: it is also what a claim is checked against. Editing it then clears the badge, and once the profile is claimed it goes back to being ordinary contact information. See "The claim is checked against the contact email".
 
 Kept separate from `auth.users.email` deliberately: one is a login identity, the other
 is where work enquiries should go, and practitioners will reasonably want them to differ.
@@ -366,7 +355,7 @@ claim, so it stays out of the attested set.
 
 ## Program design
 
-Three tables, and the prerequisites they sit on. Those prerequisites are **repeated here
+Four tables, and the prerequisites they sit on. Those prerequisites are **repeated here
 rather than referenced**, because the only other copy is in `docs/profile-lifecycle.md`,
 which opens with "Do not implement from this file" and is scheduled for deletion once its
 assertions land as tests. A binding spec cannot delegate its first statements to a
@@ -376,11 +365,9 @@ The decision behind this block — why a Postgres role rather than a flag or the
 role key — is `docs/adr/0001-admins-are-a-postgres-role.md`. It is unchanged; only the
 DDL has moved.
 
-**Statement order is load-bearing.** The role must exist before any `grant … to
-bluehex_admin` below it, and `custom_access_token_hook` must exist before
-`[auth.hook.custom_access_token]` is enabled anywhere — enabling the hook without the
-function takes down every sign-in and sign-up with `500 unexpected_failure`. The
-`config.toml` line and this migration are one commit.
+**Statement order is load-bearing.** The role must exist before any `grant … to bluehex_admin` below it, and `custom_access_token_hook` must exist before `[auth.hook.custom_access_token]` is enabled anywhere — enabling the hook without the function takes down every sign-in and sign-up with `500 unexpected_failure`. The `config.toml` line and this migration are one commit.
+
+**`practitioner_contacts` is created before `practitioners`**, because the profile holds the foreign key. The tables are documented below in the order a reader wants them — the profile first, since it is the thing everything else hangs off — which is *not* the order the migration writes them in. Create contacts, then practitioners, then credentials and review notes.
 
 ### Prerequisites: the role, the admin list, and the hook
 
@@ -438,6 +425,10 @@ create table public.practitioners (
   -- withdraws the profile (see Deletion), it does not destroy it
   user_id uuid unique references auth.users (id) on delete set null,
 
+  -- the contact is written first and the profile points at it, so `not null`
+  -- is the whole guarantee that an approved profile can be reached
+  contact_id uuid not null unique references public.practitioner_contacts (id),
+
   name text not null,
   headline text,
   location text,                       -- free text; the practitioner picks granularity
@@ -446,7 +437,8 @@ create table public.practitioners (
   focus text[] not null default '{}',
 
   status public.practitioner_status not null default 'pending',
-  review_note text,
+  -- `review_note` is NOT here: it is admin feedback to one practitioner, and a
+  -- column cannot be scoped to the owner. See `practitioner_review_notes`.
   approved_at timestamptz,
   approved_by uuid references auth.users (id),
   owner_assigned_at timestamptz,
@@ -515,18 +507,50 @@ timestamp would invite a timezone bug for no gain.
 
 ```sql
 create table public.practitioner_contacts (
-  practitioner_id uuid primary key
-    references public.practitioners (id) on delete cascade,
+  id uuid primary key default gen_random_uuid(),
   contact_email text not null,
   contact_phone text,
   contact_note text,
+  -- who wrote the row, so it has an owner before any profile points at it
+  created_by uuid not null default auth.uid() references auth.users (id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 ```
 
-`practitioner_id` as the primary key gives the one-to-one for free. `on delete cascade`
-because it is PII: it goes when the profile goes.
+**The contact is the parent, and the profile points at it.** `practitioners.contact_id` is `not null unique`, so a profile is structurally incapable of existing without a contact — no RPC, no deferred constraint, no application check. The `not null` is the entire enforcement.
+
+That direction is what makes "contact first, then profile" possible, and it is the reason the order matters: whichever table holds the pointer has to be written second, because the pointer needs something to point at.
+
+**Creating a profile is therefore two requests**, and the failure mode is deliberately the harmless one. If the second request fails, the result is a contact row nobody references — a stray email address — rather than a published profile with no way to reach the person. The profile is never in an invalid state, because the invalid state cannot be represented.
+
+Three consequences, all accepted:
+
+- **Orphaned contacts accumulate.** Someone fills in step one and abandons step two. They are cheap to sweep (`where not exists (select 1 from practitioners p where p.contact_id = id)`) and nothing depends on them being swept promptly. Worth doing before the table holds enough addresses to be worth stealing.
+- **`created_by` exists so the row has an owner before a profile does.** Without it there is no way to express "you may read back the contact you just wrote", because the usual route — *the profile pointing at this row is yours* — has nothing to traverse yet.
+- **Erasure is two deletes, not a cascade.** `on delete cascade` used to take the contact with the profile, which mattered because it is PII. Reversed, the profile goes first and the contact is deleted after it. See Deletion.
+
+### `practitioner_review_notes`
+
+```sql
+create table public.practitioner_review_notes (
+  practitioner_id uuid primary key
+    references public.practitioners (id) on delete cascade,
+  note text not null,
+  written_at timestamptz not null default now(),
+  written_by uuid references auth.users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+```
+
+A table rather than the `review_note` column #35 put on the profile. The reason is that the column could not be scoped to the person it is about: column privileges are per **role** and RLS is per **row**, so `grant select (review_note) … to authenticated` meant every signed-in practitioner could read Bluehex's feedback about every other one. `approve_practitioner()` clearing it on approval narrowed the window without closing it, since an admin setting `status` by `PATCH` leaves the note in place.
+
+The same reasoning as `practitioner_contacts` and `public.admins`: the reliable protection is *not reachable*, not "we remembered not to name it in the grant list". A table has no `anon` grant by any route and an owner-only read policy, which a column cannot have.
+
+One current note per profile rather than a history — `written_at` / `written_by` say who last wrote it. `reject_practitioner()` upserts; `approve_practitioner()` deletes the row, which is the same "approved rows carry no rejection feedback" rule #35 had, expressed as a delete rather than a null.
+
+Nobody but `bluehex_admin` can write it. The owner reads it and cannot reply — feedback goes one way, and a practitioner responding to it is an edit to their profile, not a message.
 
 ### Grants
 
@@ -534,10 +558,10 @@ because it is PII: it goes when the profile goes.
 -- practitioners --------------------------------------------------------------
 grant select (id, name, headline, location, country_code, bio, focus)
   on public.practitioners to anon;
-grant select (id, user_id, name, headline, location, country_code, bio, focus,
-              status, review_note, created_at, updated_at)
+grant select (id, name, headline, location, country_code, bio, focus,
+              status, created_at, updated_at)
   on public.practitioners to authenticated;
-grant insert (user_id, name, headline, location, country_code, bio, focus)
+grant insert (user_id, contact_id, name, headline, location, country_code, bio, focus)
   on public.practitioners to authenticated;
 grant update (name, headline, location, country_code, bio, focus)
   on public.practitioners to authenticated;
@@ -566,19 +590,28 @@ grant select, insert, update, delete
 
 -- practitioner_contacts ------------------------------------------------------
 -- nothing to anon, ever
-grant select (practitioner_id, contact_email, contact_phone, contact_note,
-              created_at, updated_at)
+grant select (id, contact_email, contact_phone, contact_note, created_at, updated_at)
   on public.practitioner_contacts to authenticated;
-grant insert (practitioner_id, contact_email, contact_phone, contact_note)
+grant insert (contact_email, contact_phone, contact_note)
   on public.practitioner_contacts to authenticated;
 grant update (contact_email, contact_phone, contact_note)
   on public.practitioner_contacts to authenticated;
 grant select, insert, update, delete on public.practitioner_contacts to bluehex_admin;
+
+-- practitioner_review_notes --------------------------------------------------
+-- nothing to anon, ever; the owner reads and never writes
+grant select (practitioner_id, note, written_at)
+  on public.practitioner_review_notes to authenticated;
+grant select, insert, update, delete on public.practitioner_review_notes to bluehex_admin;
 ```
 
-Note what `anon` never gets: `user_id`, `status`, `review_note`, any provenance column,
-`evidence_url`, `evidence_public`, and every column of `practitioner_contacts`.
-`verified_by` is admin-only on credentials too — who performed a check is not public.
+`created_by` is **not** in the `authenticated` insert list — it defaults to `auth.uid()` and a practitioner cannot name someone else as the author of a contact row. Nor is it readable: it is plumbing for the read policy, not information.
+
+Note what `anon` never gets: `user_id`, `contact_id`, `status`, any provenance column, `evidence_url`, `evidence_public`, and every column of `practitioner_contacts` and `practitioner_review_notes`. `verified_by` is admin-only on credentials too — who performed a check is not public.
+
+**`user_id` and `contact_id` are not readable by `authenticated` either**, which closes the gap review found on this grant. Column privileges are per *role* and RLS is per *row*, so a column readable "by the owner" is really readable by every signed-in caller on every row they can see — and both of these are handles to somebody else's account or PII. Nothing needs them: a practitioner knows their own `auth.uid()` without reading it back, `practitioners_read_own` filters on `user_id` without granting it, and the contact row is reached through its own table rather than through the pointer.
+
+`status` stays, and is safe for a reason worth stating rather than assuming: another practitioner's row is only ever visible to you when it is `approved`, so `status` on a row that is not yours always reads the same value. It discloses nothing that visibility itself did not.
 
 ### Policies
 
@@ -625,26 +658,79 @@ an unclaimed profile, so unclaimed credentials are unreachable by every practiti
 without an extra clause. `practitioners` has no policy referencing credentials, so there
 is no recursion.
 
-`practitioner_contacts` takes the same three, minus the public read — there is no
-`anon` policy at all, because there is no `anon` grant.
+**`practitioner_contacts` cannot follow that pattern**, because it is now the parent rather than the child. At insert time no profile points at the row, so "the profile that references me is yours" has nothing to traverse. It needs two routes in, and both are load-bearing:
+
+```sql
+-- no anon policy at all: there is no anon grant to go with one
+create policy contacts_rw_own on public.practitioner_contacts
+  for all to authenticated
+  using (
+    created_by = (select auth.uid())
+    or exists (select 1 from public.practitioners p
+                where p.contact_id = id and p.user_id = (select auth.uid()))
+  )
+  with check (created_by = (select auth.uid()));
+
+create policy contacts_admin_all on public.practitioner_contacts
+  for all to bluehex_admin using (true) with check (true);
+```
+
+The first clause covers the row you just wrote, including an orphan whose profile was never created. The second covers the row **Bluehex** wrote during curated intake, which a practitioner inherits the moment they claim the profile — `created_by` is the admin there, so without it a claimed practitioner could not read or edit their own contact details.
+
+`with check` deliberately names only the first clause. You may write rows you own; you may not write a contact row into existence with somebody else's `created_by`, and you may not reassign an existing row to yourself. Reading through the profile is a right you inherit by claiming; writing is not.
+
+```sql
+-- review notes: the owner reads, only Bluehex writes
+create policy review_notes_read_own on public.practitioner_review_notes
+  for select to authenticated
+  using (exists (select 1 from public.practitioners p
+                  where p.id = practitioner_id and p.user_id = (select auth.uid())));
+
+create policy review_notes_admin_all on public.practitioner_review_notes
+  for all to bluehex_admin using (true) with check (true);
+```
+
+`for select` and nothing else for `authenticated` — there is no insert, update or delete grant on this table for anyone but `bluehex_admin`, so the feedback cannot be edited by its subject. That is the point of moving it off the profile row.
 
 ### Triggers
 
-Three, and the third is the only privileged one *among the triggers* — `withdraw_profile()`
-under Deletion is the other `security definer` in the design, which makes two overall.
+Two guards and one clearing rule, the last of which is shared by three triggers. `clear_profile_verification()` is the only privileged function among them; `withdraw_profile()` under Deletion is the other `security definer` in the design, which makes two overall.
 
-Written out rather than described, because the two mistakes these are here to prevent are
-both invisible in prose: a `before insert or update` trigger that reads `OLD`, and an
-`update of` clause read as though it fired on change.
+Written out rather than described, because the three mistakes these are here to prevent are all invisible in prose: a `before insert or update` trigger that reads `OLD`, an `update of` clause read as though it fired on change, and an ownership rule read as a permission when it is a state machine.
 
-1. **`practitioners_guard`** — `before update`, as in #35, minus the badge rules. Pins
-   `status`, `review_note`, the provenance columns and `user_id` to their old values for
-   non-admin callers; bumps `updated_at`. Its allow-list must include
-   `supabase_auth_admin`, or the `set null` from an account deletion is pinned back and
-   leaves a dangling reference — see Deletion.
+1. **`practitioners_guard`** — `before update`. Pins `status`, the provenance columns and `user_id` to their old values for non-admin callers, and bumps `updated_at`. Its allow-list must include `supabase_auth_admin`, or the `set null` from an account deletion is pinned back and leaves a dangling reference — see Deletion.
 
-   It also forces `status = 'withdrawn'` when `user_id` transitions to null, which is the
-   other half of that same path.
+   **It also enforces the ownership state machine**, which is the part that is not a permission question. `user_id` has three legal transitions and one illegal one, and the illegal one is the only place in this design that raises rather than pinning silently:
+
+   ```sql
+   -- ownership, for every caller including admins
+   if new.user_id is distinct from old.user_id then
+     if old.user_id is not null and new.user_id is not null then
+       raise exception 'a profile cannot change owners'
+         using errcode = '23514',
+               hint = 'unassign the profile first, then claim it';
+     end if;
+
+     new.owner_assigned_at := now();
+     new.owner_assigned_by := (select auth.uid());
+
+     if new.user_id is null then
+       new.status := 'withdrawn';
+     end if;
+   end if;
+   ```
+
+   | transition | meaning | verdict |
+   | --- | --- | --- |
+   | `null → A` | claiming an unclaimed profile | legal; stamps provenance and clears the badge |
+   | `A → null` | the account was deleted, or an admin unassigns | legal; forces `withdrawn` |
+   | `A → B` | nothing | **refused** |
+
+   `A → B` is not a privilege to withhold, it is a state that should not exist: a profile is a record *about a person*, and there is no story where the record about one person legitimately becomes another person's. Refusing it here rather than in a grant means it holds for admins too, and a mis-assignment is still recoverable — unassign (`A → null`, which withdraws the profile while its ownership is in question), then claim it correctly.
+
+   **Provenance is stamped by the trigger rather than by an RPC**, which is why `assign_profile_owner()` no longer exists. An RPC can be bypassed by an admin with an `update` grant; a trigger cannot. Claiming is now an ordinary `PATCH` setting `user_id`, and `owner_assigned_at/by` are written whether the caller remembered to or not.
+
+   It raises here, against the silent-pinning convention #35 set, because the convention's justification does not apply: pinning is right when the column grant has already rejected the honest attempt with a clear `403`, and there is no grant that can express "this transition, not that one". Silently pinning `A → B` would tell the admin their write succeeded when it did nothing.
 
 2. **`credentials_guard`** — `before insert or update`. **The two operations do different
    things and the trigger has to branch**: `OLD` is not assigned during a `before insert`,
@@ -698,57 +784,75 @@ both invisible in prose: a `before insert or update` trigger that reads `OLD`, a
      for each row execute function public.credentials_guard();
    ```
 
-3. **`practitioners_rename_clears_credentials`** — `after update of name`,
-   `security definer`. Sets `verified = false` on every credential of the renamed
-   profile. `name` is attested — the badge asserts *this person* holds these — and a
-   practitioner has no privilege to write `verified` on a credential row, so this is the
-   one place the parent-to-child clear can happen. Narrow: it only ever sets the flag
-   false.
-
-   **The `when` clause is load-bearing, not decoration.** `update of name` fires when
-   `name` appears in the statement's `SET` list, *whether or not the value changed* — and
-   `supabase.from('practitioners').update(form)` round-trips the whole form object, so
-   without the guard every bio edit would clear every badge on the profile. That is the
-   failure this document's own incentive argument exists to avoid, arriving through the
-   back door.
+3. **`clear_profile_verification()`** — one `security definer` function, called by **three** triggers. Each fires when something about *who this profile is* has changed, and none of them is a change to a credential:
 
    ```sql
-   create function public.practitioners_rename_clears_credentials()
-   returns trigger language plpgsql security definer
+   create function public.clear_profile_verification(profile_id uuid)
+   returns void language plpgsql security definer
    set search_path = ''
    as $$
    begin
      update public.practitioner_credentials
         set verified = false, verified_at = null, verified_by = null
-      where practitioner_id = new.id
+      where practitioner_id = profile_id
         and verified;
+   end;
+   $$;
+   revoke execute on function public.clear_profile_verification(uuid)
+     from public, anon, authenticated, bluehex_admin;
+   ```
+
+   It is privileged because a practitioner has no grant on `verified`, and the clear has to reach from the parent down to rows they cannot write. Narrow in the only way that matters: it sets the flag false and can do nothing else. Nobody may call it directly — it exists for the triggers.
+
+   | trigger | fires on | why it is attested |
+   | --- | --- | --- |
+   | `practitioners_rename_clears_credentials` | `after update of name` on `practitioners`, `when (old.name is distinct from new.name)` | the badge asserts *this person* holds these |
+   | `practitioners_claim_clears_credentials` | `after update of user_id` on `practitioners`, `when (old.user_id is null and new.user_id is not null)` | the claim changes which account the person is, which is a larger change than a rename |
+   | `contacts_email_change_clears_credentials` | `after update of contact_email` on `practitioner_contacts`, when the referencing profile is still unclaimed | while unclaimed, that address is the credential a claim is checked against |
+
+   **The `when` clause on the first is load-bearing, not decoration.** `update of name` fires when `name` appears in the statement's `SET` list, *whether or not the value changed* — and `supabase.from('practitioners').update(form)` round-trips the whole form object, so without the guard every bio edit would clear every badge on the profile. That is the failure this document's own incentive argument exists to avoid, arriving through the back door.
+
+   **The third is the one that is easy to miss.** An unclaimed profile is claimed by matching the claimer's verified account email against `practitioner_contacts.contact_email` — so while `user_id is null`, that address is not a contact detail, it is the lock. Anyone who can change it can redirect the claim. Making the change clear the badge means a redirected claim inherits an unverified profile, and it costs the legitimate case one re-check on a profile nobody owns yet.
+
+   Once the profile *is* claimed the rule stops applying, because the claim has already happened and the address is back to being ordinary contact information the owner edits freely:
+
+   ```sql
+   create function public.contacts_email_change_clears_credentials()
+   returns trigger language plpgsql
+   set search_path = ''
+   as $$
+   declare unclaimed_profile uuid;
+   begin
+     select p.id into unclaimed_profile
+       from public.practitioners p
+      where p.contact_id = new.id
+        and p.user_id is null;
+
+     if found then
+       perform public.clear_profile_verification(unclaimed_profile);
+     end if;
      return null;
    end;
    $$;
 
-   create trigger practitioners_rename_clears_credentials
-     after update of name on public.practitioners
-     for each row when (old.name is distinct from new.name)
-     execute function public.practitioners_rename_clears_credentials();
+   create trigger contacts_email_change_clears_credentials
+     after update of contact_email on public.practitioner_contacts
+     for each row when (old.contact_email is distinct from new.contact_email)
+     execute function public.contacts_email_change_clears_credentials();
    ```
 
-**Both functions pin `search_path`**, and the `security definer` one qualifies every name
-inside it. A `security definer` function runs as its owner — `postgres`, since migrations
-run as `postgres` — and resolves unqualified names through whatever `search_path` is live
-at call time. PostgREST does not let a client set it per request, so this is hardening
-rather than a live hole, but Supabase's linter raises it as `function_search_path_mutable`
-and it costs one line.
+**Every function here pins `search_path`**, and the `security definer` one qualifies every name inside it. A `security definer` function runs as its owner — `postgres`, since migrations run as `postgres` — and resolves unqualified names through whatever `search_path` is live at call time. PostgREST does not let a client set it per request, so this is hardening rather than a live hole, but Supabase's linter raises it as `function_search_path_mutable` and it costs one line.
+
+**What the schema cannot reach.** None of this constrains a malicious *admin*, who can edit the contact email, claim the profile and re-verify it in three steps. Postgres has no answer to that and neither does any amount of policy. What the design buys is that each of those steps is attributed and the badge visibly drops in between, so the sequence leaves a trail rather than happening silently — proportionate when the admins are Bluehex itself and there are very few. It also bounds the damage from every *non*-admin path: the worst outcome of a claim that should not have happened is an **unverified** profile carrying somebody's name, which is vandalism an admin can undo, not a stolen credential.
 
 ### RPCs
 
-`bluehex_admin` only, `security invoker`, no authorization logic inside — Postgres
-refuses the call to anyone else.
+`bluehex_admin` only, `security invoker`, no authorization logic inside — Postgres refuses the call to anyone else.
 
-- `approve_practitioner(profile_id)` / `reject_practitioner(profile_id, note)` — as #35.
-- `set_credential_verified(credential_id, value)` — replaces
-  `set_practitioner_verified`. Verification is per credential now.
-- `assign_profile_owner(profile_id, owner)` — the claim, writing
-  `owner_assigned_at/by`.
+- `approve_practitioner(profile_id)` / `reject_practitioner(profile_id, note)` — as #35, except that both now touch `practitioner_review_notes` rather than a column: `reject` upserts the note, `approve` deletes it.
+- `set_credential_verified(credential_id, value)` — replaces `set_practitioner_verified`. Verification is per credential now.
+
+**`assign_profile_owner()` is gone.** Claiming is a plain `PATCH` setting `user_id`, and `practitioners_guard` stamps `owner_assigned_at/by` on the way through — which is strictly better than the RPC was, because an RPC can be bypassed by anyone holding the `update` grant and a trigger cannot. The three that remain earn their place: two write across tables atomically, and all three write provenance from `auth.uid()` rather than from whatever the caller passes.
 
 ### The rollup, in the client
 
@@ -792,9 +896,28 @@ the most valuable one in the suite and it transfers directly.
 - `anon` has no access to `practitioner_contacts` by any route, including a filter.
 - A practitioner cannot insert a credential against a profile that is not theirs, and
   cannot see credentials of an unclaimed profile.
-- A profile cannot be created without a contact row — or, if that is enforced in
-  application code rather than the schema, a test asserting the enquiry path has a
-  destination for every approved profile.
+- **A profile cannot be inserted without a `contact_id`.** The insert is refused by `not null` on the column, not by a trigger or a check — so this asserts the foreign key points the way the design needs it to. Two profiles cannot share a contact row either, which is the `unique`.
+- A practitioner can read back a contact row they wrote before any profile pointed at it, and cannot read one written by somebody else.
+- After claiming a curated profile, the new owner can read and edit the contact row **Bluehex** wrote — the second clause of `contacts_rw_own`, which is easy to omit and fails as "my own details are invisible to me".
+- A practitioner cannot write a contact row with somebody else's `created_by`, and cannot reassign an existing one to themselves. `with check` names only the first clause of that policy for this reason.
+
+**Ownership, where the rule is a state machine rather than a permission:**
+
+- `null → A` claims the profile, stamps `owner_assigned_at/by` from `auth.uid()` **without the caller setting them**, and clears verification on every credential.
+- `A → B` is **refused with an exception**, for `bluehex_admin` as much as anyone. This is the one place the design raises rather than pinning silently, so assert on the error rather than on the row being unchanged — a test that only checks the value would pass against a silent pin, which is the wrong behaviour.
+- `A → null` is allowed and forces `withdrawn`.
+- Unassign-then-reclaim gets a mis-assigned profile to the right account in two legal steps, with the badge cleared at the end of it.
+
+**The claim credential:**
+
+- Changing `contact_email` while the referencing profile is unclaimed clears verification on every credential of that profile.
+- Changing it **after** the profile is claimed clears nothing — the address is ordinary contact information once ownership is settled, and a test that misses this direction would make every verified practitioner lose their badge for updating their own email.
+
+**Review notes:**
+
+- The owner reads their own note; another signed-in practitioner reading it is refused, including by filter. This is the assertion that would have caught `review_note` being a column.
+- No practitioner can write, edit or delete a note on any profile, their own included.
+- `approve_practitioner()` removes the note; `reject_practitioner()` writes one with `written_by` set from `auth.uid()`.
 
 **Deletion, which has the subtlest failure mode in the design:**
 
@@ -805,7 +928,8 @@ the most valuable one in the suite and it transfers directly.
   visible and editable to its owner.
 - `withdraw_profile()` affects only the caller's own row, and a practitioner cannot use
   it to withdraw somebody else.
-- Erasing a profile removes its credentials and its contact row.
+- Erasing a profile removes its credentials, its review note and its contact row. **The contact is a second statement, not a cascade** — the profile holds the foreign key now, so deleting the profile leaves the contact behind. A test that only asserts the profile is gone will pass while the PII stays.
+- Orphaned contact rows — written, never referenced — are readable by the practitioner who wrote them and by nobody else, and the sweep removes only rows no profile points at.
 - **A practitioner cannot erase their own profile.** `DELETE /practitioners?id=eq.<own>`
   is refused at the privilege layer — there is no `delete` grant to `authenticated` and no
   `practitioners_delete_own` policy. Leaving is `withdraw_profile()`; erasure is an admin
@@ -861,10 +985,16 @@ reference. `supabase_auth_admin` must be in the guard's allow-list alongside
 
 ### Erasure is hard, and it is an admin action
 
-**Decided.** A practitioner asking to be erased gets erased: profile, credentials and
-contact row all deleted, cascading from `practitioners`. It is a deliberate act on
-request rather than something that also fires when someone deletes a login they no longer
-use.
+**Decided.** A practitioner asking to be erased gets erased: profile, credentials, review note and contact row all deleted. It is a deliberate act on request rather than something that also fires when someone deletes a login they no longer use.
+
+**Two statements, not one cascade.** Credentials and the review note are children of the profile and go with it; the contact row is its *parent* and does not. So erasure reads:
+
+```sql
+delete from public.practitioners where id = $1;      -- cascades credentials + note
+delete from public.practitioner_contacts where id = $2;
+```
+
+That ordering is forced — the contact cannot go first while a profile still references it. It is the one place the flipped foreign key costs something rather than saving something, and the cost is a second statement in an admin-only path. Worth stating plainly because the failure is silent: erase a profile, forget the second delete, and the person's email address stays in the database after you have told them it is gone.
 
 Hard delete is safe today because nothing downstream exists to break — see the seam
 below, which is what keeps it safe later.
