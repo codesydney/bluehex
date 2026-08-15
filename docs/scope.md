@@ -216,8 +216,7 @@ to Supabase in #28 and this document's claim that it was stale is no longer true
 
 ### Still open
 
-- **Where the enquiry email lands** — Bluehex's inbox, or `contact_email` directly.
-  Needed before #14. Not blocking anything before it.
+- **Whether Bluehex recovers any visibility of enquiries** — a blind copy would put it back in the path it was deliberately removed from. Not blocking anything.
 
 ### Meetup banner
 
@@ -245,9 +244,13 @@ Fail soft: an undocumented upstream feed must not be able to take the homepage d
 The broader marketplace ambition is bounded to **profiles, an approval process,
 authentication, and enquiry by email**. That is the whole of it.
 
-**Decided 2026-08-15 — enquiries produce email, and Bluehex stays in the path.** A visitor
-enquires through the app and the enquiry becomes an email, via the existing `/contact` page
-reached from a card button that prefills which practitioner it concerns.
+**Decided 2026-08-16 — enquiries produce email, delivered to the practitioner.** A visitor enquires through the app and the enquiry becomes an email, via the existing `/contact` page reached from a card button that prefills which practitioner it concerns. The mail is addressed to the practitioner with the visitor's address in `Reply-To`; the address itself is never published, and the exchange leaves the product at the first reply.
+
+This supersedes the 2026-08-15 decision that Bluehex stays in the path. It costs this document a line it used to be able to write — Bluehex no longer sees who is hiring — and it moves work into #2, which can no longer be satisfied by a form service pointed at a fixed address. See `docs/spec/profile-and-credentials.md`, which owns the mechanism and its costs.
+
+**Decided 2026-08-16 — a profile may publish links, but never an address or a phone number.** `website_url`, `github_url`, `linkedin_url` and `booking_url` are public, practitioner-writable columns; `practitioner_contacts` keeps every protection it had. The test is a route to a *page* versus a route to a *person*; `docs/adr/0002-links-are-published-addresses-are-not.md` owns the argument.
+
+**This reprices #2 downwards rather than up.** With links on the profile, the enquiry form stops being the only way to reach a practitioner and becomes the fallback for visitors the practitioner has given no other route to. The server-side send, the first secret and the abuse handling are all still needed, but they are no longer the single point the directory's usefulness rests on — which makes #2 sequenceable after the link fields rather than before them.
 
 **The test, so a reviewer can apply it without re-deriving the argument: an enquiry form
 that produces an email is not a marketplace. It becomes one the moment a practitioner
@@ -260,7 +263,9 @@ Explicitly **not** being built, and not to be inferred from the word "marketplac
 - Matching, ranking or recommendation
 - Payments, invoicing, contracts or escrow
 - Ratings and reviews
-- Availability, rates or booking
+- Availability, rates, or booking and scheduling *in the app* — a `booking_url` pointing
+  at a practitioner's own scheduling page is a link, not a booking system, and was
+  admitted on 2026-08-16; Bluehex holds no calendar, no slots and no reservations
 
 Any of these can be proposed later, and would be broken down and sized then. None is
 scheduled and none should be assumed. Naming the exclusions is what makes the

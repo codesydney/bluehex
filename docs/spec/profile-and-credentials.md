@@ -293,10 +293,13 @@ array today.
 
 ## Contact: held in its own table, never published
 
-**Decided.** Nothing that reaches a practitioner directly appears on the profile — no
-email, and no `website_url` / `github_url` / `linkedin_url`, which route around Bluehex
-as effectively as an address does. Contact goes through the app: the existing `/contact`
-page, reached from a card button that prefills which practitioner the enquiry is about.
+**Decided.** A practitioner's email address and phone number never appear on the profile. Enquiries are made through the app: the existing `/contact` page, reached from a card button that prefills which practitioner the enquiry is about.
+
+This decision originally excluded `website_url` / `github_url` / `linkedin_url` as well, on the grounds that they route around Bluehex as effectively as an address does. **That half was reversed on 2026-08-16** — see "links may be published" below. What survives is the part about addresses and phone numbers, and it is not weakened by the reversal.
+
+**Superseded 2026-08-16 — the enquiry is delivered to the practitioner, not to Bluehex.** An earlier draft of this section had the enquiry land in Bluehex's inbox and be forwarded on. That rested on the premise that Bluehex should stay in the path, and the premise has been withdrawn: a visitor may deal with a practitioner directly, and what Bluehex declines to do is *publish* the address. So the enquiry mail is addressed to `contact_email` with the visitor's address in `Reply-To`, and the exchange continues outside the product from the first reply onwards. Argued in `docs/adr/0002-links-are-published-addresses-are-not.md`, which owns what this cost.
+
+**What that does not change**, because it never rested on that premise: contact details still live in `practitioner_contacts` with no `anon` grant by any route. The invariants are "not published" and "never reachable by a browser". Who receives the mail was not one of them.
 
 **Contact details are stored, in `practitioner_contacts` — a table of their own, not
 columns on `practitioners`.** The reason is structural rather than stylistic: a table
@@ -323,20 +326,29 @@ is where work enquiries should go, and practitioners will reasonably want them t
 They can drift, and that is correct rather than a bug. Contact is not attested — editing
 it never touches the badge.
 
-**Where this sits against the brief.** scope.md's marketplace boundary excludes
-"engagement or hire requests, and messaging between visitors and practitioners". An
-enquiry form that emails *Bluehex* is not that — the exclusion is practitioner↔visitor
-messaging: inboxes, threads, notifications, read state. It **becomes** the excluded
-thing the moment practitioners read and answer enquiries in the app, and that needs
-scope.md's boundary moved before the work rather than after.
+**Where this sits against the brief.** scope.md's marketplace boundary excludes practitioner↔visitor messaging — inboxes, threads, notifications, read state. Delivering the enquiry to the practitioner rather than to Bluehex moves *away* from that line rather than towards it: the exchange leaves the product at the first reply, so there is nothing retained in the app for an inbox to be built around. It **becomes** the excluded thing the moment a practitioner reads or answers an enquiry *in the app*, and that needs scope.md's boundary moved before the work rather than after.
 
-**Accepted cost:** Bluehex is a bottleneck on every enquiry, permanently, with no
-automation path. For a consulting arm that is arguably a feature — you learn who is
-hiring first — but it is the first thing to strain if the directory succeeds.
+**The delivery path is constrained by this, and that is where the cost lands.** The address has to be read server-side and never returned to a client, which rules out the `mailto:` stopgap at `/contact`: a `mailto:` puts the recipient into the visitor's mail client, which is publishing it. So #2 needs a real send path rather than a form service pointed at a fixed address, and it introduces **the first secret** into the project — a mail provider credential, plus privileged read access to `practitioner_contacts`, which `anon` does not have. The invariant on whatever mechanism is chosen: the send path reads the address, and no code path returns it to the browser.
+
+**Accepted costs**, replacing the permanent-bottleneck cost the earlier draft accepted:
+
+- **Bluehex no longer sees who is hiring.** The old shape made every enquiry visible, and that was named as a feature for a consulting arm rather than an accident. It is gone unless something is deliberately added to recover it — and a blind copy to Bluehex puts it back in the path it was just taken out of. Open, not decided.
+- **Spam now reaches practitioners instead of Bluehex.** A public form that mails community members raises the abuse handling in #2 from protecting one inbox to protecting everyone in the directory. Turnstile or equivalent stops being optional.
+- **Deliverability becomes Bluehex's problem.** Mail sent from Bluehex's domain carrying a visitor's `Reply-To` needs SPF and DKIM configured, or enquiries land in spam folders and nobody involved finds out.
 
 **Deferred: portfolio links.** A GitHub or personal site is arguably evidence of work
 rather than a contact route. Cut for now. **Gate:** practitioners asking for it — and it
 should then be argued as a portfolio decision, not reopened as a contact one.
+
+**Decided 2026-08-16 — links may be published, personal contact details may not.** This reverses the half of the decision at the top of this section that cut `website_url` / `github_url` / `linkedin_url`, and admits the external booking link raised on 2026-08-15. The test is **a route to a page versus a route to a person**, and it is the one every future field gets held to. `docs/adr/0002-links-are-published-addresses-are-not.md` owns the argument, the rejected alternatives and the cost; read it before concluding that this and `practitioner_contacts` contradict each other.
+
+**The links are columns on `practitioners` — the public record — and are in the `anon` select grant.** `practitioner_contacts` continues to hold `contact_email`, `contact_phone` and `contact_note`, and only those, with no `anon` grant by any route, forever. That division is the decision: the record a visitor reads carries the links, the record only Bluehex and the owner can read carries the address. A profile may now carry links alongside its prose, and nothing else changes.
+
+**Links are not attested.** They sit outside the attested set with `focus`, `bio` and the rest — editing one never clears the badge. The badge is a statement about credentials, and a practitioner adding a LinkedIn URL has not restated anything Bluehex checked.
+
+**Rejected: a `practitioner_links` child table** keyed by a `kind` enum, which would absorb new platforms without a migration each time. Named columns win here for a reason specific to this schema rather than a general one: **column-level grants are the security mechanism in this project.** Four columns on `practitioners` inherit its policies, its grant lists and its guard trigger; a child table needs its own of each, which is the whole of `practitioner_contacts`' cost paid again for fields that are public by design. **Gate:** the table becomes right when the set stops being enumerable — roughly the fifth platform, or the first time a practitioner wants two of the same kind.
+
+**Unresolved, and it belongs to the UI rather than the schema:** a published URL is rendered as an `href`, so the render path needs `rel="noopener noreferrer"` and must not trust the scheme. The `https_url` domain below refuses `javascript:` at the database, which is the durable half; the render is still where it would go wrong.
 
 ## Evidence visibility is the practitioner's call
 
@@ -419,6 +431,11 @@ revoke execute on function public.custom_access_token_hook(jsonb)
 create type public.practitioner_status as enum
   ('pending', 'approved', 'rejected', 'withdrawn');
 
+-- every published link is rendered as an `href`, so the scheme is refused here
+-- rather than trusted in the render path: `javascript:` never reaches a page
+create domain public.https_url as text
+  check (value ~ '^https://[^[:space:]]+$');
+
 create table public.practitioners (
   id uuid primary key default gen_random_uuid(),
   -- nullable, and `set null` rather than `cascade`: deleting an account
@@ -435,6 +452,14 @@ create table public.practitioners (
   country_code text check (country_code ~ '^[A-Z]{2}$'),
   bio text,
   focus text[] not null default '{}',
+
+  -- published links. A route to a page, not to a person — see Contact. Public,
+  -- practitioner-writable, and outside the attested set: editing one never
+  -- clears the badge
+  website_url public.https_url,
+  github_url public.https_url,
+  linkedin_url public.https_url,
+  booking_url public.https_url,
 
   status public.practitioner_status not null default 'pending',
   -- `review_note` is NOT here: it is admin feedback to one practitioner, and a
@@ -556,14 +581,18 @@ Nobody but `bluehex_admin` can write it. The owner reads it and cannot reply —
 
 ```sql
 -- practitioners --------------------------------------------------------------
-grant select (id, name, headline, location, country_code, bio, focus)
+grant select (id, name, headline, location, country_code, bio, focus,
+              website_url, github_url, linkedin_url, booking_url)
   on public.practitioners to anon;
 grant select (id, name, headline, location, country_code, bio, focus,
+              website_url, github_url, linkedin_url, booking_url,
               status, created_at, updated_at)
   on public.practitioners to authenticated;
-grant insert (user_id, contact_id, name, headline, location, country_code, bio, focus)
+grant insert (user_id, contact_id, name, headline, location, country_code, bio, focus,
+              website_url, github_url, linkedin_url, booking_url)
   on public.practitioners to authenticated;
-grant update (name, headline, location, country_code, bio, focus)
+grant update (name, headline, location, country_code, bio, focus,
+              website_url, github_url, linkedin_url, booking_url)
   on public.practitioners to authenticated;
 -- deliberately no `delete`: leaving is `withdraw_profile()`, erasure is an admin
 -- action on request. See Deletion.
