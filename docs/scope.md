@@ -130,11 +130,11 @@ or the site sits empty while auth gets written.
 | Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
 | **1 — Curated intake** | 1–1.5d | ~2 days | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. Mail template, PR template, and the checklist Bluehex verifies against. No database, no accounts, no secrets. |
-| **2a — Schema and the read path** | 3–4.5d | ~1 week | #49, #50, #45, #41, #48, #53. No auth in the application. |
+| **2a — Schema and the read path** | 3.5–5d | ~1 week | #49, #50, #45, #41, #48, #53. No auth in the application. Includes the four published link columns, the `https_url` domain and their tests. |
 | **2b — Authentication** | 3–4d | ~1 week | Supabase Auth: accounts, sessions, sign-up with email verification, password reset, route protection. |
 | **2c — Profile writes** | 8–10d | ~2–2.5 weeks | #14, #52. Profile CRUD, avatar upload, validation, claiming, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
 
-**Total for phase two: 14–18.5 days**, about **four to five weeks** elapsed.
+**Total for phase two: 14.5–19 days**, about **four to five weeks** elapsed.
 
 **2a moved, and it moved in both directions.** The plumbing that made up much of the
 original 2–3d estimate has landed — local stack, migrations in version control, generated
@@ -216,8 +216,7 @@ to Supabase in #28 and this document's claim that it was stale is no longer true
 
 ### Still open
 
-- **Where the enquiry email lands** — Bluehex's inbox, or `contact_email` directly.
-  Needed before #14. Not blocking anything before it.
+- **Nothing.** The enquiry destination was the open item here and it is settled: the form mails Bluehex. Delivering to the practitioner is deferred with a gate in the spec rather than open.
 
 ### Meetup banner
 
@@ -245,9 +244,15 @@ Fail soft: an undocumented upstream feed must not be able to take the homepage d
 The broader marketplace ambition is bounded to **profiles, an approval process,
 authentication, and enquiry by email**. That is the whole of it.
 
-**Decided 2026-08-15 — enquiries produce email, and Bluehex stays in the path.** A visitor
-enquires through the app and the enquiry becomes an email, via the existing `/contact` page
-reached from a card button that prefills which practitioner it concerns.
+**Decided 2026-08-15 — enquiries produce email, and the form mails Bluehex.** A visitor enquires through the app and the enquiry becomes an email, via the existing `/contact` page reached from the profile page, which prefills which practitioner it concerns. Unchanged, and **#2 is unaffected**: the recipient is a fixed address, so the `mailto:` stopgap and a plain form service both still work, and the project still holds no secret.
+
+Delivering the enquiry to the practitioner instead was specified on 2026-08-16 and cut the same day. It would have cost a server-side send and the first secret, and it buys little that a published LinkedIn does not. The spec carries the gate for revisiting it.
+
+**Decided 2026-08-16 — a profile may publish links, but never an address or a phone number.** `website_url`, `github_url`, `linkedin_url` and `booking_url` are public, practitioner-writable columns; `practitioner_contacts` keeps every protection it had. The test is a route to a *page* versus a route to a *person*; `docs/adr/0002-links-are-published-addresses-are-not.md` owns the argument.
+
+**One repricing, and it is in the table above rather than only in this paragraph.** 2a goes **3–4.5d → 3.5–5d**: four columns, the `https_url` domain, four grant-list edits and the tests that prove the domain refuses what it is there to refuse. That is half a day, and it is the cheap direction — the columns cost a fraction now of what collecting them from twenty-five people later would.
+
+**Links change what #2 is worth, not what it costs.** The enquiry form stops being the only way to reach a practitioner, so a strained relay throttles Bluehex's lead flow rather than the directory's usefulness. #2 is unchanged in scope and is now sequenceable *after* the link fields rather than before them.
 
 **The test, so a reviewer can apply it without re-deriving the argument: an enquiry form
 that produces an email is not a marketplace. It becomes one the moment a practitioner
@@ -260,7 +265,9 @@ Explicitly **not** being built, and not to be inferred from the word "marketplac
 - Matching, ranking or recommendation
 - Payments, invoicing, contracts or escrow
 - Ratings and reviews
-- Availability, rates or booking
+- Availability, rates, or booking and scheduling *in the app* — a `booking_url` pointing
+  at a practitioner's own scheduling page is a link, not a booking system, and was
+  admitted on 2026-08-16; Bluehex holds no calendar, no slots and no reservations
 
 Any of these can be proposed later, and would be broken down and sized then. None is
 scheduled and none should be assumed. Naming the exclusions is what makes the
