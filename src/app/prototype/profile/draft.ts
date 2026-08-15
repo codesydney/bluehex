@@ -260,11 +260,42 @@ export function claimEdited(before: DraftCredential, after: DraftCredential) {
  * now, because every credential is checkable.
  */
 export function badgeState(draft: ProfileDraft, controlled: BluehexControlled) {
-  const held = draft.credentials.length;
-  const verified = draft.credentials.filter(
-    (credential) => controlled.verified[credential.key],
+  const claimed = claimedCredentials(draft);
+  const held = claimed.length;
+  const verified = claimed.filter((credential) => controlled.verified[credential.key]).length;
+
+  /* The two halves of "not checked", kept apart because they have different
+     owners. A credential with a certificate link is waiting on Bluehex and
+     nobody else can move it; a credential without one is waiting on the
+     practitioner, and it is the only thing on the whole form they can act on to
+     get their badge. `CredentialFields` already draws the distinction per
+     credential — collapsing it in the rollup told the practitioner Bluehex was
+     the blocker two clicks after the panel told them they were. */
+  const awaitingCheck = claimed.filter(
+    (credential) => !controlled.verified[credential.key] && credential.evidenceUrl,
   ).length;
-  return { shows: held > 0 && verified === held, held, verified };
+
+  return {
+    shows: held > 0 && verified === held,
+    held,
+    verified,
+    awaitingCheck,
+    awaitingProof: held - verified - awaitingCheck,
+  };
+}
+
+/**
+ * The draft rows that name a credential.
+ *
+ * `catalogueId` is `""` on a row that has been added and not yet picked, which
+ * per `DraftCredential` is a state of the form and never a state of a
+ * credential — nothing submits it, so nothing may count it either. Every figure
+ * derived from the credential list goes through here, because a row that cannot
+ * be submitted moving a number is how the progress panel and the checklist
+ * inside it came to disagree.
+ */
+function claimedCredentials(draft: ProfileDraft) {
+  return draft.credentials.filter((credential) => credential.catalogueId);
 }
 
 /**
@@ -275,6 +306,11 @@ export function badgeState(draft: ProfileDraft, controlled: BluehexControlled) {
  * is Bluehex's, the holdings are checked, and "not yet" is the absence of a row
  * rather than a claim wearing the same shape as a verified one.
  *
+ * The set on this side is `claimedCredentials`, not the draft's row count. An
+ * empty row is a state of the form, and letting one move the figure made the
+ * headline number disagree with the checklist directly beneath it — same box,
+ * same click, two answers.
+ *
  * **It is shown in the editor and nowhere else, deliberately.** "2 of 23" reads
  * as encouragement to its owner and as 9% to an employer, so the public profile
  * shows what somebody holds rather than what they lack. That is the spec's
@@ -283,5 +319,5 @@ export function badgeState(draft: ProfileDraft, controlled: BluehexControlled) {
  * would be a score nobody asked to be ranked by.
  */
 export function catalogueProgress(draft: ProfileDraft) {
-  return { held: draft.credentials.length, total: claimableCount };
+  return { held: claimedCredentials(draft).length, total: claimableCount };
 }

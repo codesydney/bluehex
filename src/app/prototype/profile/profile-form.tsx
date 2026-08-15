@@ -395,15 +395,28 @@ export function ProfileForm({
                 </ReviewStep>
               </ol>
 
+              {/* Three counts, not two. This step's whole job is saying who
+                  decides what, and "waiting on Bluehex" over a credential with
+                  no certificate link names the wrong party — nobody at Bluehex
+                  can move it, and the practitioner can, with one field. The
+                  credential panel already says so; the summary used to
+                  contradict it two clicks later.
+
+                  `badge.held` rather than the row count, so an added-and-untouched
+                  credential does not appear in a sentence beginning "Submitting". */}
               <div className="rounded-card bg-surface p-6">
                 <p className="text-sm">
-                  <strong className="font-medium">
-                    Submitting {draft.credentials.length}
-                  </strong>{" "}
-                  {draft.credentials.length === 1 ? "credential" : "credentials"} —{" "}
-                  {badge.verified} already checked,{" "}
-                  {badge.held - badge.verified} waiting on Bluehex.
+                  <strong className="font-medium">Submitting {badge.held}</strong>{" "}
+                  {badge.held === 1 ? "credential" : "credentials"} — {badge.verified}{" "}
+                  already checked, {badge.awaitingCheck} waiting on Bluehex,{" "}
+                  {badge.awaitingProof} waiting on you.
                 </p>
+                {badge.awaitingProof > 0 ? (
+                  <p className="mt-1.5 text-sm text-t-muted">
+                    Waiting on you means the certificate link is missing. Bluehex cannot
+                    check a credential it has no proof of, so that one is yours to move.
+                  </p>
+                ) : null}
                 <p className="mt-1.5 text-sm text-t-muted">
                   You do not set the badge and neither does anything on this form. Only
                   Bluehex does.
