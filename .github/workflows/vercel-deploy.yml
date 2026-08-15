@@ -5,6 +5,15 @@ on:
     branches:
       - main
 
+  # Shipping is normally a consequence of landing on `main`, and that stays the rule.
+  # This is for the case where the push happened and the run did not: a workflow
+  # disabled by hand creates no run for a push received while it is off, not a queued
+  # one, so re-enabling it afterwards leaves `main` ahead of production with nothing
+  # to re-run and no way back except an empty commit. That happened on 15 August 2026
+  # when the #63–#66 stack merged. Dispatch reconciles the two without writing a commit
+  # whose only purpose is to be pushed.
+  workflow_dispatch:
+
 # Never let two production deploys race. A queued run supersedes the one waiting,
 # but an in-flight deploy is allowed to finish rather than leaving a half-shipped build.
 concurrency:
@@ -21,6 +30,11 @@ env:
 jobs:
   deploy-production:
     runs-on: ubuntu-latest
+    # The `push` trigger above can only fire on `main`, but a dispatch is run against a
+    # ref the caller picks, and every step below passes `--prod`. Without this, choosing
+    # any branch in the dispatch dropdown ships it to production. Belongs on the job
+    # rather than in the deploy step, so a wrong ref costs nothing but a skipped run.
+    if: github.ref == 'refs/heads/main'
     steps:
       # Actions are pinned to commit SHAs, not tags: a major-version tag can be
       # retargeted, and this job holds VERCEL_TOKEN. Comments record the version each
