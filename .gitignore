@@ -51,6 +51,12 @@ yarn-error.log*
 .claude/*
 !.claude/skills/
 
+# Agent working area. Handoff notes and generated ticket drafts land here, and none
+# of it belongs in the repository — `AGENTS.md` is explicit that nothing existing only
+# to carry work between sessions gets committed. Ignored so `git add -A` cannot sweep
+# it into an unrelated pull request.
+.scratch/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
