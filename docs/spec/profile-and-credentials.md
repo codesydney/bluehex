@@ -506,6 +506,8 @@ a filter that matches all rows narrows nothing. **Capped at three**, enforced by
 constraint rather than by the form, because a form-only rule is not a rule. Three is a
 guess at the right number and is the cheapest thing in this section to change.
 
+**The cap needs a distinctness test beside it, or it is not a cap.** `cardinality` counts elements rather than distinct ones and `<@` is containment, so `['Code review', 'Code review', 'Implementation']` satisfies both halves: the profile then offers two services while consuming all three slots, and the directory renders the same chip twice on the axis it filters by. The obvious spelling of the test is refused outright — a check constraint may not contain a subquery — so it goes through an `immutable` helper, `public.is_distinct(text[])`, which a check constraint may call. Refused rather than silently deduplicated, for the reason the cap is in the database at all: the form is where this would normally be prevented, and this section's own argument is that a rule the form enforces is not enforced.
+
 **`text[]` with a check constraint, not a catalogue table.** Deliberately not the shape
 chosen one section earlier, and the difference is who owns the list. The credential
 catalogue tracks *Anthropic's* releases and must change without a deploy; the service list
@@ -655,7 +657,11 @@ DDL has moved.
 
 **`practitioner_contacts` is created before `practitioners`**, because the profile holds the foreign key, and **`credential_catalogue` before `practitioner_credentials`** for the same reason. The tables are documented below in the order a reader wants them — the profile first, since it is the thing everything else hangs off — which is *not* the order the migration writes them in. Create contacts, then practitioners, then the catalogue, then credentials and review notes.
 
-**The catalogue ships with its rows, and that is a judgement call worth flagging.** `AGENTS.md` forbids anything throwaway in migration history, and seeding reference data is the edge of that rule: these rows are not test fixtures, they are the closed vocabulary the model is built on, and an empty catalogue means nobody can enter a credential at all. Seed them in the migration. What must **not** go in migration history is any correction to them afterwards — a course Anthropic renames is an admin `UPDATE`, not a second migration, or the history fills with Anthropic's release notes.
+**Every table in this section enables row level security at its `create table`**, and the line is written there rather than beside the policies because that is where it is missed. RLS is off by default, and a table with RLS off ignores every policy defined on it — the grants alone decide, and the grants below are broad on purpose because the policies were expected to narrow them. The failure is silent in both directions: a correct policy that never executes reads exactly like a correct policy that does, and every assertion written against a table's *owner* passes whether RLS is on or off. So the assertions that catch it are the ones written from a second account, and the Testing section now names one per table.
+
+**Every foreign key to `auth.users` names an `on delete` action**, and every one in the product schema is `set null`. `public.admins.user_id` is the exception at `cascade`, correctly — an admin list entry is *about* the account and has nothing left to say once it is gone. Everywhere else the default would apply, and the default is `NO ACTION`, which refuses the delete rather than doing anything to the child row: a single provenance reference anywhere in the schema turns "delete my account" into `23503 update or delete on table "users" violates foreign key constraint`, and the Deletion section's whole design never runs. The attribution is what is expendable here — that a profile was approved, or a credential checked, is a record worth keeping after the account that did it is gone.
+
+**The catalogue ships with its rows, and that is a judgement call worth flagging.** `AGENTS.md` forbids anything throwaway in migration history, and seeding reference data is the edge of that rule: these rows are not test fixtures, they are the closed vocabulary the model is built on, and an empty catalogue means nobody can enter a credential at all. Seed them in the migration. What must **not** go in migration history is any correction to them afterwards — a course Anthropic renames is an admin operation, not a second migration, or the history fills with Anthropic's release notes. On an entry nobody has claimed yet that is a plain `UPDATE`; on one with claims against it, `catalogue_guard` requires `correct_catalogue_entry()`, because at that point the same statement could also be a repoint.
 
 ### Prerequisites: the role, the admin list, and the hook
 
@@ -717,6 +723,18 @@ create type public.practitioner_status as enum
 create domain public.https_url as text
   check (value ~* '^https://[^[:space:]/]+\.[^[:space:]]+$' and length(value) <= 2048);
 
+-- `cardinality` counts elements, not distinct ones, so the cap below does not
+-- reject a repeat on its own. The obvious spelling of that test is refused —
+-- `cannot use subquery in check constraint` — so it goes in an `immutable`
+-- function, which a check constraint may call
+create function public.is_distinct(arr text[])
+returns boolean immutable language sql
+set search_path = ''
+as $$
+  select cardinality(arr)
+       = cardinality((select array_agg(distinct e) from unnest(arr) e));
+$$;
+
 create table public.practitioners (
   id uuid primary key default gen_random_uuid(),
   -- nullable, and `set null` rather than `cascade`: deleting an account
@@ -740,7 +758,9 @@ create table public.practitioners (
   -- everyone maxes out is a filter that narrows nothing, and a cap enforced in a
   -- form is not enforced
   services text[] not null default '{}'
-    check (cardinality(services) <= 3 and services <@ array[
+    check (cardinality(services) <= 3
+           and public.is_distinct(services)
+           and services <@ array[
       'One-to-one tutoring',
       'Team training',
       'Code review',
@@ -764,13 +784,20 @@ create table public.practitioners (
   -- `review_note` is NOT here: it is admin feedback to one practitioner, and a
   -- column cannot be scoped to the owner. See `practitioner_review_notes`.
   approved_at timestamptz,
-  approved_by uuid references auth.users (id),
+  -- `set null` on every provenance reference to `auth.users`: the default is
+  -- `NO ACTION`, which refuses the account deletion outright rather than doing
+  -- anything to this row, and would make the Deletion section's assertion fail
+  -- on a table it does not discuss. The record that something was done outlives
+  -- the account; who did it does not
+  approved_by uuid references auth.users (id) on delete set null,
   owner_assigned_at timestamptz,
-  owner_assigned_by uuid references auth.users (id),
+  owner_assigned_by uuid references auth.users (id) on delete set null,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.practitioners enable row level security;
 ```
 
 `on delete set null` on `user_id`, paired with a trigger forcing `status = 'withdrawn'`.
@@ -805,10 +832,15 @@ create table public.credential_catalogue (
   -- would scramble it
   sort_order integer not null default 0,
   created_at timestamptz not null default now(),
+  -- maintained by `catalogue_guard`, not by the default: corrections to this
+  -- table are admin `UPDATE`s rather than migrations, which is exactly the event
+  -- this column exists to record
   updated_at timestamptz not null default now(),
 
   unique (source, label)
 );
+
+alter table public.credential_catalogue enable row level security;
 ```
 
 `source` keeps its check constraint here, where it is a genuine two-value axis about weight
@@ -846,7 +878,9 @@ create table public.practitioner_credentials (
   -- the attestation, per credential
   verified boolean not null default false,
   verified_at timestamptz,
-  verified_by uuid references auth.users (id),
+  -- `set null`, or an admin who leaves and has their account deleted blocks
+  -- that delete against every credential they ever checked
+  verified_by uuid references auth.users (id) on delete set null,
 
   -- what `anon` may read: the URL only when the practitioner has opted in.
   -- `text`, not `https_url` — a generated column inherits the constraint's
@@ -866,6 +900,8 @@ create index practitioner_credentials_practitioner_id_idx
 alter table public.practitioner_credentials
   add constraint practitioner_credentials_one_claim_each
   unique (practitioner_id, catalogue_id);
+
+alter table public.practitioner_credentials enable row level security;
 ```
 
 **The generated column is the mechanism that makes `evidence_public` enforceable.**
@@ -895,11 +931,16 @@ create table public.practitioner_contacts (
   contact_email text not null,
   contact_phone text,
   contact_note text,
-  -- who wrote the row, so it has an owner before any profile points at it
-  created_by uuid not null default auth.uid() references auth.users (id),
+  -- who wrote the row, so it has an owner before any profile points at it.
+  -- Nullable, and `set null`: `not null` here would make the account deletion
+  -- fail rather than the profile withdraw, and `set null` is not available on a
+  -- `not null` column. See below for why losing it fails closed
+  created_by uuid default auth.uid() references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.practitioner_contacts enable row level security;
 ```
 
 **The contact is the parent, and the profile points at it.** `practitioners.contact_id` is `not null unique`, so a profile is structurally incapable of existing without a contact — no RPC, no deferred constraint, no application check. The `not null` is the entire enforcement.
@@ -912,6 +953,8 @@ Three consequences, all accepted:
 
 - **Orphaned contacts accumulate.** Someone fills in step one and abandons step two. They are cheap to sweep (`where not exists (select 1 from practitioners p where p.contact_id = id)`) and nothing depends on them being swept promptly. Worth doing before the table holds enough addresses to be worth stealing.
 - **`created_by` exists so the row has an owner before a profile does.** Without it there is no way to express "you may read back the contact you just wrote", because the usual route — *the profile pointing at this row is yours* — has nothing to traverse yet.
+
+  **It is nullable, and that is forced rather than chosen.** It references `auth.users`, so it has to survive an account deletion, and `on delete set null` is not available on a `not null` column — the alternatives were refusing the account deletion, which is the bug the Deletion section exists to avoid, or `on delete cascade`, which would delete a contact row out from under a profile whose `contact_id` is `not null` and be refused by *that* foreign key instead. What null means is "the account that wrote this is gone", and it fails closed: `created_by = (select auth.uid())` is null rather than true for every caller, so the first clause of `contacts_rw_own` stops matching and the row is reachable only through the profile that points at it. An orphan whose author deleted their account therefore becomes unreadable by everybody but an admin, which is the right outcome for a stray address nobody claimed — it is sweepable, not lost.
 - **Erasure is two deletes, not a cascade.** `on delete cascade` used to take the contact with the profile, which mattered because it is PII. Reversed, the profile goes first and the contact is deleted after it. See Deletion.
 
 ### `practitioner_review_notes`
@@ -922,10 +965,12 @@ create table public.practitioner_review_notes (
     references public.practitioners (id) on delete cascade,
   note text not null,
   written_at timestamptz not null default now(),
-  written_by uuid references auth.users (id),
+  written_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.practitioner_review_notes enable row level security;
 ```
 
 A table rather than the `review_note` column #35 put on the profile. The reason is that the column could not be scoped to the person it is about: column privileges are per **role** and RLS is per **row**, so `grant select (review_note) … to authenticated` meant every signed-in practitioner could read Bluehex's feedback about every other one. `approve_practitioner()` clearing it on approval narrowed the window without closing it, since an admin setting `status` by `PATCH` leaves the note in place.
@@ -1061,15 +1106,9 @@ create policy credentials_admin_all on public.practitioner_credentials
   for all to bluehex_admin using (true) with check (true);
 ```
 
-The catalogue is the one table in the design whose rows are public reference data rather
-than anybody's record, so its policies are correspondingly dull — but it still needs RLS
-enabled, because a table with RLS off and a `select` grant is readable by policy-free
-default and that difference is invisible until somebody adds a second policy expecting it
-to be the only one:
+The catalogue is the one table in the design whose rows are public reference data rather than anybody's record, so its policies are correspondingly dull — and it is the table on which forgetting `enable row level security` would cost nothing, which is why the line lives at every `create table` above rather than being written where it happens to matter:
 
 ```sql
-alter table public.credential_catalogue enable row level security;
-
 create policy catalogue_read_all on public.credential_catalogue
   for select to anon, authenticated using (true);
 
@@ -1110,6 +1149,8 @@ The first clause covers the row you just wrote, including an orphan whose profil
 
 `with check` deliberately names only the first clause. You may write rows you own; you may not write a contact row into existence with somebody else's `created_by`, and you may not reassign an existing row to yourself. Reading through the profile is a right you inherit by claiming; writing is not.
 
+**`created_by` is nullable**, because it references `auth.users` and has to survive an account deletion — see the table. Both clauses stay correct: a null `created_by` makes the first comparison null rather than true, so it fails closed, and the second clause is unaffected because it never mentions the column.
+
 ```sql
 -- review notes: the owner reads, only Bluehex writes
 create policy review_notes_read_own on public.practitioner_review_notes
@@ -1125,7 +1166,7 @@ create policy review_notes_admin_all on public.practitioner_review_notes
 
 ### Triggers
 
-Two guards and one clearing rule, the last of which is shared by three triggers. `clear_profile_verification()` is the only privileged function among them; `withdraw_profile()` under Deletion is the other `security definer` in the design, which makes two overall.
+Three guards, one clearing rule shared by three triggers, and one timestamp bump shared by two tables. `clear_profile_verification()` is the only privileged function among them; `withdraw_profile()` under Deletion is the other `security definer` in the design, which makes two overall.
 
 Written out rather than described, because the three mistakes these are here to prevent are all invisible in prose: a `before insert or update` trigger that reads `OLD`, an `update of` clause read as though it fired on change, and an ownership rule read as a permission when it is a state machine.
 
@@ -1225,12 +1266,46 @@ Written out rather than described, because the three mistakes these are here to 
    not make anybody's certificate less checked. Clearing on it would let an admin
    tidying the catalogue silently drop every badge in the directory.
 
-   The case that *would* justify one — repointing an entry at a different credential
-   entirely, so everyone's claim now says something they did not claim — is not an edit
-   anybody should make. That is a new row plus retiring the old one, which `active` and
-   `on delete restrict` exist to make the path of least resistance.
+   The case that *would* justify one — repointing an entry at a different credential entirely, so everyone's claim now says something they did not claim — is not an edit anybody should make, and **saying so is not enough**. `active` and `on delete restrict` both act on *deletion*: `restrict` refuses `delete from credential_catalogue` while claims exist, and `active` offers retirement instead. Neither touches `update`, and `bluehex_admin` holds unrestricted `update` on the table — so the equally destructive repoint would be one statement, refused by a paragraph. That is the pattern `AGENTS.md` names on `verified`. It is `catalogue_guard` that refuses it.
 
-3. **`clear_profile_verification()`** — one `security definer` function, called by **three** triggers. Each fires when something about *who this profile is* has changed, and none of them is a change to a credential:
+3. **`catalogue_guard`** — `before update` on `credential_catalogue`. Bumps `updated_at`, which is otherwise never written after insert on a table whose stated correction path is an admin `UPDATE`. And it refuses a change to `source` or `label` on an entry that has claims against it, unless the caller has declared the change a correction:
+
+   ```sql
+   create function public.catalogue_guard()
+   returns trigger language plpgsql
+   set search_path = ''
+   as $$
+   begin
+     new.updated_at := now();
+
+     if (new.source is distinct from old.source
+         or new.label is distinct from old.label)
+        and current_setting('bluehex.catalogue_correction', true) is distinct from 'on'
+        and exists (select 1 from public.practitioner_credentials c
+                     where c.catalogue_id = old.id)
+     then
+       raise exception 'a claimed catalogue entry cannot be repointed'
+         using errcode = '23514',
+               hint = 'add a new entry and retire this one with active = false, '
+                      'or call correct_catalogue_entry() if the wording is wrong';
+     end if;
+
+     return new;
+   end;
+   $$;
+
+   create trigger catalogue_guard
+     before update on public.credential_catalogue
+     for each row execute function public.catalogue_guard();
+   ```
+
+   **The rename path this appears to block is the reason the escape hatch exists.** The seeding rule above says a course Anthropic renames is an admin `UPDATE` rather than a second migration, and that is still true — but Postgres cannot tell a wording fix from a repoint, because the two are the same statement and differ only in intent. So intent is declared: `correct_catalogue_entry()` sets a transaction-local setting the trigger reads, and is the only sanctioned way to change either column on a claimed entry. Everything else raises.
+
+   The trigger is the enforcement and the RPC is only the signal, which is why this does not repeat the mistake `assign_profile_owner()` was deleted for — an RPC that *is* the enforcement can be bypassed by anyone holding the `update` grant, and this one cannot be, because bypassing it means arriving at the trigger without the setting.
+
+   Deliberately **not** the other available fix — clearing verification on the dependent rows. It would drop every badge in the directory the first time an admin corrects a typo, which is the outcome the paragraph above rules out, and it would treat the repoint as something to compensate for rather than something to refuse.
+
+4. **`clear_profile_verification()`** — one `security definer` function, called by **three** triggers. Each fires when something about *who this profile is* has changed, and none of them is a change to a credential:
 
    ```sql
    create function public.clear_profile_verification(profile_id uuid)
@@ -1287,6 +1362,30 @@ Written out rather than described, because the three mistakes these are here to 
      execute function public.contacts_email_change_clears_credentials();
    ```
 
+5. **`set_updated_at()`** — the two tables with no guard of their own. `updated_at` is maintained by trigger everywhere it works: `practitioners_guard`, `credentials_guard` and `catalogue_guard` each bump their own. That leaves `practitioner_contacts` and `practitioner_review_notes` with a column that takes its default at insert and is never written again — and `practitioner_contacts.updated_at` is in the `authenticated` select grant, so it is a column the API serves and that would be wrong. `contacts_email_change_clears_credentials` cannot do the job: it is an `after` trigger returning null, so it has no `NEW` to assign to.
+
+   ```sql
+   create function public.set_updated_at()
+   returns trigger language plpgsql
+   set search_path = ''
+   as $$
+   begin
+     new.updated_at := now();
+     return new;
+   end;
+   $$;
+
+   create trigger contacts_set_updated_at
+     before update on public.practitioner_contacts
+     for each row execute function public.set_updated_at();
+
+   create trigger review_notes_set_updated_at
+     before update on public.practitioner_review_notes
+     for each row execute function public.set_updated_at();
+   ```
+
+   A timestamp that silently lies is worse than an absent one, which is the alternative this rejects: dropping the column from the tables that will not maintain it. It is kept because both tables are edited after creation — a practitioner changes their contact details, an admin rewrites a rejection note — and "when was this last touched" is the first question asked of either.
+
 **Every function here pins `search_path`**, and the `security definer` one qualifies every name inside it. A `security definer` function runs as its owner — `postgres`, since migrations run as `postgres` — and resolves unqualified names through whatever `search_path` is live at call time. PostgREST does not let a client set it per request, so this is hardening rather than a live hole, but Supabase's linter raises it as `function_search_path_mutable` and it costs one line.
 
 **What the schema cannot reach.** None of this constrains a malicious *admin*, who can edit the contact email, claim the profile and re-verify it in three steps. Postgres has no answer to that and neither does any amount of policy. What the design buys is that each of those steps is attributed and the badge visibly drops in between, so the sequence leaves a trail rather than happening silently — proportionate when the admins are Bluehex itself and there are very few. It also bounds the damage from every *non*-admin path: the worst outcome of a claim that should not have happened is an **unverified** profile carrying somebody's name, which is vandalism an admin can undo, not a stolen credential.
@@ -1297,8 +1396,26 @@ Written out rather than described, because the three mistakes these are here to 
 
 - `approve_practitioner(profile_id)` / `reject_practitioner(profile_id, note)` — as #35, except that both now touch `practitioner_review_notes` rather than a column: `reject` upserts the note, `approve` deletes it.
 - `set_credential_verified(credential_id, value)` — replaces `set_practitioner_verified`. Verification is per credential now.
+- `correct_catalogue_entry(entry_id, new_source, new_label)` — the sanctioned way to fix the wording of a catalogue entry that already has claims against it. It declares intent and nothing else:
 
-**`assign_profile_owner()` is gone.** Claiming is a plain `PATCH` setting `user_id`, and `practitioners_guard` stamps `owner_assigned_at/by` on the way through — which is strictly better than the RPC was, because an RPC can be bypassed by anyone holding the `update` grant and a trigger cannot. The three that remain earn their place: two write across tables atomically, and all three write provenance from `auth.uid()` rather than from whatever the caller passes.
+  ```sql
+  create function public.correct_catalogue_entry(
+    entry_id uuid, new_source text, new_label text)
+  returns void language plpgsql
+  set search_path = ''
+  as $$
+  begin
+    perform set_config('bluehex.catalogue_correction', 'on', true);
+    update public.credential_catalogue
+       set source = new_source, label = new_label
+     where id = entry_id;
+  end;
+  $$;
+  ```
+
+  `security invoker`, like the rest — an admin already holds `update` on the table, so this borrows no privilege and adds no reach. `set_config(..., true)` is transaction-local, so the setting does not survive the statement into another caller's session. What it buys is that the destructive version of the same statement now requires a different call, which is the whole of `catalogue_guard`'s value: `active` and `on delete restrict` already make the destructive *delete* the harder path, and this makes the destructive *update* match.
+
+**`assign_profile_owner()` is gone.** Claiming is a plain `PATCH` setting `user_id`, and `practitioners_guard` stamps `owner_assigned_at/by` on the way through — which is strictly better than the RPC was, because an RPC can be bypassed by anyone holding the `update` grant and a trigger cannot. The ones that remain earn their place: two write across tables atomically, three write provenance from `auth.uid()` rather than from whatever the caller passes, and the fourth carries an intent no `PATCH` can express.
 
 ### The rollup, in the client
 
@@ -1358,6 +1475,13 @@ the most valuable one in the suite and it transfers directly.
 - A practitioner cannot insert a credential against a profile that is not theirs, and
   cannot see credentials of an unclaimed profile.
 
+**Row level security, which every assertion above is blind to.** These are written from a *second* signed-in account rather than from the row's owner, and that is the whole point: an owner-access assertion passes identically whether RLS is on or off, so a suite made entirely of them proves nothing about whether the policies ever execute. One per table, and each fails loudly if the `enable row level security` line is dropped from a later migration:
+
+- **A second practitioner cannot read another's `practitioner_contacts` row** — not by id, not by filter, not by selecting the whole table. Without RLS the `authenticated` select grant hands every contact email and phone number in the database to any signed-in account, which is the entire content of the table whose reason for existing is that it cannot be leaked.
+- **A second practitioner cannot update another's contact row.** With RLS off this is the sharpest path in the schema: repoint an unclaimed profile's `contact_email` at your own address and then claim it. `contacts_email_change_clears_credentials` means the profile arrives unverified, so the badge holds — but the profile is taken.
+- **A second practitioner cannot read another's `practitioner_review_notes` row.** This is the assertion that moving `review_note` off the profile was supposed to buy, and it is bought by the policy rather than by the table, so it has to be tested against the policy.
+- **A second practitioner cannot update or delete another's `practitioner_credentials` row**, and `anon` cannot see credentials belonging to a `pending`, `rejected` or `withdrawn` profile. The grants to `authenticated` are table-wide on purpose; only `credentials_rw_own` narrows them.
+
 **The catalogue, where the whole point is what a practitioner cannot do:**
 
 - **A practitioner cannot insert, update or delete a `credential_catalogue` row.** This is
@@ -1381,18 +1505,26 @@ the most valuable one in the suite and it transfers directly.
 - A retired (`active = false`) entry is still readable by `anon`, so a profile holding it
   still renders. The picker's filtering of `active` is a query concern and is not asserted
   here.
+- **Repointing a claimed entry is refused with an exception**, and the same statement through `correct_catalogue_entry()` succeeds and leaves every claim verified. Assert on the error rather than on the row being unchanged, as with `A → B` below. The pair with the `on delete restrict` assertion above is the point: the destructive `update` and the destructive `delete` are now equally hard, where before only one of them was.
+- **An unclaimed entry is renamable by a plain `UPDATE`**, which is the case the guard must not catch — it fires on claims, not on the columns.
+- **`updated_at` moves when a catalogue row is corrected.** Trivial to assert and easy to ship broken, because a column with a default reads plausibly forever — and this is the table whose corrections are `UPDATE`s by design, so it is the one where a frozen timestamp misleads most.
 
 **`services`, where the constraint is doing work a form cannot:**
 
 - A fourth service is refused by the `cardinality` check, and a value outside the closed
   set is refused by the `<@` check — both at the database rather than in the form, since a
   form-only rule is not a rule.
+- **A repeated service is refused**, by `is_distinct` rather than by either of those two: `['Code review', 'Code review', 'Implementation']` has cardinality 3 and is contained in the allowed set, so it passes both of the checks above and is exactly the row the cap exists to prevent.
 - An empty `services` array is legal, and such a profile is still publicly readable. A
   practitioner who has not said what they sell is not a broken profile.
+
+**`practitioner_contacts`:**
+
 - **A profile cannot be inserted without a `contact_id`.** The insert is refused by `not null` on the column, not by a trigger or a check — so this asserts the foreign key points the way the design needs it to. Two profiles cannot share a contact row either, which is the `unique`.
 - A practitioner can read back a contact row they wrote before any profile pointed at it, and cannot read one written by somebody else.
 - After claiming a curated profile, the new owner can read and edit the contact row **Bluehex** wrote — the second clause of `contacts_rw_own`, which is easy to omit and fails as "my own details are invisible to me".
 - A practitioner cannot write a contact row with somebody else's `created_by`, and cannot reassign an existing one to themselves. `with check` names only the first clause of that policy for this reason.
+- **`updated_at` moves when a contact row or a review note is edited.** It is in the `authenticated` select grant on contacts, so it is a column the API serves; neither table has a guard trigger of its own, and `set_updated_at` is the only thing writing it.
 
 **Ownership, where the rule is a state machine rather than a permission:**
 
@@ -1417,6 +1549,8 @@ the most valuable one in the suite and it transfers directly.
 - Deleting an `auth.users` row leaves the profile present, unowned and `withdrawn` —
   rather than erroring on a dangling reference, which is what happens if the guard
   trigger pins `user_id` back.
+- **The account being deleted must have *done* things, or the assertion above passes on a fixture that never exercises the failure.** The one that bites is a self-service practitioner who wrote their own contact row: `created_by` defaults to `auth.uid()`, so a `NO ACTION` foreign key there refuses the delete outright with `23503` on `practitioner_contacts_created_by_fkey`, and the profile never gets as far as being withdrawn. So the fixture is a practitioner who wrote their own contact row, whose profile is approved and whose credential is verified, and the assertion is that the delete succeeds, the profile is present, unowned and withdrawn, and the contact row survives with `created_by` null.
+- **Deleting an admin's `auth.users` row succeeds** with `approved_by`, `owner_assigned_by`, `verified_by` and `written_by` all nulled, rather than being blocked by every profile they ever approved and every credential they ever checked. Attribution is the thing this design trades away at account deletion, and the test is what says so out loud.
 - A withdrawn profile is invisible to `anon` and to other practitioners, and still
   visible and editable to its owner.
 - `withdraw_profile()` affects only the caller's own row, and a practitioner cannot use
@@ -1474,6 +1608,8 @@ value for non-admin callers, which would undo the FK action and leave a dangling
 reference. `supabase_auth_admin` must be in the guard's allow-list alongside
 `bluehex_admin`, `service_role` and `postgres`. The assertion is: deleting an
 `auth.users` row leaves the profile present, unowned and withdrawn, rather than erroring.
+
+**A second trap, and it fires earlier than the first.** `user_id` is not the only reference to `auth.users`: `approved_by`, `owner_assigned_by`, `verified_by`, `written_by` and `practitioner_contacts.created_by` all point at the same table, and a foreign key with no `on delete` action is `NO ACTION`, which *refuses* the delete rather than doing anything to the child row. So one row anywhere in that set and the delete raises `23503` before `practitioners` is reached at all — the `set null` above and the `supabase_auth_admin` entry in the allow-list are both correct and both unreachable. Every one of them is `on delete set null`; `created_by` gave up its `not null` to be able to say it. The failing case is not exotic: a practitioner who wrote their own contact row and later deletes their account is the ordinary self-service path, and it is the fixture the test has to use.
 
 ### Erasure is hard, and it is an admin action
 
