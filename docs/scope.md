@@ -216,7 +216,7 @@ to Supabase in #28 and this document's claim that it was stale is no longer true
 
 ### Still open
 
-- **Whether Bluehex recovers any visibility of enquiries** — a blind copy would put it back in the path it was deliberately removed from. Not blocking anything.
+- **Nothing.** The enquiry destination was the open item here and it is settled: the form mails Bluehex. Delivering to the practitioner is deferred with a gate in the spec rather than open.
 
 ### Meetup banner
 
@@ -244,15 +244,15 @@ Fail soft: an undocumented upstream feed must not be able to take the homepage d
 The broader marketplace ambition is bounded to **profiles, an approval process,
 authentication, and enquiry by email**. That is the whole of it.
 
-**Decided 2026-08-16 — enquiries produce email, delivered to the practitioner.** A visitor enquires through the app and the enquiry becomes an email, via the existing `/contact` page reached from the profile page, which prefills which practitioner it concerns. The mail is addressed to the practitioner with the visitor's address in `Reply-To`; the address itself is never published, and the exchange leaves the product at the first reply.
+**Decided 2026-08-15 — enquiries produce email, and the form mails Bluehex.** A visitor enquires through the app and the enquiry becomes an email, via the existing `/contact` page reached from the profile page, which prefills which practitioner it concerns. Unchanged, and **#2 is unaffected**: the recipient is a fixed address, so the `mailto:` stopgap and a plain form service both still work, and the project still holds no secret.
 
-This supersedes the 2026-08-15 decision that Bluehex stays in the path. It costs this document a line it used to be able to write — Bluehex no longer sees who is hiring — and it moves work into #2, which can no longer be satisfied by a form service pointed at a fixed address. See `docs/spec/profile-and-credentials.md`, which owns the mechanism and its costs.
+Delivering the enquiry to the practitioner instead was specified on 2026-08-16 and cut the same day. It would have cost a server-side send and the first secret, and it buys little that a published LinkedIn does not. The spec carries the gate for revisiting it.
 
 **Decided 2026-08-16 — a profile may publish links, but never an address or a phone number.** `website_url`, `github_url`, `linkedin_url` and `booking_url` are public, practitioner-writable columns; `practitioner_contacts` keeps every protection it had. The test is a route to a *page* versus a route to a *person*; `docs/adr/0002-links-are-published-addresses-are-not.md` owns the argument.
 
-**Two repricings, in opposite directions, and both are in the table above rather than only in this paragraph.** 2a goes **3–4.5d → 3.5–5d**: four columns, the `https_url` domain, four grant-list edits and the tests that prove the domain refuses what it is there to refuse. That is half a day, and it is the cheap direction — the columns cost a fraction now of what collecting them from twenty-five people later would.
+**One repricing, and it is in the table above rather than only in this paragraph.** 2a goes **3–4.5d → 3.5–5d**: four columns, the `https_url` domain, four grant-list edits and the tests that prove the domain refuses what it is there to refuse. That is half a day, and it is the cheap direction — the columns cost a fraction now of what collecting them from twenty-five people later would.
 
-The other direction is #2, which gets **less load-bearing** without getting cheaper. With links on the profile the enquiry form stops being the only way to reach a practitioner and becomes the fallback for visitors given no other route. The server-side send, the first secret and the abuse handling are all still needed at the same cost — what changes is that #2 is now sequenceable *after* the link fields rather than before them, because the directory is useful without it.
+**Links change what #2 is worth, not what it costs.** The enquiry form stops being the only way to reach a practitioner, so a strained relay throttles Bluehex's lead flow rather than the directory's usefulness. #2 is unchanged in scope and is now sequenceable *after* the link fields rather than before them.
 
 **The test, so a reviewer can apply it without re-deriving the argument: an enquiry form
 that produces an email is not a marketplace. It becomes one the moment a practitioner

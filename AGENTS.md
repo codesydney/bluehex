@@ -395,7 +395,7 @@ being vouched for, which is the normal case.
 - **`docs/adr/0001-admins-are-a-postgres-role.md`** — why admins are a Postgres role
   stamped by an access token hook rather than a flag or the service role key, and what
   that costs.
-- **`docs/adr/0002-links-are-published-addresses-are-not.md`** — why a profile publishes a practitioner's links but never their email or phone, and why Bluehex is not in the enquiry path. Read it before concluding that `practitioner_contacts` is over-built or that the published links are a mistake; the two look contradictory and are not.
+- **`docs/adr/0002-links-are-published-addresses-are-not.md`** — why a profile publishes a practitioner's links but never their email or phone. Read it before concluding that `practitioner_contacts` is over-built or that the published links are a mistake; the two look contradictory and are not. It also records what the links changed about the enquiry form, which still mails Bluehex and nobody else.
 - **`docs/spec/profile-and-credentials.md`** — the model: what a profile contains, who
   owns it, what the badge attests to, and the DDL with its grant lists, triggers and RPCs.
   Binding on the first migration.
