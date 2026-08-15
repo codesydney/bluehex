@@ -57,8 +57,17 @@ export type ProfileDraft = {
    * `focus` is already the plural axis and a multi-select job function would let
    * everyone tick everything, which is how a filter stops narrowing anything.
    *
-   * Nullable: plenty of people will not want to pick one, and forcing a choice
-   * produces noise rather than data.
+   * Nullable in the column, `""` in this model — a `<select>` has no null and
+   * the unset option has to have a value. That is a form-model convenience and
+   * must not travel into the DDL: `""` and `null` are different values to
+   * `where job_function = ...`, only one of them can mean "not saying", and a
+   * table holding both filters wrongly for the rest of its life. So whatever
+   * writes this maps `""` to `null` on the way in, and the column needs a check
+   * constraint rejecting `''` so it cannot arrive the other way — the spec's
+   * `country_code text check (country_code ~ '^[A-Z]{2}$')` already does this
+   * for the field beside it, which is why `countryCode` is `""` here safely.
+   * `DraftCredential.earnedAt` answers the same question in the type instead,
+   * as `string | null`, because a date input does have an empty state.
    *
    * If this survives the prototype it needs `job_function` added to the spec's
    * DDL, its practitioner-writable grant lists and the directory's filters
@@ -66,6 +75,7 @@ export type ProfileDraft = {
    */
   jobFunction: string;
   location: string;
+  /** `country_code`. `""` here, null in the column — see `jobFunction` above. */
   countryCode: string;
   bio: string;
   focus: string[];
@@ -198,6 +208,26 @@ export const initialControlled: BluehexControlled = {
   verified: { c1: true, c2: false },
   reviewNote: null,
 };
+
+/**
+ * Whether an edit to a credential invalidates the check of it — the four
+ * columns `credentials_guard()` clears `verified` on, in the spec's own order:
+ * `source`, `label`, `earned_at`, `evidence_url`.
+ *
+ * `evidencePublic` is deliberately absent, exactly as it is from the trigger:
+ * it changes the claim's visibility, not the claim. That exemption is the one a
+ * practitioner most needs to hear, because the opt-in is the toggle that should
+ * be easy to say yes to and "this costs you your badge" is a reason to leave it
+ * off.
+ */
+export function claimEdited(before: DraftCredential, after: DraftCredential) {
+  return (
+    before.source !== after.source ||
+    before.label !== after.label ||
+    before.earnedAt !== after.earnedAt ||
+    before.evidenceUrl !== after.evidenceUrl
+  );
+}
 
 /**
  * The badge rollup, as the spec states it. Shown in the editor read-only, so a

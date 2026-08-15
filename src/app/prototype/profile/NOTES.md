@@ -34,13 +34,15 @@
 
 **5. `bio` and `focus` are outside what the badge attests to.** It covers evidence-backed claims and the name attached to them, never self-described expertise — and `focus` is what drives the directory's filters. Said under the focus picker; keep it said.
 
-**6. Creating a profile is two requests, and the UI cannot pretend otherwise.** The contact row is written first and `practitioners.contact_id` is `not null`, so an abandoned submission leaves an orphaned contact row rather than a published profile nobody can reach. That is the harmless direction, but it is not atomic.
+**6. Editing a credential's claim clears its check, and the preview shows it rather than saying it.** `credentials_guard()` clears `verified` on a change to `source`, `label`, `earned_at` or `evidence_url` — and deliberately not on `evidence_public`, which changes the claim's visibility rather than the claim. The editor mocks the trigger in `profile-editor.tsx` so the ✓ leaves the preview as you retype a verified credential's label, and stays put when you flip the publish opt-in. Both halves matter: the exemption is the one a practitioner most needs to hear, because "this costs you your badge" is a reason to leave the opt-in off, which is the opposite of point 2.
+
+**7. Creating a profile is two requests, and the UI cannot pretend otherwise.** The contact row is written first and `practitioners.contact_id` is `not null`, so an abandoned submission leaves an orphaned contact row rather than a published profile nobody can reach. That is the harmless direction, but it is not atomic.
 
 ## Open, and blocking #49
 
 **`job_function` is proposed here and is not in the spec.** The case is the `country_code` case: `headline` is prose and `focus` is technology, so neither answers "show me the designers" — only a closed set filters. Single-select rather than an array, because `focus` is already the plural axis and a multi-select lets everyone tick everything, which is how a filter stops narrowing anything. Nullable, and no "Other", since that reliably becomes the largest bucket and means nothing.
 
-**If it stays, it needs adding to the spec's DDL, the practitioner-writable grant lists and the directory's filters before #49 lands.** No schema lands before the model it encodes is settled, so nothing about it touches the production types yet.
+**If it stays, it needs adding to the spec's DDL, the practitioner-writable grant lists and the directory's filters before #49 lands.** No schema lands before the model it encodes is settled, so nothing about it touches the production types yet. It also needs a check constraint rejecting `''`, the way `country_code` already has one: the form models "not saying" as `""` because a `<select>` has no null, and if that reaches the column then `''` and `null` both mean unset and the filter is wrong for the life of the table.
 
 ## Settled while drawing this
 

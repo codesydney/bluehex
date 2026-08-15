@@ -7,14 +7,48 @@
  * Nothing persists. `initialControlled` stands in for the two things a
  * practitioner does not own — `status`, and `verified` per credential — which
  * the form shows read-only and never offers a control for.
+ *
+ * The one piece of behaviour mocked here rather than merely displayed is
+ * `credentials_guard()`: editing what a credential claims clears the check of
+ * it, and only Bluehex can put it back. It lives at this level because
+ * `verified` does. Without it the editor asserted the rule in prose on the
+ * Review step while the preview quietly contradicted it — and the preview
+ * showing a rule beats a sentence claiming it, which is the argument the whole
+ * design rests on.
  */
 
 import { useState } from "react";
-import { initialControlled, initialDraft, type ProfileDraft } from "./draft";
+import {
+  claimEdited,
+  initialControlled,
+  initialDraft,
+  type BluehexControlled,
+  type ProfileDraft,
+} from "./draft";
 import { ProfileForm } from "./profile-form";
 
 export function ProfileEditor() {
   const [draft, setDraft] = useState<ProfileDraft>(initialDraft);
+  const [controlled, setControlled] = useState<BluehexControlled>(initialControlled);
+
+  const change = (next: ProfileDraft) => {
+    const invalidated = next.credentials.filter((credential) => {
+      const before = draft.credentials.find((item) => item.key === credential.key);
+      return before && claimEdited(before, credential);
+    });
+
+    if (invalidated.length > 0) {
+      setControlled((current) => ({
+        ...current,
+        verified: {
+          ...current.verified,
+          ...Object.fromEntries(invalidated.map((credential) => [credential.key, false])),
+        },
+      }));
+    }
+
+    setDraft(next);
+  };
 
   return (
     <section className="container-x pt-32 pb-32 md:pt-40">
@@ -25,7 +59,7 @@ export function ProfileEditor() {
       </p>
 
       <div className="mt-14">
-        <ProfileForm draft={draft} onChange={setDraft} controlled={initialControlled} />
+        <ProfileForm draft={draft} onChange={change} controlled={controlled} />
       </div>
     </section>
   );

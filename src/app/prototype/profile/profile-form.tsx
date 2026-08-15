@@ -21,7 +21,10 @@
  * The preview also does something no wording can. On the Contact step you type
  * an email address and **the preview does not move** — which is the model's
  * rule that contact details are never published, demonstrated instead of
- * asserted. Same for an evidence link with its opt-in switched off.
+ * asserted. Same for an evidence link with its opt-in switched off, and same
+ * for the clearing rule: retype a verified credential's label and its ✓ leaves
+ * the preview, while flipping the publish opt-in leaves it alone. That last
+ * pair is `credentials_guard()`, mocked in `profile-editor.tsx`.
  *
  * Note what is absent: nothing here sets `verified` or `status`. Both are shown
  * read-only, because this is the only place a practitioner ever learns who
@@ -278,9 +281,13 @@ export function ProfileForm({
                   ) : null}
                 </ReviewStep>
                 <ReviewStep n={3} title="You can edit any time">
-                  Editing does not send it back to the queue. Changing a credential clears
-                  the badge until it is checked again; changing your bio or focus areas does
-                  not, because the badge never covered those.
+                  Editing does not send it back to the queue. Changing what a credential
+                  claims — its type, its name, when you earned it, or its certificate link —
+                  clears that credential&apos;s check until Bluehex looks again, and you can
+                  watch the ✓ leave the preview as you type. Switching the certificate
+                  link&apos;s publish opt-in does not, because that changes who can see the
+                  claim rather than the claim. Neither does your bio or focus areas, which
+                  the badge never covered.
                 </ReviewStep>
               </ol>
 
@@ -475,8 +482,13 @@ function RowPreview({
             ))}
           </div>
 
+          {/* `View profile`, matching the real row. One call to action per
+              surface: the directory's job is to get you to a profile, the
+              profile's job is to get you to enquire — see the note above the
+              link in `practitioner-directory.tsx`. A preview that draws the
+              rejected shape is worse than no preview. */}
           <span className="inline-flex h-9 w-fit items-center rounded-full border border-stroke-strong px-4 text-sm font-medium">
-            Enquire
+            View profile
           </span>
         </div>
 

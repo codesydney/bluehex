@@ -1,12 +1,15 @@
 "use client";
 
 /**
- * PROTOTYPE — leaf inputs shared by the three editor variants. Throwaway.
+ * PROTOTYPE — leaf inputs for the editor. Throwaway.
  *
- * Only leaf-level pieces live here. The variants disagree about structure —
- * how the fields are grouped, ordered, and paced — which is the whole question,
- * so nothing here decides layout. `CredentialFields` renders the inputs for one
- * credential but not its container, for the same reason.
+ * Only leaf-level pieces live here, and nothing here decides layout. Three
+ * shapes were drawn against these same inputs, disagreeing about structure —
+ * how the fields are grouped, ordered and paced — which was the whole question,
+ * so structure deliberately lives in `profile-form.tsx` instead.
+ * `CredentialFields` renders the inputs for one credential but not its
+ * container, for the same reason. Nothing that lost stays on disk; `NOTES.md`
+ * records which shape won and what the other two cost.
  */
 
 import { useId } from "react";
@@ -168,7 +171,12 @@ export function FocusPicker({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-1.5">
+      {/* This is the one control that skips `Field`, so it carries its own
+          names. Without them a screen reader announces "Agents, toggle button,
+          not pressed" with nothing saying what is being toggled, and the free
+          text input's only name would be its placeholder — which is not exposed
+          as a name everywhere and vanishes as soon as anyone types. */}
+      <div role="group" aria-label="Focus areas" className="flex flex-wrap gap-1.5">
         {focusSuggestions.map((area) => (
           <button
             key={area}
@@ -198,6 +206,7 @@ export function FocusPicker({
       </div>
       <input
         type="text"
+        aria-label="Add a focus area"
         placeholder="Something else? Type it and press Enter"
         onKeyDown={(event) => {
           if (event.key !== "Enter") return;
@@ -271,11 +280,15 @@ export function CredentialFields({
       </div>
 
       <div className="flex flex-col gap-2">
+        {/* Unticking empties the date rather than filling one in. `earned_at` is
+            not cosmetic — `badgeState()` counts a credential as earned the moment
+            it is non-empty — so a plausible-looking literal nobody typed would
+            move a credential into the rollup on a stray tick. */}
         <label className="flex w-fit items-center gap-2.5 text-sm">
           <input
             type="checkbox"
             checked={inProgress}
-            onChange={(event) => set("earnedAt", event.target.checked ? null : "2026-08-01")}
+            onChange={(event) => set("earnedAt", event.target.checked ? null : "")}
             className="size-4 accent-ink"
           />
           Still working towards this
