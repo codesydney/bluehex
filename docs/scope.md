@@ -23,11 +23,29 @@ Two different things, deliberately separated:
   built in spare time rather than as anyone's day job.
 
 The gap between those two columns is the whole reason this document exists. A
-one-day change lands next week. A twelve-day change lands next quarter.
+one-day change lands this week. A twelve-day change lands next month.
 
-**Capacity assumption:** roughly **1.5 engineering days a week** — a weekend
-session plus a few weeknight ones. This varies with the rest of life and is the
-number to revise first if the elapsed column starts looking wrong.
+**Capacity assumption:** roughly **4 engineering days a week**. This is the number to
+revise first if the elapsed column starts looking wrong, and it is worth understanding
+how it is built, because it is not a measure of available time.
+
+It has two factors. The first is **attention** — about a day and a half a week, a weekend
+session plus a few weeknight ones, which is the sustainable baseline rather than a busy
+fortnight. The second is a **multiplier of roughly 2.5–3x**, because the work is
+agent-augmented: a day of attention now clears appreciably more than a day of hand-coding
+did. Multiply the two and you get four.
+
+The multiplier is measured, not hoped for. In the first five days this repository took
+delivery of the site, CI, the Node pin, the dependency floor, the deploy workflow,
+Playwright coverage, the local Supabase stack, the profile and credential spec, ADR-0001
+and the first migration — on this document's own pricing, something like ten to fourteen
+engineering days. An earlier draft assumed 1.5 days a week and would have called that
+seven to nine weeks.
+
+**Attention is the binding constraint, not typing speed.** That is the whole reason the
+two factors are kept separate: the multiplier is stable, and the attention figure is the
+one that moves with the rest of life. If these numbers start slipping, it is almost
+certainly because the first factor changed.
 
 **Buffer:** larger items carry a multiplier, because uncertainty scales with size
 and integration work reliably finds surprises that a half-day task cannot hide.
@@ -38,6 +56,20 @@ being recommended.
 
 Estimates are honest in both directions. Where something is unknown it says so and
 carries a spike instead of a number.
+
+**The multiplier is not uniform, which the elapsed column cannot show.** Work labelled
+`afk` on the issue tracker — schema, policies, tests, the migrations the spec already
+contains the DDL for — compresses hard, because it is close to transcription from a
+settled design. Work labelled `hitl` barely compresses at all: #41 and #48 are a hosted
+project, dashboard settings and tokens, and #14 needs decisions rather than code. A phase
+made mostly of `afk` tickets will beat its estimate; one gated on `hitl` will not.
+
+Two effects push the other way, and they are why the capacity figure is deliberately short
+of the observed rate. **Review load rises with generated volume** — and `verified` is the
+one thing the product rests on, where `AGENTS.md` warns the natural-looking policy passes
+review and still lets any practitioner `PATCH` themselves `{"verified": true}`. That needs
+more attention per line, not less. And **thorough design finds work as well as saving it**:
+2a went *up* when the spec revealed four tables where one was assumed.
 
 ---
 
@@ -70,12 +102,12 @@ Small, and none of them blocked on a decision.
 
 | Item | Effort | Elapsed | Notes |
 | --- | --- | --- | --- |
-| Country flag on profile cards | 0.25d | days | Add `countryCode` to `Practitioner`. SVG assets, not emoji — Windows has no flag glyphs. Lands as `country_code` in the schema later; the spec keeps it separate from free-text `location` for exactly this reason. Good first ticket, and delegable. |
-| Prototype route with sample profiles | 0.5d | days | Not linked from the site, never in production. Doubles as the recruiting artifact — a candidate can see what their profile will look like. |
-| Credential proof URL | 0.25d | days | Optional field on `Credential` so a badge can link to the evidence a human checked. Becomes `evidence_url` on the credential row; note the spec pairs it with `evidence_public`, so collect the opt-in alongside it. |
+| Country flag on profile cards | 0.25d | a day | Add `countryCode` to `Practitioner`. SVG assets, not emoji — Windows has no flag glyphs. Lands as `country_code` in the schema later; the spec keeps it separate from free-text `location` for exactly this reason. Good first ticket, and delegable. |
+| Prototype route with sample profiles | 0.5d | a day | Not linked from the site, never in production. Doubles as the recruiting artifact — a candidate can see what their profile will look like. |
+| Credential proof URL | 0.25d | a day | Optional field on `Credential` so a badge can link to the evidence a human checked. Becomes `evidence_url` on the credential row; note the spec pairs it with `evidence_public`, so collect the opt-in alongside it. |
 
-**Subtotal: ~1d effort, under a week elapsed.** No buffer applied — these are small and
-well understood.
+**Subtotal: ~1d effort, a couple of days elapsed.** No buffer applied — these are small
+and well understood.
 
 Both field additions are **prerequisites rather than independents**: they want to exist
 before the first profile is taken in. See *Design the model once*, below.
@@ -92,17 +124,17 @@ below. It appeared in both places in an earlier draft and was double-counted.
 **Decided: self-service is the destination. Curated intake is phase one.**
 
 These are not alternatives. Curated intake is the first step of the same path —
-the directory needs profiles in it during the two to three months self-service
-takes to build, or the site sits empty for a quarter while auth gets written.
+the directory needs profiles in it during the month or so self-service takes to build,
+or the site sits empty while auth gets written.
 
 | Phase | Effort | Elapsed | Scope |
 | --- | --- | --- | --- |
-| **1 — Curated intake** | 1–1.5d | ~1 week | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. Mail template, PR template, and the checklist Bluehex verifies against. No database, no accounts, no secrets. |
-| **2a — Schema and the read path** | 3–4.5d | ~2–3 weeks | #49, #50, #45, #41, #48, #53. No auth in the application. |
-| **2b — Authentication** | 3–4d | ~2.5 weeks | Supabase Auth: accounts, sessions, sign-up with email verification, password reset, route protection. |
-| **2c — Profile writes** | 8–10d | ~6 weeks | #14, #52. Profile CRUD, avatar upload, validation, claiming, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
+| **1 — Curated intake** | 1–1.5d | ~2 days | Profile arrives by mail or pull request, Bluehex checks the credentials, commits it. Mail template, PR template, and the checklist Bluehex verifies against. No database, no accounts, no secrets. |
+| **2a — Schema and the read path** | 3–4.5d | ~1 week | #49, #50, #45, #41, #48, #53. No auth in the application. |
+| **2b — Authentication** | 3–4d | ~1 week | Supabase Auth: accounts, sessions, sign-up with email verification, password reset, route protection. |
+| **2c — Profile writes** | 8–10d | ~2–2.5 weeks | #14, #52. Profile CRUD, avatar upload, validation, claiming, approval queue, admin dashboard. Carries a permanent security and maintenance obligation afterwards. |
 
-**Total for phase two: 14–18.5 days**, about two to three months elapsed.
+**Total for phase two: 14–18.5 days**, about **four to five weeks** elapsed.
 
 **2a moved, and it moved in both directions.** The plumbing that made up much of the
 original 2–3d estimate has landed — local stack, migrations in version control, generated
@@ -191,7 +223,7 @@ to Supabase in #28 and this document's claim that it was stale is no longer true
 
 | Item | Effort | Elapsed | Notes |
 | --- | --- | --- | --- |
-| Upcoming events banner | 1–1.5d | ~1 week | #59 (read the iCal feed into a typed `Event`) and #60 (show the next event on the home page), which own the work. Verified 2026-08-14: the group's public iCal feed is live and needs no authentication. Ten upcoming events, weekly Thursdays. Buffered for the parsing details — iCal line folding, `Australia/Sydney` timezone handling against a UTC runtime, and failing soft when the feed is unreachable. |
+| Upcoming events banner | 1–1.5d | ~2 days | #59 (read the iCal feed into a typed `Event`) and #60 (show the next event on the home page), which own the work. Verified 2026-08-14: the group's public iCal feed is live and needs no authentication. Ten upcoming events, weekly Thursdays. Buffered for the parsing details — iCal line folding, `Australia/Sydney` timezone handling against a UTC runtime, and failing soft when the feed is unreachable. |
 
 The Meetup Pro GraphQL API is available but not needed for this. Its cost is not the
 query — it would introduce **the first secret** into the project, and couple production to
