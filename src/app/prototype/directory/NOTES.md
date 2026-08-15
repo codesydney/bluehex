@@ -12,7 +12,29 @@ A switcher between 0, 3 and 12 profiles lived here and was cut. The numbers were
 
 This renders the **real** `PractitionerDirectory` rather than a copy, so it answers whether the shipped design survives being nearly empty. The hero is deliberately not reproduced — it does not change with the population, and a second copy would only drift.
 
-The population is realistic in the one way that matters: **nobody has finished a Claude Certification.** Two people have started the courses and none have completed one, so every earned credential here is an Anthropic Academy certificate and every Claude Certification is in progress.
+The population is realistic in the one way that matters: **nobody has finished a Claude Certification.** Every credential here is an Anthropic Academy certificate, and one of the three people holds nothing at all.
+
+**The mechanism changed on 2026-08-16 and the finding did not.** It used to be carried by in-progress rows — each Claude Certification present with `earnedAt: null`, so the population said "started, not finished" out loud. Those rows are gone from the model: `earned_at` is `not null`, and a credential you have not earned is simply one you do not hold. The same fact is now stated by absence.
+
+That is a weaker signal on screen and a truer one in the model, and the trade is worth naming rather than glossing. What the fixture can no longer show is *which* Certification anybody is working towards — nothing in the directory says that, because nothing could ever check it. What it shows instead is Devon Achebe: no credentials, no badge, and a bio in his own words saying he is working through the Academy track. He is the case the directory exists to include and the one a credential-shaped model most easily excludes, and the roster has to look right with him in it.
+
+## The roster's third column is Services now
+
+`focus` drove the filters and the third column; `services` does both. The change is one column heading, one filter group and the chips in the row — the table shape settled in `6f689d2` is untouched, and deliberately so.
+
+The filter chips are built from services somebody actually offers rather than from the whole closed set, which keeps the "a chip that returns nothing" failure out. But the *order* comes from the closed set rather than `sort()`: unlike the focus areas this replaced, there is a canonical order, and alphabetical would lead with "Architecture and advisory" for no reason.
+
+`focus` stays in the search index with no chips behind it. Typing "RAG" should still find people, and free text nothing filters on cannot disagree with a filter that does not exist — which was the failure that put country *names* in the index in the first place.
+
+**What is in the model and not yet on any surface:** `availability` and the four published links render nowhere except the editor's preview. They are not on `/p/<handle>`, which is where they belong — it is the only surface a visitor reads before deciding to enquire, and `availability` in particular is read exactly once, right there. The links have been unrendered since the columns landed in #73. Drawing them is a design decision rather than a mechanical follow-on, which is why this records the gap instead of guessing at it.
+
+## The profile page shows the catalogue; the roster never does
+
+**Decided 2026-08-16.** `/p/<handle>` opens on the credentials somebody holds and carries a control revealing the rest of the catalogue — **Earned** (default) / **Not earned** / **All**. The roster has no equivalent and should not grow one: it is a dense comparison surface, and a progress figure beside a name is a score nobody asked to be ranked by.
+
+**The labels are load-bearing and the trap is worth naming, because the natural word is the wrong one.** Unearned entries are *Not earned*, never *In progress*. In-progress credential rows were deleted because "working towards" is an unfalsifiable claim; a heading saying *In progress* over the unearned half of the catalogue makes that claim automatically, for every credential the person has not taken, without them asserting anything. That is worse than the rows, which were opt-in. `profile/NOTES.md` has the full version; it is repeated here because this file is the one somebody redesigning the roster reads.
+
+**It is drawn on this page rather than at its own URL.** `/p/<handle>` resolves against the real practitioners, which are empty, so every row here 404s by design and the page behind the link cannot be looked at. The prototype renders the **real** `ProfileDetail` with a fixture person and the prototype catalogue — the same principle as rendering the real directory rather than a copy, and it adds no second resolver: there is no lookup, just a component with props. Production's own route passes `credentialCatalogue`, which is empty until a query stands behind it, and an empty catalogue means the control has nothing to reveal and does not render at all.
 
 ## The finding: `scope.md`'s closing question has a false premise
 
@@ -20,14 +42,14 @@ The population is realistic in the one way that matters: **nobody has finished a
 
 > If it means "holds a Claude Certification," the directory is empty at launch. If it means "vetted community member, Claude-capable," that is a coherent product but a different one from the original brief.
 
-**The first branch is not reachable without changing the schema, and the mechanism already picked the second.** The rollup is "at least one earned credential, and every earned credential verified", and an Anthropic Academy certificate *is* a credential — the spec is explicit that the two sources "differ in weight, not in kind". So badges appear from week one, earned entirely on Academy certificates.
+**The first branch is not reachable without changing the schema, and the mechanism already picked the second.** The rollup is "at least one credential, and every one of them verified" — it lost its earned-only filter when in-progress rows were removed, because every row is earned now — and an Anthropic Academy certificate *is* a credential. The spec is explicit that the two sources "differ in weight, not in kind", and the catalogue makes that structural: `source` is a property of the entry rather than of anybody's claim to it. So badges appear from week one, earned entirely on Academy certificates.
 
 Counted against the launch population: **3 profiles shown, 2 carrying the badge, 0 holding an earned Claude Certification.**
 
 Two consequences:
 
 - **The question is no longer "will anyone have a badge".** It is whether Bluehex is willing to say the badge means what it already does — that a human checked the credentials on this profile, whatever they are.
-- **Making it Certification-only is a schema change, not a copy change.** It would need the rollup narrowed to `source = 'Claude Certification'`, which contradicts a settled spec and would deny the badge to everybody at launch. If that is genuinely wanted, it has to be argued as a change to the model rather than fixed in the lede.
+- **Making it Certification-only is a schema change, not a copy change.** It would need the rollup narrowed to entries whose catalogue row carries `source = 'Claude Certification'`, which contradicts a settled spec and would deny the badge to everybody at launch. If that is genuinely wanted, it has to be argued as a change to the model rather than fixed in the lede.
 
 The honest copy for what exists is *"Bluehex checked the credentials on this profile."* It claims less than a certification badge would, which is the correct amount to claim.
 
@@ -51,7 +73,7 @@ So the answer to the section above — does the roster read as a directory or as
 
 Three findings survive the cut, because they are not about layout:
 
-- **The badge rollup is impossible to look at and still call it a Certification badge.** Drawn as band headings, two of the three profiles sat under *Verified by Bluehex* while nobody in the population holds a finished Claude Certification. That is the finding two sections up, seen rather than argued — and it is the argument for the honest copy, *"Bluehex checked the credentials on this profile."* The bands are gone; that is not.
+- **The badge rollup is impossible to look at and still call it a Certification badge.** Drawn as band headings, two of the three profiles sat under *Verified by Bluehex* while nobody in the population holds a Claude Certification. That is the finding two sections up, seen rather than argued — and it is the argument for the honest copy, *"Bluehex checked the credentials on this profile."* The bands are gone; that is not.
 - **Filters that can only offer two chips are furniture.** Deleting the filter groups outright went too far and lost. The observation stands, and it is about the launch population rather than about the design: the groups get better as the directory fills, and they look thinnest on exactly the day they are first seen.
 - **Putting the bio in the row reopens whether `/p/<handle>` earns its keep.** A full page already adds only three fields over the row; with the bio promoted it adds two. The URL still carries the analytics and search argument on its own, which is what the profile decision rested on — but the *page* would have needed a second reason, and that is worth knowing before anyone adds a column to the roster later.
 
@@ -135,7 +157,7 @@ Asked, and worth recording because the intuition is reasonable and the answer is
 
 **4. `site.ts` has no canonical origin, and the share URL needs one.** Hardcoded to `bluehex.au` in `profile-detail.tsx` for now. It belongs in `site.ts`, added with the real route rather than for a drawing.
 
-**5. Nothing here renders a field outside the `anon` grant list.** The detail shows name, headline, location, bio, focus and credentials — the same columns the roster row is limited to. A profile page is the most tempting place to reach for `status` or `user_id`; it must not.
+**5. Nothing here renders a field outside the `anon` grant list.** The detail shows name, headline, location, bio, focus and credentials, all of them granted. A profile page is the most tempting place to reach for `status` or `user_id`; it must not. `focus` is now the page's alone rather than shared with the roster, and `services`, `availability` and the four links are granted and still undrawn — see above.
 
 ## The enquiry flow is the weakest part, and it is blocked on #2
 
