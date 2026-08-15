@@ -319,16 +319,19 @@ What exists: the local Supabase stack, a lazy client in `src/lib/supabase.ts`, g
 types, and the environment wiring. An earlier SQLite (`better-sqlite3`) setup was
 removed, and a Drizzle/Postgres one was scaffolded and stripped back out, before this.
 
-**The database is empty and there are no migrations.** That is deliberate. A
-health-check table existed briefly to prove the connection and was taken back out before
-it was ever committed: it would have sat in the migration history permanently, describing
-a table dropped a fortnight later, to prove something the first real query proves for
-free. So nothing queries anything yet, and `database.types.ts` describes no tables. The
-schema starts with `practitioners`.
+**There is exactly one migration, and it holds no product data.** It creates the
+`bluehex_admin` role, the `public.admins` list and the `custom_access_token_hook` that
+stamps the role onto an access token — the thing every later policy and grant refers to.
+The product schema starts with `practitioners`.
 
-What does not exist yet: the `practitioners` table, any RLS policy of consequence, auth,
-and the hosted project. The rest of this section is the contract for building those —
-treat it as binding, not as a description of current state.
+Nothing queried the database before that, and nothing queries it now: a health-check
+table existed briefly to prove the connection and was taken back out before it was ever
+committed, because it would have sat in the migration history permanently, describing a
+table dropped a fortnight later, to prove something the first real query proves for free.
+
+What does not exist yet: the `practitioners` table, any RLS policy of consequence, and
+the hosted project's copy of the hook setting. The rest of this section is the contract
+for building those — treat it as binding, not as a description of current state.
 
 - **Target is [Supabase](https://supabase.com)** — Postgres, plus the auth that comes
   with it. Local development runs the Supabase CLI stack; deployed is a hosted Supabase
@@ -403,8 +406,10 @@ The parts most likely to catch you out:
 - **Reads are column-scoped as well as writes**, so `anon` cannot see `user_id`, `status`
   or who approved a profile. **`select *` is refused; every query must name its columns.**
 - **The `config.toml` hook line and the migration creating `custom_access_token_hook` are
-  one commit.** Enabling the hook without the function takes down every sign-in with a 500,
-  so `config.toml` in this repo stays unchanged until that migration lands.
+  one commit.** Enabling the hook without the function takes down every sign-in with a 500.
+  Both landed together in `20260815012304_admin_role_and_access_token_hook.sql`; the same
+  rule governs any later move of the hook, and the hosted project's Auth Hooks setting is
+  enabled with that migration's deploy, never before it.
 - **Admin authority lags revocation by the life of an access token** — removing someone
   from `admins` takes effect on their next refresh, not immediately.
 - **Contact details live in `practitioner_contacts`, never on the profile**, and `anon` has

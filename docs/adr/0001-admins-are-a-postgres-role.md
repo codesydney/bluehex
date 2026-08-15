@@ -13,6 +13,10 @@ Verified against the local stack: Supabase permits the hook to overwrite `role`,
 mints the token, PostgREST switches to it, and `sub` and `aud` survive untouched so
 `auth.uid()` still resolves to the person.
 
+Checked on the hosted project on 2026-08-15: the access token hook is available on our
+plan and offers the Postgres-function type, so no Edge Function is needed and there is
+nothing left to re-check before deploying this.
+
 ## Considered options
 
 **A runtime check inside `security definer` functions** — an `is_admin()` helper reading
