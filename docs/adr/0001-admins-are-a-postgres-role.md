@@ -10,8 +10,13 @@ grants — the write privileges on the badge, and the read privileges on who che
 go to that role alone.
 
 Verified against the local stack: Supabase permits the hook to overwrite `role`, GoTrue
-mints the token, PostgREST switches to it, and `sub` and `aud` survive untouched so
-`auth.uid()` still resolves to the person.
+mints the token, PostgREST switches to it, and `sub` is untouched so `auth.uid()` still
+resolves to the person. `aud` keeps its value but not its representation — GoTrue
+re-serialises the claims struct when the hook returns modified claims, so an admin's
+token carries `"aud": ["authenticated"]` where an untouched one carries
+`"aud": "authenticated"`. Nothing reads `aud` today; anything that starts to must compare
+the value rather than the JSON, or it will pass for ordinary users and fail for admins
+alone.
 
 Checked on the hosted project on 2026-08-15: the access token hook is available on our
 plan and offers the Postgres-function type, so no Edge Function is needed and there is

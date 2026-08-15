@@ -329,9 +329,12 @@ table existed briefly to prove the connection and was taken back out before it w
 committed, because it would have sat in the migration history permanently, describing a
 table dropped a fortnight later, to prove something the first real query proves for free.
 
-What does not exist yet: the `practitioners` table, any RLS policy of consequence, and
-the hosted project's copy of the hook setting. The rest of this section is the contract
-for building those — treat it as binding, not as a description of current state.
+What does not exist yet: the `practitioners` table, any *product* RLS policy, auth in the
+application, and the hosted project's copy of the hook setting. The token-side machinery
+landing is not the app having auth — there is no `@supabase/ssr` client and no sign-in
+flow, and every policy in the spec is written against `auth.uid()`, so none of them is
+reachable from the app until #14. The rest of this section is the contract for building
+those — treat it as binding, not as a description of current state.
 
 - **Target is [Supabase](https://supabase.com)** — Postgres, plus the auth that comes
   with it. Local development runs the Supabase CLI stack; deployed is a hosted Supabase
