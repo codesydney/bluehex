@@ -35,12 +35,22 @@ import { countryName, hasVerifiedBadge, profilePath, type Practitioner } from "@
  *     "Verified only" filter computes it too.
  */
 
-/** Every field a query is matched against, flattened once per practitioner. */
+/**
+ * Every field a query is matched against, flattened once per practitioner.
+ *
+ * The country goes in as its *name*, because that is the word a visitor types
+ * and the same word the Location chips are labelled with. Leaving it out let
+ * the search box and the filter disagree about one fact: "Australia" matched
+ * nobody while the chip built from the same `countryCode` selected them. The
+ * raw code is deliberately not indexed — two-letter queries would hit far more
+ * than they were aimed at.
+ */
 function searchIndex(person: Practitioner) {
   return [
     person.name,
     person.headline ?? "",
     person.location ?? "",
+    person.countryCode ? countryName(person.countryCode) : "",
     person.bio ?? "",
     ...person.focus,
     ...person.credentials.flatMap((credential) => [credential.label, credential.source]),
@@ -342,7 +352,7 @@ function PractitionerRow({ person }: { person: Practitioner }) {
         {hasVerifiedBadge(person.credentials) ? (
           <p className="mb-2.5 inline-flex items-center gap-1.5 rounded-full bg-ink px-2.5 py-1 text-[11px] font-medium text-t-invert">
             <Tick className="size-2.5" />
-            Bluehex checked these
+            Verified by Bluehex
           </p>
         ) : null}
 
@@ -403,12 +413,7 @@ function PractitionerRow({ person }: { person: Practitioner }) {
           again: route interception applies to soft navigation *only*, so an
           anchor silently disables it and full-page-loads every profile, and the
           symptom looks exactly like a misconfigured interceptor. One was built
-          and cut — see the prototype's NOTES.md before re-attempting it.
-
-          NOTE: `/p/` does not exist yet. The directory ships empty, so no row
-          and no link renders today — but the profile route has to land before
-          the first practitioner is added, or this is a 404 and enquiries have no
-          path at all. */}
+          and cut for that reason among others. */}
       <Link
         href={profilePath(person)}
         className="inline-flex h-9 w-fit shrink-0 items-center rounded-full border border-stroke-strong px-4 text-sm font-medium transition-colors hover:bg-ink hover:text-t-invert"
