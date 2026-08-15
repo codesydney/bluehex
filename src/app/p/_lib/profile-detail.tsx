@@ -17,17 +17,17 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui";
 import { hasVerifiedBadge, profilePath, type Practitioner } from "@/lib/practitioners";
+import { site } from "@/lib/site";
 import { CredentialMark, earnedLabel } from "./credential-mark";
 
 export function ProfileDetail({ person }: { person: Practitioner }) {
   const badged = hasVerifiedBadge(person.credentials);
   const [copied, setCopied] = useState(false);
 
-  /* The real product URL, not this prototype's path — the point of the button is
-     to show what a practitioner would paste into an application. Hardcoded here
-     because `site.ts` holds no canonical origin yet; it belongs there, added
-     with the real `/p/` route rather than for a prototype. */
-  const shareUrl = `https://bluehex.au${profilePath(person)}`;
+  /* Absolute, because the point of the button is what a practitioner pastes
+     into an application. The origin lives in `site.ts` with the rest of the
+     site-wide facts rather than being spelled out here. */
+  const shareUrl = `${site.origin}${profilePath(person)}`;
 
   const copy = () => {
     void navigator.clipboard?.writeText(shareUrl);

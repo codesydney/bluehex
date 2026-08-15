@@ -1,31 +1,26 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { profilePath } from "@/lib/practitioners";
 import { findByHandle } from "../_lib/handles";
 import { ProfileDetail } from "../_lib/profile-detail";
 
 /**
- * A profile at its real URL. **Never production** — the guard below 404s it, so
- * production behaviour is unchanged from having no route here at all.
+ * A profile at its real URL.
  *
- * It sits at `/p/` rather than under `/prototype/` on purpose. The directory
- * links here from production code (`profilePath` in `@/lib/practitioners`), so
- * a prototype at a different path would need the link faked, and faking the one
- * thing the design is built around — that the URL is real and shareable — would
- * make the prototype prove nothing. This is also the file the real page
- * replaces, which is the right shape for a drawing that is meant to be thrown
- * away from underneath.
+ * It sits at `/p/` rather than under `/prototype/` because the directory links
+ * here from production code (`profilePath` in `@/lib/practitioners`), and the
+ * whole point of a profile having a URL is that the URL is real and shareable.
  *
- * What makes it a drawing is the data: it reads the throwaway fixture in
- * `@/app/prototype/directory/fixtures`, which is a deliberately awkward import.
- * A page under `/p/` reaching into `/prototype/` should look wrong, because it
- * is the part that must not survive.
+ * Only the trailing short id resolves; the slug is decoration. A request whose
+ * slug no longer matches is redirected to the canonical path rather than served
+ * in both places, which is what keeps a link alive across a rename without
+ * splitting the profile across two URLs.
  *
  * Every arrival renders this — clicked from the directory, pasted from a CV, or
  * found in search. An earlier version intercepted the click into a drawer over
  * the directory so the visitor kept their search context; that was cut. See
- * NOTES.md.
+ * `src/app/prototype/directory/NOTES.md`.
  */
 
 export async function generateMetadata({
@@ -35,43 +30,27 @@ export async function generateMetadata({
 
   return {
     title: person ? `${person.name} — Bluehex` : "Profile",
-    /* Noindex is a property of the prototype, not of the design. The real page
-       is indexable on purpose — organic search is a third of why it has a URL. */
-    robots: { index: false, follow: false },
   };
 }
 
 export default async function ProfilePage({ params }: PageProps<"/p/[handle]">) {
-  if (process.env.NODE_ENV === "production") notFound();
-
   const handle = (await params).handle;
   const person = findByHandle(handle);
   if (!person) notFound();
 
-  const canonical = profilePath(person).replace("/p/", "");
+  const canonical = profilePath(person);
+  if (`/p/${handle}` !== canonical) redirect(canonical);
 
   return (
     <div className="container-x pt-32 pb-24 md:pt-40">
       <p className="mx-auto mb-10 max-w-3xl text-sm text-t-muted">
-        <Link href="/prototype/directory" className="underline underline-offset-4">
+        <Link href="/" className="underline underline-offset-4">
           Directory
         </Link>{" "}
         / {person.name}
       </p>
 
       <ProfileDetail person={person} />
-
-      {handle !== canonical ? (
-        <div className="mx-auto mt-14 max-w-3xl rounded-tight border border-dashed border-stroke p-5 text-sm">
-          <p className="font-medium">This is not the canonical URL</p>
-          <p className="mt-2 text-t-muted">
-            You asked for <code>{handle}</code> and the canonical one is{" "}
-            <code>{canonical}</code>. It resolved anyway, because only the trailing short
-            id is read — which is how a rename keeps old links alive. A real build would
-            redirect here rather than serve both.
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 }
