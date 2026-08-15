@@ -134,6 +134,14 @@ Three things fall out, and they are why this is worth more than the validation:
 - **`unique (practitioner_id, catalogue_id)`** becomes expressible: you cannot claim the
   same credential twice. Free-text labels could never support that, because
   `Prompt engineering` and `Prompt Engineering` are different strings.
+
+  **It does not address credential theft, and it is easy to read as though it does.** The
+  constraint is scoped to one practitioner, so two *different* practitioners claiming the
+  same catalogue entry is legal — as it must be, since that is what happens every time two
+  people pass the same course. The attack the review queue records as its known gap is one
+  person submitting somebody else's certificate, and that is the same catalogue entry with
+  a different `evidence_url`, which nothing here refuses. The catalogue narrowed what can
+  be claimed; it did nothing about whose evidence backs the claim.
 - **Progress becomes derivable**, which is what removes in-progress rows from the model
   entirely. See below.
 
@@ -871,6 +879,8 @@ privilege layer exactly like every other rule here.
 `earned_at` is a `date`. A certificate is earned on a day, not at an instant, and a
 timestamp would invite a timezone bug for no gain.
 
+**Both new columns are `not null` and the form has no value for "not answered yet", which is a trap this document has hit before.** A `<select>` with nothing chosen is `""` and a date input left alone is `""`; neither is a legal `catalogue_id` or `earned_at`. The old `job_function` proposal documented the same collision and resolved it by mapping `""` to null on the way in — **that resolution is not available here**, because these columns reject null outright rather than treating it as "not saying". So the mapping is not `"" → null`, it is `"" → do not submit this row`: an incomplete credential is not a credential, and the form holds it as draft state that never reaches the database. Worth stating because the failing version type-checks — `""` is a `string`, and only Postgres refuses it.
+
 **`on delete restrict` on `catalogue_id` is the load-bearing half of the `active` flag.**
 Without it, an admin tidying the catalogue deletes a course and silently destroys every
 practitioner's claim to it — including verified ones, which is the badge coming apart in a
@@ -1001,7 +1011,9 @@ grant select, insert, update, delete on public.practitioner_review_notes to blue
 
 **The catalogue's grant list is where "a practitioner cannot invent a credential" is actually enforced.** The check constraint that used to hold `source` is gone and the narrowness now rests on two things: `catalogue_id` being a foreign key, and nobody but `bluehex_admin` holding `insert` on the table it points at. Both are needed — a practitioner who could insert a catalogue row would simply add "AWS Solutions Architect" and then reference it, which is the free-text hole reopened one table along. This is the same "not reachable beats not named in the grant list" reasoning as `public.admins`, and it is the line to check first if the credential model ever looks like it has stopped constraining anything.
 
-`anon` reads the catalogue deliberately, and it is worth being explicit that this is not a leak: it is a list of courses Anthropic publishes, containing nothing about any practitioner. The public profile needs it to render held credentials against the whole set.
+`anon` reads the catalogue deliberately, and it is worth being explicit that this is not a leak: it is a list of courses Anthropic publishes, containing nothing about any practitioner.
+
+**What needs it is narrower than it first looks, and the grant survives on the narrow version.** The public profile page defaults to showing held credentials only — see "Where progress may be shown" — so the whole catalogue is fetched for a control the visitor may never touch. That is still an anonymous read of a public list and the grant is right, but do not re-derive it from "the profile renders the whole catalogue", because after that decision it no longer does. If the profile page ever stops offering the *Not earned* view, this grant should be re-read rather than inherited.
 
 Note what `anon` never gets: `user_id`, `contact_id`, `status`, any provenance column, `evidence_url`, `evidence_public`, and every column of `practitioner_contacts` and `practitioner_review_notes`. `verified_by` is admin-only on credentials too — who performed a check is not public.
 
