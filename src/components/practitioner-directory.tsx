@@ -2,15 +2,10 @@
 
 import Link from "next/link";
 import { useId, useMemo, useRef, useState } from "react";
+import { CredentialMark, Tick, earnedLabel } from "@/components/credential-mark";
 import { Close, Search, Sparkle } from "@/components/icons";
 import { Badge, Card } from "@/components/ui";
-import {
-  countryName,
-  hasVerifiedBadge,
-  profilePath,
-  type Credential,
-  type Practitioner,
-} from "@/lib/practitioners";
+import { countryName, hasVerifiedBadge, profilePath, type Practitioner } from "@/lib/practitioners";
 
 /**
  * The practitioner directory: a search box, filters, and a roster of profiles
@@ -422,65 +417,5 @@ function PractitionerRow({ person }: { person: Practitioner }) {
         <span className="sr-only"> for {person.name}</span>
       </Link>
     </>
-  );
-}
-
-/** `earnedAt` is a date, not a timestamp — read and formatted as one. */
-function earnedLabel(credential: Credential) {
-  if (!credential.earnedAt) return "Working towards";
-  const date = new Date(`${credential.earnedAt}T00:00:00Z`);
-  return `Earned ${date.toLocaleDateString("en-AU", {
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  })}`;
-}
-
-/**
- * The per-credential state, which is where all the nuance lives — the profile
- * badge stays binary and everything else is said here. Three states, and they
- * have to be distinguishable at a glance down a column:
- *
- *   verified  — a human at Bluehex read the evidence
- *   earned    — claimed, not yet checked
- *   towards   — no `earnedAt`; unverifiable, and outside the badge rollup
- */
-function CredentialMark({ credential }: { credential: Credential }) {
-  if (!credential.earnedAt) {
-    return (
-      <span className="mt-1 grid size-4 shrink-0 place-items-center rounded-full border border-dashed border-stroke">
-        <span className="sr-only">Working towards.</span>
-      </span>
-    );
-  }
-
-  if (!credential.verified) {
-    return (
-      <span className="mt-1 grid size-4 shrink-0 place-items-center rounded-full border border-stroke">
-        <span className="size-1 rounded-full bg-t-faint" />
-        <span className="sr-only">Earned, not yet checked by Bluehex.</span>
-      </span>
-    );
-  }
-
-  return (
-    <span className="mt-1 grid size-4 shrink-0 place-items-center rounded-full bg-ink text-t-invert">
-      <Tick className="size-2.5" />
-      <span className="sr-only">Verified by Bluehex.</span>
-    </span>
-  );
-}
-
-function Tick({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 10 10" className={className} fill="none" aria-hidden="true">
-      <path
-        d="M2 5.2 4 7.2 8 3"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

@@ -15,10 +15,10 @@
  */
 
 import { useState } from "react";
+import { CredentialMark, earnedLabel } from "@/components/credential-mark";
 import { Badge } from "@/components/ui";
 import { hasVerifiedBadge, profilePath, type Practitioner } from "@/lib/practitioners";
 import { site } from "@/lib/site";
-import { CredentialMark, earnedLabel } from "./credential-mark";
 
 export function ProfileDetail({ person }: { person: Practitioner }) {
   const badged = hasVerifiedBadge(person.credentials);
