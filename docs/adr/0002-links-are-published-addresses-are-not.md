@@ -14,7 +14,9 @@ A profile may publish `website_url`, `github_url`, `linkedin_url` and `booking_u
 
 **Publish contact details on the profile alongside the links.** Rejected, and this is the line that stays drawn. It deletes the reason `practitioner_contacts` exists, it hands every address in the directory to the first scraper, and it is the one choice here the practitioner cannot walk back — changing a phone number is not a profile edit.
 
-**Deliver the enquiry to the practitioner rather than to Bluehex.** Specified, then cut. It would have addressed the mail to `contact_email` with the visitor in `Reply-To`, and it costs a server-side send, a mail provider credential — the project's **first secret** — and abuse handling that protects everyone in the directory rather than one inbox. Against that it buys little a published LinkedIn does not already buy. Deferred rather than rejected: the spec carries the gate.
+**Reach the practitioner without a human in the middle** — either delivering to `contact_email` directly, or through a Bluehex-controlled proxy alias that forwards. Deferred rather than rejected, and expected back; the spec carries the gate, the three shapes and their costs. Cut for now because it buys little a published LinkedIn does not, and costs a server-side send, a mail provider credential — the project's **first secret** — and abuse handling for the whole directory rather than one inbox.
+
+Worth noting which way this decision points when it returns, because it is not neutral between the two. **The proxy satisfies the page-versus-person test and direct delivery does not.** A per-profile alias never discloses the practitioner's real address and can be rotated if it attracts spam; direct delivery discloses it on the first reply and cannot be undone, which is the exact property that keeps addresses off the profile in the first place. The proxy is the more expensive build and the one consistent with everything above.
 
 The mechanism question — four named columns against a `practitioner_links` child table — is a schema choice rather than a decision about the product, and is argued in the spec.
 

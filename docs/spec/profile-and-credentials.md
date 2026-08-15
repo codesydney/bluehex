@@ -304,7 +304,21 @@ This decision originally excluded `website_url` / `github_url` / `linkedin_url` 
 
 So the form pointing at Bluehex is a **choice about what to build**, not a consequence of the profile withholding everything. Bluehex is not preventing direct contact and should not be described as though it were; it is declining to *publish personal contact details*, and running one enquiry route of its own.
 
-**Deferred: enquiries delivered to the practitioner.** Sending the enquiry to `contact_email` with the visitor in `Reply-To` was specified and then cut, because it buys little that a published LinkedIn does not already buy and costs a server-side send, a mail provider credential — the project's first secret — and abuse handling that protects the whole directory rather than one inbox. The `mailto:` stopgap survives precisely because the form's recipient is fixed. **Gate:** the relay straining in practice — enquiries arriving faster than a human forwards them — or practitioners asking for it. Reach for it then, and not before, because the cost is real and the current arrangement is not blocking anyone.
+**Deferred, and expected to come back: enquiries reaching the practitioner without a human in the middle.** Cut for now because it buys little a published LinkedIn does not, and costs a server-side send, a mail provider credential — the project's first secret — and abuse handling that protects the whole directory rather than one inbox. The `mailto:` stopgap survives only because the form's recipient is fixed; every option below ends it.
+
+Three shapes, and they are not variations on one. Recorded now so a reversal argues between them rather than rediscovering them:
+
+| | what the visitor's mail hits | costs | revocable |
+| --- | --- | --- | --- |
+| **Bluehex relay** — today | `info@code.sydney`, forwarded by hand | none; already built | n/a |
+| **Direct** | `contact_email`, visitor in `Reply-To` | send path, first secret, abuse handling | no — the address is disclosed on first reply |
+| **Proxied alias** | a Bluehex-controlled address that forwards | the above, plus *inbound* mail routing and an alias per profile | yes — rotate the alias |
+
+**The proxy is the one that fits this document's own test**, and it is worth seeing why rather than treating it as the fancy option. The objection to publishing an address is that it is a route to a *person*, not withdrawable once collected. A per-profile alias converts exactly that: the practitioner's real address is never disclosed, and a practitioner who starts getting spam rotates the alias instead of changing an address they have had for a decade. It turns an irrevocable identifier into a revocable one — the same move the page-versus-person test rewards everywhere else. It is also the most expensive, because receiving mail is a larger commitment than sending it.
+
+**Nothing in the schema needs to change first, which is what makes deferring safe.** `contact_email` is already stored, already `not null`, and already unreachable by `anon` — so direct delivery is a send path and no migration. Only the proxy adds state, and even that can derive the alias from `practitioners.id` rather than storing one. So this is a deferral that does not accumulate a debt, and there is no "collect it now while you can" argument for pre-empting it.
+
+**Gate:** the relay straining in practice — enquiries arriving faster than a human forwards them — or practitioners asking to be reached without Bluehex reading it first.
 
 **What none of this changes:** contact details live in `practitioner_contacts` with no `anon` grant by any route. The invariants are "not published" and "never reachable by a browser". Who receives the enquiry was never one of them, which is why this paragraph can move without touching the table.
 
