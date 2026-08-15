@@ -104,6 +104,16 @@ export function hasVerifiedBadge(credentials: Credential[]) {
  * The id is the first six characters of the row's uuid. It must never be
  * derived from the name: hashing the name would move the id whenever the name
  * changed, which is the exact failure this scheme exists to prevent.
+ *
+ * Nothing yet guarantees those six characters are unique, and `findByHandle`
+ * returns the first row that matches them \u2014 so a collision serves the wrong
+ * profile rather than a 404. The enforcement has to be in the schema, and is
+ * open on the review of #63.
+ *
+ * The slug is dropped rather than left empty when a name has no ASCII residue
+ * \u2014 every character of "\u674e\u96f7" is stripped by the transliteration \u2014 because
+ * `/p/-9f3c1a` leads with a bare hyphen where the readable half is meant to be.
+ * `/p/9f3c1a` resolves identically and does not look broken.
  */
 export function profilePath(person: Pick<Practitioner, "id" | "name">) {
   const slug = person.name
@@ -113,17 +123,29 @@ export function profilePath(person: Pick<Practitioner, "id" | "name">) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
-  return `/p/${slug}-${person.id.slice(0, 6)}`;
+  return `/p/${slug ? `${slug}-` : ""}${person.id.slice(0, 6)}`;
 }
 
 /* `Intl` already ships every country name, so a lookup table here would be a
    few kilobytes of data to maintain for no gain. Built once, not per render. */
 const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
 
-/** "AU" → "Australia". Falls back to the code if it is not a known region. */
+/**
+ * "AU" → "Australia", and "au" → "Australia" too.
+ *
+ * The uppercasing is not tidiness. `Intl.DisplayNames` is case-sensitive on the
+ * region code and fails *silently* rather than throwing: `of("au")` returns
+ * `"au"` straight back, so the `catch` never fires and a lowercase code renders
+ * as a filter chip labelled `au`. Only a structurally invalid code such as
+ * `"usa"` throws, which is the narrow case the `catch` actually covers.
+ *
+ * A `check (country_code ~ '^[A-Z]{2}$')` on the column when #53 writes the
+ * table is worth pairing with this, so normalising here is not the only thing
+ * between the database and a chip labelled `au`.
+ */
 export function countryName(code: string) {
   try {
-    return regionNames.of(code) ?? code;
+    return regionNames.of(code.toUpperCase()) ?? code;
   } catch {
     return code;
   }
