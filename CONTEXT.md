@@ -70,7 +70,15 @@ deliberately stays manual: automating it would remove the step the badge attests
 
 ## What a practitioner offers
 
-**Services** — what a visitor can *buy*: one-to-one tutoring, code review, an implementation engagement. A closed set, and the axis the directory filters on, because a visitor arrives shopping rather than surveying.
+**Services** — what a visitor can *buy*: one-to-one tutoring, code review, an implementation engagement. The axis the directory filters on, because a visitor arrives shopping rather than surveying.
+
+Two kinds, and the difference is what they can do rather than what they mean:
+
+**Catalogue service** — an entry in `service_catalogue`, written by Bluehex. These are the roster's filter chips.
+
+**Custom service** — one a practitioner wrote themselves because the catalogue was missing it. It renders on their profile and **never becomes a filter chip**: a vocabulary anyone can extend stops being navigable, which is exactly why [[focus]] is not the filter axis.
+
+**Promotion** — Bluehex moving a recurring custom service into the catalogue, at which point it starts filtering. This is how the vocabulary learns what the market sells rather than what Bluehex guessed. Do not call a custom service a "proposal" — nobody is asking permission, and treating it as a request implies a queue that does not exist.
 
 **Focus** — what a practitioner *knows*: Agents, MCP, RAG. Free text, secondary, and shown on the profile rather than driving the roster.
 
