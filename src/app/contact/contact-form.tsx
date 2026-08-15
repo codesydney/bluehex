@@ -15,8 +15,13 @@ const fieldClasses =
  * looks like it worked and silently loses the enquiry. Replacing this with a
  * route handler or a form service is tracked in issue #2 — when that lands,
  * the mailto fallback should stay for anyone with JavaScript disabled.
+ *
+ * `about` is the practitioner a directory enquiry concerns. Enquiries route
+ * through Bluehex rather than to the practitioner directly — no address is
+ * ever published on a profile — so this only has to say who was meant, and the
+ * mail still comes here.
  */
-export function ContactForm({ email }: { email: string }) {
+export function ContactForm({ email, about }: { email: string; about?: string }) {
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -27,20 +32,39 @@ export function ContactForm({ email }: { email: string }) {
       `Name: ${value("name")}`,
       `Email: ${value("email")}`,
       `Phone: ${value("phone")}`,
+      ...(about ? [`About: ${about}`] : []),
       "",
       value("message"),
     ].join("\n");
 
     const query = new URLSearchParams({
-      subject: `Enquiry from ${value("name") || "the website"}`,
+      subject: about
+        ? `Enquiry about ${about}, from ${value("name") || "the website"}`
+        : `Enquiry from ${value("name") || "the website"}`,
       body,
     });
 
-    window.location.href = `mailto:${email}?${query}`;
+    /* `URLSearchParams.toString()` serialises as `application/x-www-form-
+       urlencoded`, which writes a space as `+`. A mailto query is not form
+       encoded — RFC 6068 wants percent-encoding, where `+` is a literal plus —
+       so clients split on it and the strict ones open a compose window reading
+       "Enquiry+about+Mara+Ellison". A literal plus in a field is already
+       `%2B` by this point, so replacing every remaining `+` is safe.
+
+       `URLSearchParams` is still what builds the query: it percent-encodes `&`,
+       `?`, CR and LF, so no field value can inject a second mailto header. */
+    window.location.href = `mailto:${email}?${query.toString().replace(/\+/g, "%20")}`;
   };
 
   return (
     <form onSubmit={onSubmit} className="mt-14 grid gap-x-8 gap-y-10 sm:grid-cols-2">
+      {about ? (
+        <p className="rounded-tight bg-surface px-5 py-4 text-sm text-t-muted sm:col-span-2">
+          Enquiring about <strong className="font-medium text-t-bright">{about}</strong>.
+          Bluehex passes it on — practitioners are not contacted directly.
+        </p>
+      ) : null}
+
       <label className="block">
         <span className="sr-only">Your name</span>
         <input

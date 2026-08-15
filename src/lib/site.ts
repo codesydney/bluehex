@@ -7,6 +7,10 @@
 export const site = {
   name: "Bluehex",
   caption: "A Code.Sydney company",
+  /* Canonical origin, for the places that need an absolute URL rather than a
+     path — the share button on a profile today, metadata and sitemaps later.
+     No trailing slash; every path this is joined with starts with one. */
+  origin: "https://bluehex.au",
   tagline:
     "Claude practitioners from the Code.Sydney community. Find one, hire one.",
   /* Contact details carried over from the Code.Sydney site — Code.Sydney Pty

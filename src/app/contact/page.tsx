@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ContactForm } from "./contact-form";
 import { ArrowRight, ArrowUpRight } from "@/components/icons";
 import { Button, SectionLabel } from "@/components/ui";
+import { practitioners } from "@/lib/practitioners";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -12,7 +13,28 @@ export const metadata: Metadata = {
 const BOOKING_URL =
   "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ2fXA9Mpyae3jbldYGLyeNFKUM4f--cA-W-w5v1WUV0BtWG6eq1paYGH4Q6gNtE_iyUPynhSCXF";
 
-export default function ContactPage() {
+export default async function ContactPage({ searchParams }: PageProps<"/contact">) {
+  /* The directory's Enquire button carries who the enquiry is about. Read here
+     rather than with `useSearchParams` in the form, which would need a Suspense
+     boundary and push the whole page to client rendering for one string.
+
+     It carries the profile **id**, not the display name, and the name shown is
+     looked up from it. Two reasons, and the second is the serious one:
+
+     1. Names are not identifiers. Two practitioners can share one, and the
+        enquiry would not say which — the same argument that rules the display
+        name out of a profile URL.
+     2. The previous version echoed the query string straight into the page, the
+        mailto subject and the mail body. That is unvalidated, attacker-supplied
+        text rendered as if Bluehex wrote it, so `?about=<anything>` produced a
+        page that appeared to endorse it. Resolving against the known set means
+        anything that does not match simply shows no banner. */
+  const requested = (await searchParams).about;
+  const about =
+    typeof requested === "string"
+      ? practitioners.find((person) => person.id === requested)?.name
+      : undefined;
+
   return (
     <>
       <section className="container-x pt-32 pb-20 md:pt-44 md:pb-28">
@@ -35,7 +57,7 @@ export default function ContactPage() {
               anytime.
             </p>
 
-            <ContactForm email={site.email} />
+            <ContactForm email={site.email} about={about} />
           </div>
         </div>
       </section>
