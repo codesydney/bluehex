@@ -54,7 +54,28 @@ export function SiteHeader() {
     if (!open) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key === "Escape") {
+        close();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const menuButton = menuButtonRef.current;
+      const overlay = overlayRef.current;
+      if (!menuButton || !overlay) return;
+      const focusable = [
+        menuButton,
+        ...overlay.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      ];
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
     };
 
     // Nav links close the overlay on click, but history navigation does not go

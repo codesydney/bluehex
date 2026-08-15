@@ -41,14 +41,24 @@ or `yarn` — they would create a competing lockfile.
 - `pnpm build` — production build (also runs the TypeScript type-check)
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint (flat config, `eslint-config-next`)
+- `pnpm test:e2e` — build, serve and test the production app on port 3100 in desktop and mobile Chromium
+- `pnpm db:start` / `pnpm db:stop` — the local Supabase stack (needs Docker running)
+- `pnpm db:reset` — drop the local database and re-apply every migration from scratch
+- `pnpm db:types` — regenerate `src/lib/database.types.ts` from the local schema
 
-There is no test runner configured yet. Note that `next build` no longer runs ESLint,
-so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly.
+`pnpm dev` does not start the database — run `pnpm db:start` alongside it. `db:reset`
+and `db:types` both need it running too.
+
+Playwright is the end-to-end test runner; there is no unit test runner. Note that
+`next build` no longer runs ESLint, so `pnpm lint` is the only thing enforcing the lint
+rules — run it explicitly alongside `pnpm test:e2e`.
 
 ## Skills
 
 `.claude/skills/` holds skills checked into the repo, so every contributor gets them
 without any local setup. Ask for one by name, e.g. `/code-tour`.
+
+Written here:
 
 - **`code-tour`** — a guided walk through one real flow, end to end, where the learner
   does the work and answers are withheld rather than handed over. Reach for it after
@@ -61,6 +71,35 @@ without any local setup. Ask for one by name, e.g. `/code-tour`.
 
 Reviews belong on the pull request, not in a chat session. A finding nobody can find
 later did not happen.
+
+Vendored from [supabase/agent-skills](https://github.com/supabase/agent-skills):
+
+- **`supabase`** — the whole product surface: client libraries and `@supabase/ssr`,
+  auth and sessions, RLS, migrations, Edge Functions, and the debugging workflows for
+  when something returns a status code nobody expected.
+- **`supabase-postgres-best-practices`** — Postgres rather than Supabase specifically.
+  Worth loading before schema work, not after: column types, indexes, RLS policies and
+  the tests that prove them, and the migration patterns that avoid taking a lock on a
+  table in production.
+
+Both are relevant to what is being built here — the `verified` column rule under
+Database is exactly the class of problem the second one covers.
+
+### How the vendored skills are stored
+
+Not as ordinary directories. The real files live in `.agents/skills/<name>/`, and
+`.claude/skills/<name>` is a **symlink** into it. That layout lets one copy serve any
+agent tool that looks in its own directory, rather than duplicating 200 KB per tool.
+Git stores the symlinks natively; on Windows they need `core.symlinks` enabled, which
+is another reason the Node section points Windows contributors at WSL.
+
+`skills-lock.json` records where each came from and pins it by **content hash**, not by
+version. Do not trust the `version` field inside a `SKILL.md` — upstream leaves it
+behind (`supabase` reads `0.1.2` in frontmatter against a changelog whose latest entry
+is `0.1.7`). The hash is the real pin.
+
+Treat everything under `.agents/` as vendored, not ours. Edits belong upstream; a local
+change is silently reverted by the next update and there is no diff to explain it.
 
 ## Working here, if you are new
 
@@ -76,6 +115,33 @@ Two things will waste your time otherwise:
 
 Ask early. A question costs a minute; a day spent stuck on a stale Stack Overflow answer
 costs a day.
+
+## Invariants beat scope
+
+Scope is hard to set upfront, because the constraints that matter usually only become
+visible once the work has started. Invariants are not: they say what is unacceptable
+rather than what to build, so they can be stated before anyone knows the shape of the
+answer. **Plans go stale the moment you learn something; invariants survive learning.**
+
+- **Nothing throwaway gets committed.** If it exists only to prove something during
+  development, it does not belong in the repository — least of all in migration history,
+  which is permanent and is read as the story of how the schema got here.
+- **No schema lands before the model it encodes is settled.**
+- **An invariant has to be violable.** If nobody could break it, and you could not point
+  at the breach in a diff, it is a preference. Four real ones beat ten where six are
+  decoration, because the six teach everyone to skim.
+
+**When a premise is removed, revisit the requirement that rested on it rather than
+building machinery to keep satisfying it.** This is the one that actually bites, because
+each step looks reasonable and only the pile is wrong. The tell is work that defends an
+earlier decision instead of delivering value — a third state added to a check, then a
+fourth, then a workaround for the type system. That accumulation is visible in a diff
+without understanding the domain, and it is the signal to stop and ask.
+
+Recorded because it happened here: a `connection_check` table was added to give a
+walking skeleton something to read, and when it was cut for not belonging in migration
+history, the page that read it grew a four-state probe rather than being cut too. Both
+went in the end. See #32.
 
 ## Toolchain pins
 
@@ -176,12 +242,45 @@ Nothing enforces the version locally — `pnpm install` only warns on the wrong 
 against this repository, and a trailer advertising which tool wrote the change
 can bias the review. Commit messages should describe the change and nothing else.
 
+## Pull requests
+
+**Open every pull request as a draft.** `gh pr create --draft`, or the dropdown beside the
+button in the web UI. Marking it ready for review is a separate, deliberate act, and it
+belongs to the author — an agent opening a pull request stops at draft and does not mark it
+ready unless asked.
+
+This is not a formality, because the draft flag is load-bearing here: CI skips draft pull
+requests, so it decides whether a build runs at all. A draft says the branch is pushed and
+nothing is being asked for yet. Ready for review says two things at once — I want eyes on
+this, and I want a build.
+
+**From a fork, marking it ready creates the run but does not start it.** GitHub holds
+workflow runs on pull requests from forks until a maintainer approves them, so the check
+sits at `Awaiting approval` rather than building. Nothing is wrong and there is nothing for
+you to press — ask, and someone with write access clicks it.
+
+The cost is that a draft gets no CI feedback, which is the point but is still surprising
+the first time. If you want a run before you are ready for review, mark it ready and put it
+back to draft afterwards (`gh pr ready --undo`); there is no way to ask for a build while
+it stays a draft. It is not a free toggle, though — marking a pull request ready notifies
+everyone watching the repository and puts it in their review queue, so it spends someone
+else's attention to get yourself a build.
+
+## Prose formatting
+
+**Do not hard-wrap prose.** One paragraph is one line — in Markdown, in PR and issue bodies, and in the body of a commit message. Editors and renderers soft-wrap already, so a hard wrap buys nothing and costs a reflow: insert a word near the top of a wrapped paragraph and every line beneath it shifts, turning a one-word edit into a twenty-line diff. The reviewer then reads the reflow instead of the change, which is the opposite of what a small diff is for.
+
+The **commit title** is the exception and stays a single short line, around 72 characters. `git log --oneline`, `git shortlog` and GitHub all truncate it, so there the length is a real constraint rather than a formatting preference.
+
+Files written before this rule are still hard-wrapped. Reflow a paragraph when you are already editing it; do not reflow whole files on their own, because a pure-reflow commit is unreviewable and buries the history of every line it touches.
+
 ## Stack
 
 - Next.js 16 (App Router, Turbopack), React 19
 - Tailwind CSS v4 (via `@tailwindcss/postcss`; no `tailwind.config` file — configured in CSS)
 - TypeScript 6, path alias `@/*` → `src/*`
-- No database, no test runner, no runtime environment variables
+- Supabase (Postgres) through `@supabase/supabase-js`, local stack via the Supabase CLI
+- Playwright end-to-end tests; no unit test runner
 
 ## Architecture
 
@@ -192,50 +291,142 @@ can bias the review. Commit messages should describe the change and nothing else
   the one client component, because search and filters are local state.
 - `src/lib/` — data and configuration, no rendering. `site.ts` is the single source of
   truth for naming, nav, contact details and legal links; `practitioners.ts` holds the
-  directory data and its types.
+  directory data and its types; `supabase.ts` is the database client.
+  `database.types.ts` is **generated** — regenerate it with `pnpm db:types` after a
+  migration rather than editing it.
+- `supabase/` — `config.toml` for the local stack and `migrations/` for the schema.
+  Both are committed.
 
 `practitioners.ts` ships an empty array on purpose. **Real people only** — no placeholder
 profiles. The directory renders an invitation card for the empty slots instead.
 
-`certified` and `verified` are two separate booleans and must stay that way. `certified`
-is the practitioner's own claim to hold a Claude Certification; `verified` means Bluehex
+`certified` and `verified` are two separate ideas and must stay that way. `certified` is
+the practitioner's own claim to hold a Claude Certification; `verified` means Bluehex
 checked the credentials. Either can be true without the other, and the badge reflects
 `verified` only.
 
+They are two booleans in `practitioners.ts` today, but only `verified` survives as a
+stored column: once credentials are rows of their own, `certified` is "has an earned
+Claude Certification credential" and gets derived rather than stored, so the two cannot
+disagree. The separation of the two *ideas* is the invariant; the second column is not.
+See `docs/spec/profile-and-credentials.md`.
+
 Keep the tree this thin until something needs otherwise.
 
-## Database — planned, not built
+## Database — the plumbing, and the contract for the rest
 
-The repo has **no database**: no driver, no ORM, no `DATABASE_URL`, no `src/lib/db.ts`.
-An earlier SQLite (`better-sqlite3`) setup was removed, and a Drizzle/Postgres one was
-scaffolded and then stripped back out to keep the skeleton thin. The notes below are the
-agreed plan for when it is reintroduced — treat them as the contract, not a description
-of current state.
+What exists: the local Supabase stack, a lazy client in `src/lib/supabase.ts`, generated
+types, and the environment wiring. An earlier SQLite (`better-sqlite3`) setup was
+removed, and a Drizzle/Postgres one was scaffolded and stripped back out, before this.
 
-- **Target is Postgres**: local Postgres in development, [Neon](https://neon.com) when
-  deployed. Drizzle ORM for schema and queries.
-- **Use the `node-postgres` (`pg`) driver, not `@neondatabase/serverless`.** Neon's HTTP
-  driver cannot talk to local Postgres — it speaks Neon's own HTTP protocol, so a
-  `localhost` URL fails with `Error connecting to database: TypeError: fetch failed`.
-  `pg` speaks the standard wire protocol and works against both local Postgres and Neon's
-  pooled connection string. Only consider the HTTP driver if the app moves to the edge
-  runtime.
-- **Make the client lazy** — a `getDb()` function, not a top-level `export const db`.
-  The module gets imported during `next build`, so reading `DATABASE_URL` eagerly breaks
-  builds wherever that secret is absent (CI, preview deployments).
+**There is exactly one migration, and it holds no product data.** It creates the
+`bluehex_admin` role, the `public.admins` list and the `custom_access_token_hook` that
+stamps the role onto an access token — the thing every later policy and grant refers to.
+The product schema starts with `practitioners`.
+
+Nothing queried the database before that, and nothing queries it now: a health-check
+table existed briefly to prove the connection and was taken back out before it was ever
+committed, because it would have sat in the migration history permanently, describing a
+table dropped a fortnight later, to prove something the first real query proves for free.
+
+What does not exist yet: the `practitioners` table, any *product* RLS policy, auth in the
+application, and the hosted project's copy of the hook setting. The token-side machinery
+landing is not the app having auth — there is no `@supabase/ssr` client and no sign-in
+flow, and every policy in the spec is written against `auth.uid()`, so none of them is
+reachable from the app until #14. The rest of this section is the contract for building
+those — treat it as binding, not as a description of current state.
+
+- **Target is [Supabase](https://supabase.com)** — Postgres, plus the auth that comes
+  with it. Local development runs the Supabase CLI stack; deployed is a hosted Supabase
+  project. This supersedes an earlier Neon plan, and the reason is auth: the product
+  needs end-user accounts, and buying that rather than building it is the entire
+  justification. Neon was cheaper and otherwise preferred, so if the auth requirement
+  ever disappears the decision should be revisited rather than inherited.
+- **No ORM — query through the Supabase client.** Authorization is row level security, and the Supabase client carries the user's JWT on every request so `auth.uid()` resolves in policy. Note what the constraint actually is: Postgres enforces RLS against the *connected role*, and has no idea whether the SQL arrived via an ORM. What bites is a pooled server-side connection carrying no per-user identity — policies then either do not apply at all (the `postgres` role in a Supabase connection string bypasses RLS) or apply to the wrong identity, unless every request installs the caller's claims for itself. That is silent when it goes wrong, and it forces a second authorization model in application code. Direct SQL is still the right tool where RLS was never the control, such as a migration or a background job. Types come from `supabase gen types typescript`, not from a schema declared in TypeScript.
+- **Migrations live in the repository.** Create them with the Supabase CLI and commit
+  them. Schema changes made through the dashboard leave no diff and no history, and this
+  is the easiest thing in this section to get wrong once the dashboard is open in a tab.
+- **A new table is invisible to the API until you `grant` on it, and the failure looks
+  like a broken policy.** Postgres checks the privilege first and only then evaluates
+  RLS, so a table with a correct policy and no grant returns `42501 permission denied`
+  and never consults the policy at all. It is easy to assume the grant is inherited,
+  because the `public` schema carries two different sets of default privileges — see
+  `pg_default_acl`:
+
+  ```
+  owner supabase_admin  tables -> anon, authenticated get arwdDxtm  (everything)
+  owner postgres        tables -> anon, authenticated get Dxtm      (no read or write)
+  ```
+
+  Migrations run as `postgres`, so every table a migration creates lands under the
+  second set. Tutorials and dashboard-created tables land under the first, which is why
+  most advice on this never mentions grants. Write them explicitly. It fails closed,
+  which is the right way round, and it is the same privilege layer the `verified` rule
+  below depends on — so being in the habit is worth more than the keystrokes.
+- **Make the client lazy** — a `getClient()` function, not a top-level `export const db`. The module gets imported during `next build`, so reading environment variables eagerly breaks builds wherever a required variable is absent (CI, preview deployments).
 - **Cache the client at module scope**, not only on `globalThis`. A `globalThis`-only
-  cache is typically skipped in production and leaks a new connection pool per call.
-- **Queries are async**, unlike the synchronous `better-sqlite3` setup. A Server Component
-  that reads from the database must be `async`, and should `await connection()` from
-  `next/server` first to opt out of prerendering. `export const dynamic` is on its way out
-  in Next 16 — prefer `connection()`.
-- Local Postgres on this machine follows a `<project>_dev` naming convention.
-- `DATABASE_URL` belongs in `.env.local` (git-ignored). Add a committed `.env.example`
-  template at the same time — `.gitignore` already has the `!.env.example` exception,
-  since the blanket `.env*` rule would otherwise swallow it.
+  cache is typically skipped in production and leaks a new client per call.
+- **Queries are async**, unlike the synchronous `better-sqlite3` setup, so a Server Component that reads from the database must be `async`. Most of them will not also need `await connection()`. Per `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/connection.md`, `connection()` exists for a component that produces per-request output *without* touching a request-time API — its worked example is a synchronous `better-sqlite3` query, which is precisely the setup being replaced here. A Supabase server client reads cookies to resolve the session, and `cookies()` is a request-time API, so the render is already request-bound and `connection()` adds nothing. Reach for it only on a read that touches neither cookies nor headers, such as an anonymous public query — plausibly the directory listing itself. `export const dynamic` is on its way out in Next 16, so `connection()` is still the tool when one is needed.
+- **Two keys, and the difference decides where code may run.** The anon/publishable key is shipped to the browser by design and is not a secret: `NEXT_PUBLIC_*` is where it belongs, and there is no reason to proxy reads through a server action to hide it. The service role key bypasses RLS outright — every policy on the table is decorative for any code holding it — so it is server-only: never `NEXT_PUBLIC_*`, never imported by a client component or by a module a client component can reach, and reserved for the admin write path rather than used as an escape hatch when a policy is inconvenient. Both belong in `.env.local` (git-ignored); `.env.example` is the committed template, kept alive by the `!.env.example` exception in `.gitignore` against the blanket `.env*` rule.
+
+  Current Supabase issues both under new names — `sb_publishable_…` and `sb_secret_…`, superseding the legacy `anon` and `service_role` JWTs, which the CLI still prints. This repo uses the publishable key, as `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. No secret key is in the repo at all, and adding one is a decision, not a step.
+
+  **`NEXT_PUBLIC_*` is baked in at build time, and the build's values win.** Next inlines these by literal text substitution wherever they are defined when `next build` runs — the server bundle included, not just the browser one. Verified by grepping `.next/server` after a build: the URL and key are there as string literals. So the environment a built artifact is *run* with cannot override them, and passing a different value to `next start` silently changes nothing.
+
+  The one case that does read the runtime environment is a variable **absent** at build time: the lookup then survives into the bundle and resolves when the request is served. That is the only reason `next build` with no variables set produces something that still works when given them at run time, and it is easy to mistake for the general rule. It is not — it is the exception.
+
+  Two consequences. Testing a built artifact against a different Supabase project means rebuilding, not re-running with a different environment. And on Vercel the values must exist *before* the build, which the deploy workflow already handles: `vercel pull` fetches the project's environment variables ahead of `vercel build`.
+- **`verified` must never be writable by the practitioner.** Self-service puts an untrusted writer next to Bluehex's own attestation for the first time. The policy: a practitioner may write their own credential rows, with `verified` not among the columns they can set, and only `bluehex_admin` sets it — never the service role, see `docs/adr/0001-admins-are-a-postgres-role.md`. **RLS alone cannot express that**, so the policy needs a mechanism named or it does not exist. A policy's `USING` clause sees the existing row and `WITH CHECK` sees the proposed one, but a policy has no `OLD` to compare against — "this row is yours to update, but this column must not change" is not sayable. The natural `for update using (auth.uid() = user_id)` reads exactly like the paragraph above, passes review, and lets any practitioner `PATCH` themselves `{"verified": true}`. Use both of these, since neither is sufficient alone:
+  - **Column privileges** — what Supabase calls column level security. `revoke update on practitioners from authenticated`, then `grant update (…) on practitioners to authenticated` naming each practitioner-writable column. PostgREST honours these, so the write is refused at the privilege layer whatever the policies say. The grant list is maintained by hand as the schema grows: a column added later is not writable until it is named, which fails closed and is the right way round.
+  - **A `before update` trigger** forcing `new.verified = old.verified` for non-admin callers. Triggers do see `OLD`, so this is the only place the invariant can be stated directly, and it still holds if a later migration re-grants the column by accident.
+
+  This is the most load-bearing line in the schema — getting it wrong silently destroys the only thing the directory sells, and it fails open rather than loudly.
+
+`status` (`pending`, `approved`, `rejected`, `withdrawn`) joins `verified` as the second
+Bluehex-owned axis. They are independent rather than a sequence — `status` governs whether
+a profile is publicly visible, `verified` governs whether the badge shows — so a badge can
+be withdrawn without unpublishing the profile, and a profile can be published without ever
+being vouched for, which is the normal case.
+
+**Where the schema is decided, and in what order to read it:**
+
+- **`CONTEXT.md`** — the glossary. What a Profile, an Owner, a Claim and a Credential are,
+  and which words not to overload.
+- **`docs/adr/0001-admins-are-a-postgres-role.md`** — why admins are a Postgres role
+  stamped by an access token hook rather than a flag or the service role key, and what
+  that costs.
+- **`docs/spec/profile-and-credentials.md`** — the model: what a profile contains, who
+  owns it, what the badge attests to, and the DDL with its grant lists, triggers and RPCs.
+  Binding on the first migration.
+- **`docs/profile-lifecycle.md`** — the #35 spike report and its proof transcript.
+  Historical: parts of it are superseded, and its own header says which.
+
+The parts most likely to catch you out:
+
+- **Verification is per credential**, not per profile. The profile-level badge is derived —
+  at least one earned credential, and every earned credential verified — and is not stored.
+  `certified` is not stored either.
+- **Reads are column-scoped as well as writes**, so `anon` cannot see `user_id`, `status`
+  or who approved a profile. **`select *` is refused; every query must name its columns.**
+- **The `config.toml` hook line and the migration creating `custom_access_token_hook` are
+  one commit.** Enabling the hook without the function takes down every sign-in with a 500.
+  Both landed together in `20260815012304_admin_role_and_access_token_hook.sql`; the same
+  rule governs any later move of the hook, and the hosted project's Auth Hooks setting is
+  enabled with that migration's deploy, never before it.
+- **Admin authority lags revocation by the life of an access token** — removing someone
+  from `admins` takes effect on their next refresh, not immediately.
+- **Contact details live in `practitioner_contacts`, never on the profile**, and `anon` has
+  no grant on that table by any route.
 
 ## Deployment
 
 Target is Vercel, deployed from the `main` branch of `codesydney/bluehex`. Pushes to
-`main` ship to production; pull requests get preview deployments. The build requires no
-environment variables.
+`main` ship to production; pull requests get preview deployments.
+
+`next build` passes with no environment variables set, which is what the lazy client in
+`src/lib/supabase.ts` is for and is worth keeping true. It does not follow that a
+deployment can reach Supabase: `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be in Vercel's preview and production
+environments, or a deployed read fails at request time rather than at build time. Both
+are set as of August 2026. Nothing queries the database yet, so the first feature to do
+so is the first thing that will actually test this — a green deploy is not evidence.

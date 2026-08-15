@@ -10,20 +10,29 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "playwright test",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:types": "supabase gen types typescript --local > src/lib/database.types.ts.new && mv src/lib/database.types.ts.new src/lib/database.types.ts || (rm -f src/lib/database.types.ts.new; exit 1)"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.2",
     "next": "16.3.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^26",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.0",
+    "supabase": "^2.111.0",
     "tailwindcss": "^4",
     "typescript": "^6.0.3",
     "vercel": "^58.7.1"

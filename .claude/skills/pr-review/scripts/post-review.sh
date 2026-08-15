@@ -38,6 +38,12 @@ jq -e 'type == "array"' "$findings" >/dev/null 2>&1 ||
 jq -e 'all(.[]; has("path") and has("line") and has("body"))' "$findings" >/dev/null 2>&1 ||
   { echo "every comment needs path, line and body" >&2; exit 65; }
 
+# Severity prefix. GitHub does not care, but an unlabelled comment makes the author weigh a
+# nit against a defect, and the convention lapses silently on exactly the long runs where it
+# earns its keep. Matched on the label alone so the separator after it stays free-form.
+jq -e 'all(.[]; .body | test("^\\*\\*(major|minor|nit)\\*\\*"))' "$findings" >/dev/null 2>&1 ||
+  { echo "every comment body must open with **major**, **minor** or **nit**" >&2; exit 65; }
+
 # Anchor every comment to the right-hand side unless it explicitly targets a removed line.
 payload=$(jq -n \
   --arg event "$event" \

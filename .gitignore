@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -36,6 +38,24 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# Claude Code's directory. The skills are checked in on purpose — every contributor
+# gets them with no local setup — and nothing else in here is shared: local settings,
+# session state, and worktrees, which are checkouts with their own .git file that
+# `git add -A` would otherwise stage as embedded repositories, committing a broken
+# pointer and none of the contents.
+#
+# `.claude/*` and not `.claude/`. A trailing-slash ignore on the directory stops git
+# descending into it at all, and a negation cannot rescue anything git never looked at.
+# Add further exceptions the same way if something else in here becomes shared.
+.claude/*
+!.claude/skills/
+
+# Agent working area. Handoff notes and generated ticket drafts land here, and none
+# of it belongs in the repository — `AGENTS.md` is explicit that nothing existing only
+# to carry work between sessions gets committed. Ignored so `git add -A` cannot sweep
+# it into an unrelated pull request.
+.scratch/
 
 # typescript
 *.tsbuildinfo
