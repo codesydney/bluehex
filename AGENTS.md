@@ -55,8 +55,7 @@ rules — run it explicitly alongside `pnpm test:e2e`.
 
 ## Skills
 
-`.claude/skills/` holds skills checked into the repo, so every contributor gets them
-without any local setup. Ask for one by name, e.g. `/code-tour`.
+Skills are checked into the repo, so every contributor gets them without any local setup. Ask for one by name, e.g. `/code-tour`. They live in `.agents/skills/` and are linked from `.claude/skills/` — see below, and note that the two lists that follow are a distinction of provenance, not of location.
 
 Written here:
 
@@ -85,21 +84,15 @@ Vendored from [supabase/agent-skills](https://github.com/supabase/agent-skills):
 Both are relevant to what is being built here — the `verified` column rule under
 Database is exactly the class of problem the second one covers.
 
-### How the vendored skills are stored
+### How skills are stored
 
-Not as ordinary directories. The real files live in `.agents/skills/<name>/`, and
-`.claude/skills/<name>` is a **symlink** into it. That layout lets one copy serve any
-agent tool that looks in its own directory, rather than duplicating 200 KB per tool.
-Git stores the symlinks natively; on Windows they need `core.symlinks` enabled, which
-is another reason the Node section points Windows contributors at WSL.
+Not as ordinary directories. The real files live in `.agents/skills/<name>/`, and `.claude/skills/<name>` is a **symlink** into it. That layout lets one copy serve any agent tool that looks in its own directory, rather than duplicating 200 KB per tool. Git stores the symlinks natively; on Windows they need `core.symlinks` enabled, which is another reason the Node section points Windows contributors at WSL.
 
-`skills-lock.json` records where each came from and pins it by **content hash**, not by
-version. Do not trust the `version` field inside a `SKILL.md` — upstream leaves it
-behind (`supabase` reads `0.1.2` in frontmatter against a changelog whose latest entry
-is `0.1.7`). The hash is the real pin.
+This holds for every skill, ours as much as the vendored ones: `.claude/skills/` contains nothing but links, and a new skill is created in `.agents/skills/<name>/` and symlinked from there. Writing one as a real directory under `.claude/skills/` works, which is the problem — it works for Claude Code and is invisible to every other tool, so the breakage shows up as a skill someone else does not have rather than as an error.
 
-Treat everything under `.agents/` as vendored, not ours. Edits belong upstream; a local
-change is silently reverted by the next update and there is no diff to explain it.
+`skills-lock.json` records where each vendored skill came from and pins it by **content hash**, not by version. Do not trust the `version` field inside a `SKILL.md` — upstream leaves it behind (`supabase` reads `0.1.2` in frontmatter against a changelog whose latest entry is `0.1.7`). The hash is the real pin.
+
+**The lockfile is also what tells you which skills are ours.** A skill named in `skills-lock.json` is vendored: edits belong upstream, because a local change is silently reverted by the next update and there is no diff to explain it. A skill absent from it — `code-tour`, `pr-review`, `pr-review-resolve` — is ours to edit in place. Do not read anything into the directory alone; `.agents/` now holds both.
 
 ## Working here, if you are new
 
