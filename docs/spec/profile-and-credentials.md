@@ -553,20 +553,31 @@ over the row count, and a `check` that a row names a catalogue entry *or* carrie
 and never both.
 
 **What this costs**, stated rather than discovered: a third child table, a join the roster
-did not previously need, and the `is_distinct` helper below no longer being the whole of
-the distinctness story — a practitioner can now write a custom service whose text matches a
-catalogue label. That last one is not preventable in the schema and is not worth
-preventing: it renders as a duplicate on one profile, an admin sees it during review, and
-promotion fixes it permanently.
+did not previously need, and distinctness no longer being sayable in one constraint — a
+practitioner can now write a custom service whose text matches a catalogue label.
+`unique (practitioner_id, catalogue_id)` covers the catalogue half and the `is_distinct`
+helper is deleted, having lost the array column it was written for. The remaining half is
+not preventable in the schema and is not worth preventing: it renders as a duplicate on one
+profile, an admin sees it during review, and promotion fixes it permanently.
 
 **Multi-select, and it needs a cap.** Unlike `job_function` this genuinely is plural: a
 person does tutoring *and* code review, and forcing one would make the filter lie. That
 reopens the failure `job_function` avoided by being single — everyone ticks everything, and
-a filter that matches all rows narrows nothing. **Capped at three**, enforced by a check
-constraint rather than by the form, because a form-only rule is not a rule. Three is a
-guess at the right number and is the cheapest thing in this section to change.
+a filter that matches all rows narrows nothing. **Capped at three**, enforced by the
+database rather than by the form, because a form-only rule is not a rule. Three is a
+guess at the right number, and **the cap** — not this section — is the cheapest thing here
+to change. *(~~by a check constraint~~ — superseded: it is a trigger, since the cap now
+counts sibling rows. See `practitioner_services_cap`.)*
 
-**The cap needs a distinctness test beside it, or it is not a cap.** `cardinality` counts elements rather than distinct ones and `<@` is containment, so `['Code review', 'Code review', 'Implementation']` satisfies both halves: the profile then offers two services while consuming all three slots, and the directory renders the same chip twice on the axis it filters by. The obvious spelling of the test is refused outright — a check constraint may not contain a subquery — so it goes through an `immutable` helper, `public.is_distinct(text[])`, which a check constraint may call. Refused rather than silently deduplicated, for the reason the cap is in the database at all: the form is where this would normally be prevented, and this section's own argument is that a rule the form enforces is not enforced.
+**~~The cap needs a distinctness test beside it, or it is not a cap.~~ Superseded — there
+is nothing to deduplicate once each service is a row.** The original problem was that
+`cardinality` counts elements rather than distinct ones and `<@` is containment, so
+`['Code review', 'Code review', 'Implementation']` satisfied both halves of the array
+check: the profile offered two services while consuming all three slots, and the directory
+rendered the same chip twice on the axis it filters by. That needed an `immutable` helper,
+`public.is_distinct(text[])`, because a check constraint may not contain a subquery.
+`unique (practitioner_id, catalogue_id)` says the same thing directly now, and the helper
+is deleted. Custom labels are deliberately *not* deduplicated — see the section above.
 
 **~~`text[]` with a check constraint, not a catalogue table.~~ Superseded — it is a
 catalogue table after all.** The original reasoning was that the credential catalogue
@@ -790,18 +801,6 @@ create type public.practitioner_status as enum
 create domain public.https_url as text
   check (value ~* '^https://[^[:space:]/]+\.[^[:space:]]+$' and length(value) <= 2048);
 
--- `cardinality` counts elements, not distinct ones, so the cap below does not
--- reject a repeat on its own. The obvious spelling of that test is refused —
--- `cannot use subquery in check constraint` — so it goes in an `immutable`
--- function, which a check constraint may call
-create function public.is_distinct(arr text[])
-returns boolean immutable language sql
-set search_path = ''
-as $$
-  select cardinality(arr)
-       = cardinality((select array_agg(distinct e) from unnest(arr) e));
-$$;
-
 create table public.practitioners (
   id uuid primary key default gen_random_uuid(),
   -- nullable, and `set null` rather than `cascade`: deleting an account
@@ -819,11 +818,10 @@ create table public.practitioners (
   bio text,
   focus text[] not null default '{}',
 
-  -- `services` is NOT a column. It moved to `practitioner_services` when
-  -- practitioners were allowed to add their own — see "the closed set is stable
-  -- keys". The cap now spans catalogue and custom rows together, which a check
-  -- over two array columns could only half-enforce
-  --
+  -- `services` is NOT here: it moved to `practitioner_services` when
+  -- practitioners were allowed to add their own, so that the cap could span
+  -- catalogue and custom rows together. See `practitioner_services`.
+
   -- a sentence the practitioner asserts, never state the app maintains: that is
   -- the line scope.md's marketplace exclusion actually draws
   availability text,
@@ -938,9 +936,11 @@ create table public.practitioner_services (
   -- convention: a row naming both would be filterable and free text at once
   constraint practitioner_services_one_kind
     check (num_nonnulls(catalogue_id, label) = 1),
-  -- an empty or whitespace label is a row that renders as nothing
+  -- an empty or whitespace label is a row that renders as nothing. `[:space:]`
+  -- rather than `btrim`, whose one-argument form strips spaces only and would
+  -- accept a label of a single tab
   constraint practitioner_services_label_present
-    check (label is null or length(btrim(label)) > 0),
+    check (label is null or label ~ '[^[:space:]]'),
   -- you cannot list the same catalogue service twice. Custom labels are not
   -- deduplicated: they are free text and two near-identical ones are the
   -- practitioner's problem to notice, not the schema's to refuse
@@ -953,22 +953,23 @@ create index practitioner_services_practitioner_id_idx
 ```
 
 **The cap is a trigger, not a check constraint.** "At most three services per profile"
-counts sibling rows, and a `check` may not run a subquery — the same wall the `is_distinct`
-helper hit, except that an `immutable` helper cannot rescue it here, since counting other
-rows is by definition not immutable. So `practitioner_services_cap` is a
-`before insert or update` trigger raising `23514`. It is stated here rather than left to the
-application for the reason the whole section gives: a rule the form enforces is not
-enforced.
+counts sibling rows, and a `check` may not run a subquery. The array column got around that
+wall with an `immutable` helper, which a check constraint may call — that escape hatch does
+not work twice, because counting other rows is by definition not immutable. So
+`practitioner_services_cap` is a `before insert or update` trigger raising `23514`, written
+out under Triggers. It is enforced there rather than left to the application for the reason
+the whole section gives: a rule the form enforces is not enforced.
 
 **`unique (practitioner_id, catalogue_id)` allows many rows with `catalogue_id` null**, so
 it constrains catalogue services only — which is what is wanted. Postgres permits any number
 of nulls in a unique index, the same property `practitioners.user_id` already relies on for
 unclaimed profiles.
 
-**`public.is_distinct(text[])` is now unused** by `practitioners` and stays in the schema
-only if something else calls it. If nothing does, drop it with this change rather than
-leaving a helper whose only caller has gone — it was added for the array column that no
-longer exists.
+**`public.is_distinct(text[])` is gone**, and nothing calls it — the array column it was
+written for no longer exists, and no other constraint used it. Since no migration has been
+written yet, this is a deletion from the DDL above rather than a `drop function` in a later
+one: a first migration that creates a helper and then drops it is throwaway in a history
+that is permanent.
 
 ### `practitioner_credentials`
 
@@ -1290,8 +1291,10 @@ create policy services_admin_all on public.practitioner_services
 **Nothing here needs a guard trigger, which is the one way `practitioner_services` is
 simpler than every other child table.** It carries no attested column — no `verified`, no
 provenance, nothing Bluehex asserts — so there is no `OLD` to pin and no badge to clear. A
-practitioner rewriting what they offer is ordinary editing, exactly like `bio`. The cap
-trigger is the only trigger on it, and it enforces a count rather than an authority.
+practitioner rewriting what they offer is ordinary editing, exactly like `bio`. The two
+triggers it does carry are `practitioner_services_cap`, which enforces a count rather than
+an authority, and `set_updated_at` — neither pins a column against its old value, which is
+what a guard is for.
 
 Two things this leans on, both established in #35: a policy expression is **not** subject
 to the caller's column privileges, so `p.status` and `p.user_id` are readable here even
@@ -1338,7 +1341,7 @@ create policy review_notes_admin_all on public.practitioner_review_notes
 
 ### Triggers
 
-Three guards, one clearing rule shared by three triggers, and one timestamp bump shared by two tables. `clear_profile_verification()` is the only privileged function among them; `withdraw_profile()` under Deletion is the other `security definer` in the design, which makes two overall.
+Three guards, one clearing rule shared by three triggers, one timestamp bump shared by four tables, and one cap. `clear_profile_verification()` is the only privileged function among them; `withdraw_profile()` under Deletion is the other `security definer` in the design, which makes two overall.
 
 Written out rather than described, because the three mistakes these are here to prevent are all invisible in prose: a `before insert or update` trigger that reads `OLD`, an `update of` clause read as though it fired on change, and an ownership rule read as a permission when it is a state machine.
 
@@ -1534,7 +1537,7 @@ Written out rather than described, because the three mistakes these are here to 
      execute function public.contacts_email_change_clears_credentials();
    ```
 
-5. **`set_updated_at()`** — the two tables with no guard of their own. `updated_at` is maintained by trigger everywhere it works: `practitioners_guard`, `credentials_guard` and `catalogue_guard` each bump their own. That leaves `practitioner_contacts` and `practitioner_review_notes` with a column that takes its default at insert and is never written again — and `practitioner_contacts.updated_at` is in the `authenticated` select grant, so it is a column the API serves and that would be wrong. `contacts_email_change_clears_credentials` cannot do the job: it is an `after` trigger returning null, so it has no `NEW` to assign to.
+5. **`set_updated_at()`** — the four tables with no guard of their own. `updated_at` is maintained by trigger everywhere it works: `practitioners_guard`, `credentials_guard` and `catalogue_guard` each bump their own. That leaves `practitioner_contacts`, `practitioner_review_notes`, `service_catalogue` and `practitioner_services` with a column that takes its default at insert and is never written again — and `practitioner_contacts.updated_at` and `practitioner_services.updated_at` are both in the `authenticated` select grant, so they are columns the API serves and that would be wrong. `practitioner_services_cap` does not count as a guard here: it enforces a count and returns `new` untouched. `contacts_email_change_clears_credentials` cannot do the job either: it is an `after` trigger returning null, so it has no `NEW` to assign to.
 
    ```sql
    create function public.set_updated_at()
@@ -1554,9 +1557,58 @@ Written out rather than described, because the three mistakes these are here to 
    create trigger review_notes_set_updated_at
      before update on public.practitioner_review_notes
      for each row execute function public.set_updated_at();
+
+   create trigger service_catalogue_set_updated_at
+     before update on public.service_catalogue
+     for each row execute function public.set_updated_at();
+
+   create trigger practitioner_services_set_updated_at
+     before update on public.practitioner_services
+     for each row execute function public.set_updated_at();
    ```
 
-   A timestamp that silently lies is worse than an absent one, which is the alternative this rejects: dropping the column from the tables that will not maintain it. It is kept because both tables are edited after creation — a practitioner changes their contact details, an admin rewrites a rejection note — and "when was this last touched" is the first question asked of either.
+   A timestamp that silently lies is worse than an absent one, which is the alternative this rejects: dropping the column from the tables that will not maintain it. It is kept because all four are edited after creation — a practitioner changes their contact details or rewrites what they offer, an admin rewrites a rejection note or promotes a custom service — and "when was this last touched" is the first question asked of any of them. `service_catalogue` is the one where getting this wrong would repeat a fixed bug rather than introduce a new one: its correction path is an admin `UPDATE`, exactly like `credential_catalogue`, whose frozen `updated_at` is called out in Testing as the case where a stale timestamp misleads most.
+
+6. **`practitioner_services_cap`** — `before insert or update` on `practitioner_services`. The cap of three is what argued for a child table over two array columns, so it is the one mechanism in this section that cannot be left to the form. A `check` cannot express it: counting sibling rows needs a subquery, and the `immutable` helper that would have rescued it is not available either, because counting other rows is by definition not immutable.
+
+   ```sql
+   create function public.practitioner_services_cap()
+   returns trigger language plpgsql
+   set search_path = ''
+   as $$
+   declare
+     held integer;
+   begin
+     -- serialise writes for this profile. Without it two concurrent inserts
+     -- each count two siblings and both commit a third. An advisory lock
+     -- rather than `select … for update` on the parent, which would need an
+     -- `update` privilege on `practitioners` this caller does not have and
+     -- would additionally have to pass that table's own policies
+     perform pg_catalog.pg_advisory_xact_lock(
+       pg_catalog.hashtextextended(new.practitioner_id::text, 0));
+
+     select count(*) into held
+       from public.practitioner_services
+      where practitioner_id = new.practitioner_id
+        and id is distinct from new.id;
+
+     if held >= 3 then
+       raise exception 'a practitioner may list at most three services'
+         using errcode = '23514';
+     end if;
+
+     return new;
+   end;
+   $$;
+
+   create trigger practitioner_services_cap
+     before insert or update on public.practitioner_services
+     for each row execute function public.practitioner_services_cap();
+   ```
+
+   **`id is distinct from new.id` is what makes it correct on `update`.** Without it an in-place edit of a legal third row counts that row itself and raises, so a profile that has always been within the cap becomes uneditable the moment it reaches three. It costs nothing on `insert`, where the default has already filled `new.id` and no stored row matches it.
+
+   **It counts rows, not kinds**, which is the whole reason it is one trigger rather than two. Three catalogue rows plus one custom row is four services, and a cap enforced per kind is precisely the half-enforcement that ruled out two array columns.
 
 **Every function here pins `search_path`**, and the `security definer` one qualifies every name inside it. A `security definer` function runs as its owner — `postgres`, since migrations run as `postgres` — and resolves unqualified names through whatever `search_path` is live at call time. PostgREST does not let a client set it per request, so this is hardening rather than a live hole, but Supabase's linter raises it as `function_search_path_mutable` and it costs one line.
 
@@ -1655,6 +1707,7 @@ the most valuable one in the suite and it transfers directly.
 - **A second practitioner cannot update another's contact row.** With RLS off this is the sharpest path in the schema: repoint an unclaimed profile's `contact_email` at your own address and then claim it. `contacts_email_change_clears_credentials` means the profile arrives unverified, so the badge holds — but the profile is taken.
 - **A second practitioner cannot read another's `practitioner_review_notes` row.** This is the assertion that moving `review_note` off the profile was supposed to buy, and it is bought by the policy rather than by the table, so it has to be tested against the policy.
 - **A second practitioner cannot update or delete another's `practitioner_credentials` row**, and `anon` cannot see credentials belonging to a `pending`, `rejected` or `withdrawn` profile. The grants to `authenticated` are table-wide on purpose; only `credentials_rw_own` narrows them.
+- **A second practitioner cannot update or delete another's `practitioner_services` row**, and `anon` cannot see the services of a `pending`, `rejected` or `withdrawn` profile. Same shape as credentials and for the same reason — `delete` cannot be column-scoped at all, so `services_rw_own` is the only thing between any signed-in account and every practitioner's services. With RLS off, what a person in the directory says they sell is editable by anybody with an account. `service_catalogue` needs no assertion of its own here: the write it must refuse is refused by an absent grant rather than by a policy, and the catalogue test below already covers it from that side.
 
 **The catalogue, where the whole point is what a practitioner cannot do:**
 
@@ -1693,7 +1746,17 @@ the most valuable one in the suite and it transfers directly.
   neither, by `num_nonnulls(...) = 1`. These are the two states the "or" exists to exclude,
   and neither is reachable through the form, which is why the constraint rather than the
   form has to say so.
-- **A whitespace-only label is refused**, since it renders as an empty chip on a public page.
+- **A whitespace-only label is refused**, and the assertion has to use a tab or a newline
+  rather than spaces. `btrim` with one argument strips spaces only, so a constraint written
+  that way passes a spaces-only test and accepts `E'\t'` in production — a test that proves
+  the wrong thing. The constraint is `label ~ '[^[:space:]]'` for exactly this reason.
+- **`updated_at` moves when a service row or a catalogue row is edited**, maintained by
+  `set_updated_at` on both tables since neither has a guard of its own. `practitioner_services.updated_at`
+  is in the `authenticated` select grant, so it is a column the API serves.
+- **Editing a service row in place does not trip the cap.** A profile holding three
+  services can still change one of them: the cap excludes the row being updated from its own
+  count, and a trigger written without that exclusion refuses every edit at exactly three —
+  a bug that is invisible until somebody reaches the limit.
 - **The same catalogue service cannot be listed twice** by one practitioner, and **can** be
   listed by two different practitioners — the second half being the normal case, and the one
   a unique constraint written a column short would break.
