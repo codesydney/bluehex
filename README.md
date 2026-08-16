@@ -236,6 +236,6 @@ about 250 MB of the tree, and you get it whether or not you ever deploy.
 
 ## Contributing
 
-Repository conventions and architecture notes for both humans and AI coding agents
-live in [`AGENTS.md`](./AGENTS.md). `CLAUDE.md` is a one-line file importing it, so
-there is a single source of truth — edit `AGENTS.md`.
+How to pick up an issue and open your first pull request: [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
+Architecture, invariants, and deeper conventions live in [`AGENTS.md`](./AGENTS.md) (`CLAUDE.md` imports it — edit `AGENTS.md`, not a second copy).
