@@ -8,7 +8,7 @@ Closes #
 
 ## Checklist
 
-<!-- Full contributor rules live in [CONTRIBUTING.md](../CONTRIBUTING.md) and [AGENTS.md](../AGENTS.md). -->
+<!-- Full contributor rules live in [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) and [AGENTS.md](../blob/main/AGENTS.md). -->
 
 - [ ] Opened as a draft pull request
 - [ ] `pnpm lint` passed, where applicable
