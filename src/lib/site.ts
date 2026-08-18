@@ -6,7 +6,7 @@
 
 export const site = {
   name: "Bluehex",
-  caption: "A Code.Sydney company",
+  caption: "A Code.Sydney Company",
   /* Canonical origin, for the places that need an absolute URL rather than a
      path — the share button on a profile today, metadata and sitemaps later.
      No trailing slash; every path this is joined with starts with one. */

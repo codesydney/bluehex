@@ -1,14 +1,34 @@
+import Image from "next/image";
 import { PractitionerDirectory } from "@/components/practitioner-directory";
 import { Card, Button, SectionLabel } from "@/components/ui";
 import { practitioners } from "@/lib/practitioners";
 import { site } from "@/lib/site";
 
-/* Three plain facts under the hero. No invented numbers — every claim here is
-   something the business can stand behind on day one. */
-const heroFacts = [
-  { label: "Based in", value: "Sydney, working Australia-wide and beyond" },
-  { label: "Who does the work", value: "Practitioners who use Claude daily" },
-  { label: "Scope", value: "Claude and Anthropic. Nothing else." },
+/* Communities Bluehex runs this directory alongside. Logos are the
+   collaborators' own artwork, trimmed to their bounding box and given a
+   transparent background — see public/img/partners/. */
+const collaborators = [
+  {
+    name: "Seiment",
+    href: "https://seiment.com/",
+    logo: "/img/partners/seiment-logo.png",
+    width: 246,
+    height: 246,
+  },
+  {
+    name: "Data Engineering Pilipinas",
+    href: "https://dataengineering.ph/",
+    logo: "/img/partners/data-engineering-pilipinas-logo.png",
+    width: 480,
+    height: 395,
+  },
+  {
+    name: "Tutorials Dojo",
+    href: "https://tutorialsdojo.com/",
+    logo: "/img/partners/tutorials-dojo-logo.png",
+    width: 200,
+    height: 200,
+  },
 ];
 
 export default function HomePage() {
@@ -33,14 +53,26 @@ export default function HomePage() {
           </Button>
         </div>
 
-        <dl className="mt-20 grid gap-5 md:grid-cols-3">
-          {heroFacts.map((fact) => (
-            <Card key={fact.label} className="py-8 md:py-8">
-              <dt className="text-sm text-t-faint">{fact.label}</dt>
-              <dd className="mt-3 text-lg leading-snug">{fact.value}</dd>
-            </Card>
+        <p className="mt-20 text-base font-medium tracking-wide text-t-medium uppercase md:text-lg">
+          In collaboration with
+        </p>
+
+        <div className="mt-6 grid gap-5 md:grid-cols-3">
+          {collaborators.map((c) => (
+            <a key={c.name} href={c.href} target="_blank" rel="noopener noreferrer">
+              <Card className="flex items-center gap-5 border border-stroke py-8 transition-colors hover:border-stroke-strong md:py-8">
+                <Image
+                  src={c.logo}
+                  alt=""
+                  width={c.width}
+                  height={c.height}
+                  className="h-12 w-12 shrink-0 object-contain"
+                />
+                <span className="text-lg leading-snug">{c.name}</span>
+              </Card>
+            </a>
           ))}
-        </dl>
+        </div>
       </section>
 
       {/* ---------------------------------------------------------------- */}
