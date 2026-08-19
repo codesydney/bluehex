@@ -9,11 +9,7 @@ import { site } from "@/lib/site";
  * do that.
  */
 describe("the database test project", () => {
-  it("runs files under tests/db", () => {
-    expect(1).toBe(1);
-  });
-
-  it("resolves the @/ alias", () => {
+  it("is collected, and resolves the @/ alias", () => {
     /* The alias has to be restated per project — Vite does not read `paths` out
        of tsconfig.json, and a `projects` array does not inherit the root
        `resolve` block. Nothing else checks that the two projects agree. */

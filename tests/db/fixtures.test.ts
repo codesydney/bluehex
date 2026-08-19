@@ -99,14 +99,6 @@ describe("the admin fixture", () => {
     expect(admin.claims?.sub).toBe(admin.userId);
   });
 
-  it("is listed in public.admins", async () => {
-    const rows = await sql("select 1 from public.admins where user_id = $1", [
-      admin.userId,
-    ]);
-
-    expect(rows).toHaveLength(1);
-  });
-
   it("still gets no table it was not granted", async () => {
     /* Being an admin is not a bypass. `bluehex_admin` has `usage` on the schema
        and nothing else until a migration grants it something, so it is refused

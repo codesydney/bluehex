@@ -55,7 +55,7 @@ and `db:types` both need it running too.
 Two runners and three places a test can live. **Vitest** owns two of them, as two projects in `vitest.config.mts` run by different commands, because scanning the whole repository picks up Playwright's `e2e/*.spec.ts` — the two runners share a file extension and nothing else — along with whatever a `.spec.ts` in a git-ignored working directory happens to be.
 
 - **`src/`** — unit tests over application code. `pnpm test` runs this project alone, and it is what CI runs.
-- **`tests/db/`** — the schema's invariants, asserted against the local Supabase stack through PostgREST and through Postgres directly. `pnpm test:db` runs this project alone, and **CI never runs it**: there is no Docker on the runner. `pnpm db:start` first, or every test fails on the connection.
+- **`tests/db/`** — the schema's invariants, asserted against the local Supabase stack through PostgREST and through Postgres directly. `pnpm test:db` runs this project alone, and **CI never runs it**: there is no Docker on the runner. `pnpm db:start` first, or the fixtures cannot be built and the run fails — though note the shape of it: the file that needs no stack still passes and the rest are reported *skipped* rather than failed, so read the exit code rather than the summary line.
 - **`e2e/`** — **Playwright**, which is not a Vitest project at all.
 
 Putting a Vitest file anywhere else means it is silently never run.

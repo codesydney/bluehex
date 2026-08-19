@@ -12,6 +12,17 @@
  * in `supabase/config.toml`, and an admin costs two of them (a sign-up, then a
  * sign-in to mint a token the hook has stamped). Create fixtures once in a
  * `beforeAll` and share them across a file's tests rather than per test.
+ *
+ * That advice is per file, and the budget is per IP — so it does not clear the
+ * ceiling it looks like it clears. A file building the full set costs four calls,
+ * so around seven such files exhaust a five-minute window in two runs, and the
+ * second run of an iterate-on-a-failing-test loop is where somebody meets it. It
+ * arrives as a `beforeAll` failing on what reads like an auth error, in a file
+ * that passed a minute earlier, with its tests reported skipped rather than
+ * failed. The fix when it starts to bite is a `globalSetup` building the callers
+ * once per run, which caps the cost at four however many files there are; it is
+ * not written yet because sharing fixtures across files trades this problem for
+ * cross-file coupling, and that is worth deciding deliberately rather than now.
  */
 
 import {
