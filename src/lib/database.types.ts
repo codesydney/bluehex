@@ -49,15 +49,226 @@ export type Database = {
         }
         Relationships: []
       }
+      practitioner_contacts: {
+        Row: {
+          contact_email: string
+          contact_note: string | null
+          contact_phone: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          contact_email: string
+          contact_note?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_email?: string
+          contact_note?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      practitioner_review_notes: {
+        Row: {
+          created_at: string
+          note: string
+          practitioner_id: string
+          updated_at: string
+          written_at: string
+          written_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          note: string
+          practitioner_id: string
+          updated_at?: string
+          written_at?: string
+          written_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          note?: string
+          practitioner_id?: string
+          updated_at?: string
+          written_at?: string
+          written_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practitioner_review_notes_practitioner_id_fkey"
+            columns: ["practitioner_id"]
+            isOneToOne: true
+            referencedRelation: "practitioners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      practitioners: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          availability: string | null
+          bio: string | null
+          booking_url: string | null
+          contact_id: string
+          country_code: string | null
+          created_at: string
+          focus: string[]
+          github_url: string | null
+          headline: string | null
+          id: string
+          linkedin_url: string | null
+          location: string | null
+          name: string
+          owner_assigned_at: string | null
+          owner_assigned_by: string | null
+          status: Database["public"]["Enums"]["practitioner_status"]
+          updated_at: string
+          user_id: string | null
+          website_url: string | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          availability?: string | null
+          bio?: string | null
+          booking_url?: string | null
+          contact_id: string
+          country_code?: string | null
+          created_at?: string
+          focus?: string[]
+          github_url?: string | null
+          headline?: string | null
+          id?: string
+          linkedin_url?: string | null
+          location?: string | null
+          name: string
+          owner_assigned_at?: string | null
+          owner_assigned_by?: string | null
+          status?: Database["public"]["Enums"]["practitioner_status"]
+          updated_at?: string
+          user_id?: string | null
+          website_url?: string | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          availability?: string | null
+          bio?: string | null
+          booking_url?: string | null
+          contact_id?: string
+          country_code?: string | null
+          created_at?: string
+          focus?: string[]
+          github_url?: string | null
+          headline?: string | null
+          id?: string
+          linkedin_url?: string | null
+          location?: string | null
+          name?: string
+          owner_assigned_at?: string | null
+          owner_assigned_by?: string | null
+          status?: Database["public"]["Enums"]["practitioner_status"]
+          updated_at?: string
+          user_id?: string | null
+          website_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practitioners_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: true
+            referencedRelation: "practitioner_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      approve_practitioner: {
+        Args: { profile_id: string }
+        Returns: {
+          approved_at: string | null
+          approved_by: string | null
+          availability: string | null
+          bio: string | null
+          booking_url: string | null
+          contact_id: string
+          country_code: string | null
+          created_at: string
+          focus: string[]
+          github_url: string | null
+          headline: string | null
+          id: string
+          linkedin_url: string | null
+          location: string | null
+          name: string
+          owner_assigned_at: string | null
+          owner_assigned_by: string | null
+          status: Database["public"]["Enums"]["practitioner_status"]
+          updated_at: string
+          user_id: string | null
+          website_url: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "practitioners"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      owns_profile: { Args: { profile_id: string }; Returns: boolean }
+      owns_profile_for_contact: { Args: { contact: string }; Returns: boolean }
+      reject_practitioner: {
+        Args: { note: string; profile_id: string }
+        Returns: {
+          approved_at: string | null
+          approved_by: string | null
+          availability: string | null
+          bio: string | null
+          booking_url: string | null
+          contact_id: string
+          country_code: string | null
+          created_at: string
+          focus: string[]
+          github_url: string | null
+          headline: string | null
+          id: string
+          linkedin_url: string | null
+          location: string | null
+          name: string
+          owner_assigned_at: string | null
+          owner_assigned_by: string | null
+          status: Database["public"]["Enums"]["practitioner_status"]
+          updated_at: string
+          user_id: string | null
+          website_url: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "practitioners"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
-      [_ in never]: never
+      practitioner_status: "pending" | "approved" | "rejected" | "withdrawn"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -187,7 +398,9 @@ export const Constants = {
     Enums: {},
   },
   public: {
-    Enums: {},
+    Enums: {
+      practitioner_status: ["pending", "approved", "rejected", "withdrawn"],
+    },
   },
 } as const
 
