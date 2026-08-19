@@ -20,7 +20,13 @@ permissions:
 
 jobs:
   quality:
-    name: Build and lint
+    # Named for what the job *is*, not for the steps it currently runs. This string is a
+    # required status check on `main`, so every rename is a branch protection change made
+    # in the GitHub settings UI — and a name that enumerates its steps earns one of those
+    # every time a step is added. `Lint, test and build` lasted exactly as long as it took
+    # to add a test step. Not `CI`, which the workflow is already called and which would
+    # render the check as `CI / CI`.
+    name: Quality
     runs-on: ubuntu-latest
     # Draft PRs skip CI; marking one ready fires `ready_for_review` and runs it then.
     #
@@ -44,9 +50,9 @@ jobs:
           # `fetch-depth: 1` clones no commit to diff against.
           fetch-depth: 0
 
-      # A pull request that changes nothing but Markdown cannot break either of the
-      # steps at the bottom of this job: no `.md` file is an input to `pnpm lint` or to
-      # `next build`, so both would spend several minutes proving it. Skip them for it.
+      # A pull request that changes nothing but Markdown cannot break any of the steps at
+      # the bottom of this job: no `.md` file is an input to `pnpm lint`, `pnpm test` or
+      # `next build`, so all three would spend several minutes proving it. Skip them for it.
       #
       # This is a step condition rather than `paths-ignore` on the `pull_request`
       # trigger above, for the same reason the draft skip is a job-level `if:` — see the
@@ -57,7 +63,7 @@ jobs:
       # Two things this has to get right, both of which fail silently:
       #
       #   - The test is "every changed file is documentation", not "some documentation
-      #     changed". A pull request touching `AGENTS.md` *and* `src/` must build.
+      #     changed". A pull request touching `AGENTS.md` *and* `src/` must run.
       #   - It is an allowlist, so anything the pattern does not recognise falls through
       #     to a full build — including a diff that could not be computed at all. The
       #     cost of a needless build is a few minutes; the cost of a wrongly skipped one
@@ -66,7 +72,7 @@ jobs:
       # "Documentation" is `**/*.md` and nothing else. Not because Markdown is prose —
       # `AGENTS.md` is instructions to agents, and `.claude/skills/` holds working
       # skills — but because the question this job asks is narrower than that: whether
-      # lint or the build reads the file. Nothing here does. The `scripts/*.sh` sitting
+      # lint, the tests or the build read the file. Nothing here does. The `scripts/*.sh` sitting
       # beside a skill's `SKILL.md` is not matched and so is not skipped, which is the
       # right way round.
       - name: Look for changes outside documentation
@@ -132,6 +138,15 @@ jobs:
       - name: Lint
         if: steps.scope.outputs.docs-only != 'true'
         run: pnpm lint
+
+      # Vitest only. Playwright's end-to-end suite is a separate workflow, and one that
+      # is currently disabled by hand — so nothing runs Playwright on a pull request at
+      # all, and this step is not the reason why. Keeping e2e out of this job is still
+      # right whatever that workflow's state: it builds and serves the app, and this job
+      # should stay fast enough to be a required check.
+      - name: Test
+        if: steps.scope.outputs.docs-only != 'true'
+        run: pnpm test
 
       - name: Build
         if: steps.scope.outputs.docs-only != 'true'
