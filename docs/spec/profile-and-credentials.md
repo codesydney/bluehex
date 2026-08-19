@@ -1296,12 +1296,13 @@ triggers it does carry are `practitioner_services_cap`, which enforces a count r
 an authority, and `set_updated_at` — neither pins a column against its old value, which is
 what a guard is for.
 
-Two things this leans on, both established in #35: a policy expression is **not** subject
-to the caller's column privileges, so `p.status` and `p.user_id` are readable here even
-though `anon` cannot select them; and `auth.uid() = user_id` is null rather than true for
-an unclaimed profile, so unclaimed credentials are unreachable by every practitioner
-without an extra clause. `practitioners` has no policy referencing credentials, so there
-is no recursion.
+Two things this leans on, both established in #35: a policy expression is **not** subject to the caller's column privileges, so `p.status` and `p.user_id` are readable here even though `anon` cannot select them; and `auth.uid() = user_id` is null rather than true for an unclaimed profile, so unclaimed credentials are unreachable by every practitioner without an extra clause. `practitioners` has no policy referencing credentials, so there is no recursion.
+
+**Corrected by #49, and it is the first of those two that is wrong.** A policy escapes the caller's column privileges only for columns of **its own table** — the row is already in hand, so nothing is read. A subquery against *another* table is an ordinary query and is privilege-checked like any other, so every `exists (select 1 from public.practitioners p where …)` written above fails with `42501 permission denied for table practitioners` the moment it names `p.user_id` or `p.contact_id`, both of which are deliberately withheld from `authenticated`. It fails for the owner, reading their own row, which is the worst way for it to fail. Proved against the local stack while building the first migration: `set role authenticated; select 1 from public.practitioners p where p.user_id is null;` is refused, and the same expression inside `contacts_rw_own` refused the owner their own contact details.
+
+So the traversal is asked through a `security definer` function instead — `public.owns_profile(profile_id uuid)` and `public.owns_profile_for_contact(contact uuid)`, both returning a boolean about the caller and able to disclose nothing else. They live in `20260819194255_profile_core.sql` and every policy above that traverses the profile should be read as calling one of them: `credentials_rw_own`, `services_rw_own` and `review_notes_read_own` take `owns_profile(practitioner_id)`, and `contacts_rw_own` takes `owns_profile_for_contact(id)`. `credentials_read_public` and `services_read_public` need `p.status`, which **is** granted to `authenticated` but not to `anon`, so they need the same treatment or a third helper — settle that in #50 rather than inheriting the inline form.
+
+That makes three `security definer` functions in the design rather than the two the Triggers section counts. The count was a property of the mechanism being wrong, not a budget.
 
 **`practitioner_contacts` cannot follow that pattern**, because it is now the parent rather than the child. At insert time no profile points at the row, so "the profile that references me is yours" has nothing to traverse. It needs two routes in, and both are load-bearing:
 
@@ -1775,7 +1776,7 @@ the most valuable one in the suite and it transfers directly.
 
 - **A profile cannot be inserted without a `contact_id`.** The insert is refused by `not null` on the column, not by a trigger or a check — so this asserts the foreign key points the way the design needs it to. Two profiles cannot share a contact row either, which is the `unique`.
 - A practitioner can read back a contact row they wrote before any profile pointed at it, and cannot read one written by somebody else.
-- After claiming a curated profile, the new owner can read and edit the contact row **Bluehex** wrote — the second clause of `contacts_rw_own`, which is easy to omit and fails as "my own details are invisible to me".
+- After claiming a curated profile, the new owner can **read** the contact row **Bluehex** wrote — the second clause of `contacts_rw_own`, which is easy to omit and fails as "my own details are invisible to me". **This bullet used to say "read and edit", which the policy above contradicts and #49 resolved in the policy's favour:** `with check` names only `created_by = auth.uid()`, so an update by the claimer is refused, and the Policies section says so in as many words — reading through the profile is a right you inherit by claiming and writing is not. If the product wants the claimer to edit those details, that is a change to `with check`, not a test to relax.
 - A practitioner cannot write a contact row with somebody else's `created_by`, and cannot reassign an existing one to themselves. `with check` names only the first clause of that policy for this reason.
 - **`updated_at` moves when a contact row or a review note is edited.** It is in the `authenticated` select grant on contacts, so it is a column the API serves; neither table has a guard trigger of its own, and `set_updated_at` is the only thing writing it.
 
