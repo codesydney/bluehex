@@ -17,7 +17,7 @@ describe("the test runner", () => {
 
   it("resolves the @/ alias", () => {
     /* The import above is the assertion; nothing else in the repo checks that
-       `resolve.alias` in vitest.config.ts still matches tsconfig's `paths`. */
+       `resolve.alias` in vitest.config.mts still matches tsconfig's `paths`. */
     expect(site.name).toBe("Bluehex");
   });
 });

@@ -139,8 +139,11 @@ jobs:
         if: steps.scope.outputs.docs-only != 'true'
         run: pnpm lint
 
-      # Vitest only. Playwright's end-to-end suite is a separate workflow — it builds
-      # and serves the app, which this job has no reason to wait on.
+      # Vitest only. Playwright's end-to-end suite is a separate workflow, and one that
+      # is currently disabled by hand — so nothing runs Playwright on a pull request at
+      # all, and this step is not the reason why. Keeping e2e out of this job is still
+      # right whatever that workflow's state: it builds and serves the app, and this job
+      # should stay fast enough to be a required check.
       - name: Test
         if: steps.scope.outputs.docs-only != 'true'
         run: pnpm test
