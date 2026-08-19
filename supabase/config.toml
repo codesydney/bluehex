@@ -204,7 +204,14 @@ anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
 token_refresh = 150
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-sign_in_sign_ups = 30
+# Raised from the CLI default of 30 for `pnpm test:db`: each file in `tests/db`
+# builds its own callers and an admin costs two calls, so the whole suite spends
+# well over thirty in a five-minute window once the same run is repeated. It
+# arrives as a `beforeAll` failing on what reads like an auth error, in a file that
+# passed a minute earlier. This file configures the local stack and nothing else —
+# the hosted project's limits are the dashboard's — so it is not a loosened
+# production control. See `tests/db/harness/callers.ts`.
+sign_in_sign_ups = 200
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30
 # Number of Web3 logins that can be made in a 5 minute interval per IP address.
