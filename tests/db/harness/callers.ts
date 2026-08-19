@@ -19,10 +19,13 @@
  * second run of an iterate-on-a-failing-test loop is where somebody meets it. It
  * arrives as a `beforeAll` failing on what reads like an auth error, in a file
  * that passed a minute earlier, with its tests reported skipped rather than
- * failed. The fix when it starts to bite is a `globalSetup` building the callers
- * once per run, which caps the cost at four however many files there are; it is
- * not written yet because sharing fixtures across files trades this problem for
- * cross-file coupling, and that is worth deciding deliberately rather than now.
+ * failed. The fix when it starts to bite is one line: raise `sign_in_sign_ups` in
+ * `supabase/config.toml`. That file configures the local stack and nothing else —
+ * nothing in this repository pushes it to the hosted project, where the limits are
+ * the dashboard's — so the usual objection to loosening a rate limit does not
+ * apply. Prefer it to a `globalSetup` sharing callers across files: that would cap
+ * the cost too, but it trades the rate limit for cross-file coupling, which is the
+ * thing `fileParallelism: false` and per-file cleanup currently buy.
  */
 
 import {
