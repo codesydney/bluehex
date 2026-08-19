@@ -43,6 +43,7 @@ or `yarn` — they would create a competing lockfile.
 - `pnpm lint` — ESLint (flat config, `eslint-config-next`)
 - `pnpm test` — Vitest, once (what CI runs)
 - `pnpm test:watch` — Vitest, watching
+- `pnpm test:db` — Vitest against the local Supabase stack (needs `pnpm db:start`); local-only, CI never runs it
 - `pnpm test:e2e` — build, serve and test the production app on port 3100 in desktop and mobile Chromium
 - `pnpm db:start` / `pnpm db:stop` — the local Supabase stack (needs Docker running)
 - `pnpm db:reset` — drop the local database and re-apply every migration from scratch
@@ -51,11 +52,21 @@ or `yarn` — they would create a competing lockfile.
 `pnpm dev` does not start the database — run `pnpm db:start` alongside it. `db:reset`
 and `db:types` both need it running too.
 
-Two runners, and they do not overlap. **Vitest** runs unit tests and scans `src/` only — `test.dir` in `vitest.config.mts`, because Vitest's default include pattern also matches Playwright's `e2e/*.spec.ts` and anything under a git-ignored working directory. **Playwright** owns `e2e/`. A test file goes under `src/` or under `e2e/`; there is no third place, and putting a Vitest file outside `src/` means it is silently never run.
+Two runners and three places a test can live. **Vitest** owns two of them, as two projects in `vitest.config.mts` run by different commands, because scanning the whole repository picks up Playwright's `e2e/*.spec.ts` — the two runners share a file extension and nothing else — along with whatever a `.spec.ts` in a git-ignored working directory happens to be.
 
-Vitest resolves the `@/*` alias through `resolve.alias`, restated by hand — Vite does not read `paths` out of `tsconfig.json`. Nothing but the tests themselves checks that the two still agree.
+- **`src/`** — unit tests over application code. `pnpm test` runs this project alone, and it is what CI runs.
+- **`tests/db/`** — the schema's invariants, asserted against the local Supabase stack through PostgREST and through Postgres directly. `pnpm test:db` runs this project alone, and **CI never runs it**: there is no Docker on the runner. `pnpm db:start` first, or the fixtures cannot be built and the run fails — though note the shape of it: the file that needs no stack still passes and the rest are reported *skipped* rather than failed, so read the exit code rather than the summary line.
+- **`e2e/`** — **Playwright**, which is not a Vitest project at all.
 
-Note that `next build` no longer runs ESLint, so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly alongside `pnpm test` and `pnpm test:e2e`.
+Putting a Vitest file anywhere else means it is silently never run.
+
+**Database tests are not application code**, which is why `tests/db` is a project of its own rather than a directory under `src/`: they need a running stack, longer timeouts than a unit test has any use for, and serial execution, because they mutate global state — grants, roles, rows in `auth.users` — that no two files may hold at once. Keeping them out of `pnpm test` is also what stops a stopped Docker daemon from failing the suite CI gates on.
+
+Vitest resolves the `@/*` alias through `resolve.alias`, restated by hand — Vite does not read `paths` out of `tsconfig.json`, and a `projects` array does not inherit the root `resolve` block either, so it is restated in **both** projects. Nothing but the tests themselves checks that the three still agree.
+
+The `tests/db` harness is `tests/db/harness/`: the four callers (`anon`, two practitioners, an admin), a `sql()` seam that runs as `postgres`, and the helpers for reading a refusal. Use `expectPermissionDenied(caller, result)` rather than asserting a status code by hand — PostgREST answers **401 for `anon` and 403 for a signed-in caller on the same `permission denied`**, so the status reports who asked rather than what was decided, and a hand-written `expect(status).toBe(403)` is really an assertion that the caller held a token. Rules a status code cannot express — the ownership state machine raising `23514`, a foreign key, a unique constraint — are asserted with `expectSqlstate`. And set up through `sql()`, assert through a caller: re-reading a row as `postgres` proves nothing about a policy, because `postgres` bypasses every one of them.
+
+Note that `next build` no longer runs ESLint, so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly alongside `pnpm test`, `pnpm test:db` and `pnpm test:e2e`.
 
 ## Skills
 
