@@ -41,6 +41,8 @@ or `yarn` — they would create a competing lockfile.
 - `pnpm build` — production build (also runs the TypeScript type-check)
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint (flat config, `eslint-config-next`)
+- `pnpm test` — Vitest, once (what CI runs)
+- `pnpm test:watch` — Vitest, watching
 - `pnpm test:e2e` — build, serve and test the production app on port 3100 in desktop and mobile Chromium
 - `pnpm db:start` / `pnpm db:stop` — the local Supabase stack (needs Docker running)
 - `pnpm db:reset` — drop the local database and re-apply every migration from scratch
@@ -49,9 +51,11 @@ or `yarn` — they would create a competing lockfile.
 `pnpm dev` does not start the database — run `pnpm db:start` alongside it. `db:reset`
 and `db:types` both need it running too.
 
-Playwright is the end-to-end test runner; there is no unit test runner. Note that
-`next build` no longer runs ESLint, so `pnpm lint` is the only thing enforcing the lint
-rules — run it explicitly alongside `pnpm test:e2e`.
+Two runners, and they do not overlap. **Vitest** runs unit tests and scans `src/` only — `test.dir` in `vitest.config.mts`, because Vitest's default include pattern also matches Playwright's `e2e/*.spec.ts` and anything under a git-ignored working directory. **Playwright** owns `e2e/`. A test file goes under `src/` or under `e2e/`; there is no third place, and putting a Vitest file outside `src/` means it is silently never run.
+
+Vitest resolves the `@/*` alias through `resolve.alias`, restated by hand — Vite does not read `paths` out of `tsconfig.json`. Nothing but the tests themselves checks that the two still agree.
+
+Note that `next build` no longer runs ESLint, so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly alongside `pnpm test` and `pnpm test:e2e`.
 
 ## Skills
 
@@ -273,7 +277,7 @@ Files written before this rule are still hard-wrapped. Reflow a paragraph when y
 - Tailwind CSS v4 (via `@tailwindcss/postcss`; no `tailwind.config` file — configured in CSS)
 - TypeScript 6, path alias `@/*` → `src/*`
 - Supabase (Postgres) through `@supabase/supabase-js`, local stack via the Supabase CLI
-- Playwright end-to-end tests; no unit test runner
+- Vitest for unit tests (`src/`), Playwright for end-to-end (`e2e/`)
 
 ## Architecture
 
