@@ -14,12 +14,17 @@
  * `beforeAll` and share them across a file's tests rather than per test.
  */
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  createClient,
+  isAuthRetryableFetchError,
+  type AuthError,
+  type SupabaseClient,
+} from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 
 import type { Database } from "@/lib/database.types";
 
-import { apiUrl, publishableKey, sql } from "./stack";
+import { apiUrl, publishableKey, sql, stackUnreachable } from "./stack";
 
 /** The claims a test may reasonably read off an access token. */
 export type TokenClaims = {
@@ -83,6 +88,21 @@ export function anonCaller(): Caller {
   };
 }
 
+/**
+ * Turns an auth failure into the right complaint.
+ *
+ * A retryable fetch error is a transport failure — GoTrue did not answer — which
+ * for a contributor is almost always a stack that is not running. This is the
+ * seam a run reaches *first*, before anything touches Postgres, so without this
+ * the `pnpm db:start` message would exist in `stack.ts` and never be the one
+ * anybody sees. Everything else is a real rejection and keeps its own message.
+ */
+function authFailure(what: string, error: AuthError): Error {
+  return isAuthRetryableFetchError(error)
+    ? stackUnreachable("Supabase Auth", apiUrl, error)
+    : new Error(`${what}: ${error.message}`, { cause: error });
+}
+
 /** User ids this run created, so the setup file can take them out again. */
 const created = new Set<string>();
 
@@ -95,7 +115,7 @@ async function signUp(
   const email = `harness-${randomUUID()}@bluehex.test`;
 
   const { data, error } = await clientFor().auth.signUp({ email, password });
-  if (error) throw new Error(`could not sign ${label} up: ${error.message}`, { cause: error });
+  if (error) throw authFailure(`could not sign ${label} up`, error);
 
   const session = data.session;
   if (!session) {
@@ -147,7 +167,7 @@ export async function adminCaller(label = "admin"): Promise<Caller> {
     email,
     password,
   });
-  if (error) throw new Error(`could not sign ${label} back in: ${error.message}`);
+  if (error) throw authFailure(`could not sign ${label} back in`, error);
 
   const session = data.session;
   if (!session) throw new Error(`signing ${label} back in returned no session`);

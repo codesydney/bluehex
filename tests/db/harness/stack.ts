@@ -46,23 +46,46 @@ export const databaseUrl =
   process.env.SUPABASE_TEST_DB_URL ??
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
-let connection: Client | undefined;
+/**
+ * The error both seams raise when the stack is not answering.
+ *
+ * It lives here rather than inline because Postgres is not the seam a run reaches
+ * first: a test file builds its callers before it touches the database, so a
+ * stopped stack surfaces as a failed sign-up against GoTrue. A message that names
+ * `pnpm db:start` is only useful if it is the one the reader actually gets.
+ */
+export function stackUnreachable(what: string, where: string, cause: unknown): Error {
+  return new Error(
+    `Cannot reach ${what} at ${where}. The database tests need the local Supabase ` +
+      "stack — start it with `pnpm db:start`. This is why they are a separate " +
+      "Vitest project and why CI does not run them.",
+    { cause },
+  );
+}
 
-async function client(): Promise<Client> {
-  if (connection) return connection;
+let connection: Promise<Client> | undefined;
 
+async function connect(): Promise<Client> {
   const next = new Client({ connectionString: databaseUrl });
   try {
     await next.connect();
   } catch (cause) {
-    throw new Error(
-      `Cannot reach Postgres at ${databaseUrl}. The database tests need the local ` +
-        "Supabase stack — start it with `pnpm db:start`. This is why they are a " +
-        "separate Vitest project and why CI does not run them.",
-      { cause },
-    );
+    throw stackUnreachable("Postgres", databaseUrl, cause);
   }
-  connection = next;
+  return next;
+}
+
+function client(): Promise<Client> {
+  /* The promise is memoised, not the client it resolves to. Caching the resolved
+     client leaves a window: two calls arriving before the first `connect()`
+     settles both open a connection, and only the later one is reachable to close,
+     so the earlier one stays open and keeps the Vitest worker alive. A failed
+     attempt clears itself, or one unreachable moment would be cached for the rest
+     of the run. */
+  connection ??= connect().catch((error: unknown) => {
+    connection = undefined;
+    throw error;
+  });
   return connection;
 }
 
@@ -82,5 +105,8 @@ export async function sql<Row extends Record<string, unknown>>(
 export async function closeSql(): Promise<void> {
   const open = connection;
   connection = undefined;
-  await open?.end();
+  /* Settle the attempt before ending it: a run whose connect failed has nothing
+     to close, and one still connecting must be waited for rather than abandoned
+     — abandoning it is how the socket this function exists to close survives. */
+  await open?.then((client) => client.end()).catch(() => undefined);
 }
