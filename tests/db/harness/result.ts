@@ -62,7 +62,12 @@ function describeResult(result: Result): string {
  * being proved.
  */
 export function expectPermissionDenied(caller: Caller, result: Result): void {
-  const expected = caller.authenticated ? 403 : 401;
+  /* Derived from the token the caller actually carries, not from a flag alongside
+     it. A separate boolean is a second place the same fact is written down, and
+     the two can disagree — a caller built by spreading another and overriding one
+     field would make this assert the wrong status and still pass, which is the
+     failure this helper exists to make impossible. */
+  const expected = caller.claims ? 403 : 401;
 
   expect(
     { code: result.error?.code, status: result.status },

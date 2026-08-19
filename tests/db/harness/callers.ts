@@ -42,11 +42,16 @@ export type TokenClaims = {
 export type Caller = {
   /** Names the fixture in assertion failures. */
   readonly label: string;
-  /** False for `anon` alone. Decides 401 against 403; see `./result.ts`. */
-  readonly authenticated: boolean;
   /** Null for `anon`. */
   readonly userId: string | null;
-  /** Null for `anon`. */
+  /**
+   * The claims off this caller's token, and null for `anon` — which is also how
+   * `expectPermissionDenied` tells 401 from 403, so this is the field the helper's
+   * correctness rests on. It is deliberately the *token's* claims rather than a
+   * separate flag saying whether there is one: two fields can disagree, and a
+   * caller whose flag contradicts the token it carries would make the helper
+   * assert the wrong status and pass. See `./result.ts`.
+   */
   readonly claims: TokenClaims | null;
   /** A PostgREST client that arrives as this caller and no other. */
   readonly client: SupabaseClient<Database>;
@@ -81,7 +86,6 @@ function decodeClaims(accessToken: string): TokenClaims {
 export function anonCaller(): Caller {
   return {
     label: "anon",
-    authenticated: false,
     userId: null,
     claims: null,
     client: clientFor(),
@@ -138,7 +142,6 @@ export async function practitionerCaller(label = "practitioner"): Promise<Caller
   const { userId, accessToken } = await signUp(label);
   return {
     label,
-    authenticated: true,
     userId,
     claims: decodeClaims(accessToken),
     client: clientFor(accessToken),
@@ -174,7 +177,6 @@ export async function adminCaller(label = "admin"): Promise<Caller> {
 
   return {
     label,
-    authenticated: true,
     userId,
     claims: decodeClaims(session.access_token),
     client: clientFor(session.access_token),
