@@ -376,11 +376,19 @@ create policy practitioners_update_own on public.practitioners
 -- back returns false and would refuse every contact ever written; on `select` and
 -- `update` the row is in hand and the full question can be asked.
 --
--- `with check` still names authorship alone. You may not write a contact row into
--- existence with somebody else's `created_by`, you may not reassign an existing
--- one to yourself, and reading through the profile is a right you inherit by
--- claiming while writing is not — a claimer reads the row Bluehex wrote and cannot
--- edit it. If the product wants that, this is the line to change; see the spec.
+-- `with check` on `update` matches `using`, so the row is writable by whoever it
+-- currently belongs to. It named `created_by` alone until #49 and that was wrong,
+-- for a reason worth writing down because it reads correct: the justification was
+-- "you may not reassign an existing row to yourself", and reassignment is not
+-- something a policy defends here at all. `created_by` is absent from the
+-- `authenticated` update grant, so the privilege layer refuses it before any
+-- policy runs — which is what the test asserting `42501` on that write is really
+-- proving. With insert split into `contacts_insert_own`, the clause had one
+-- remaining effect: stopping the claimer of a curated profile from correcting
+-- their own email address, having just been handed a profile that publishes it.
+--
+-- Insert still names authorship, because there is nothing else to name: no
+-- profile points at the row yet.
 --
 -- No `delete` policy and no `delete` grant: a contact row outlives the profile
 -- that pointed at it, and clearing it up is #52.
@@ -403,7 +411,10 @@ create policy contacts_update_own on public.practitioner_contacts
     public.owns_profile_for_contact(id)
     or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
   )
-  with check (created_by = (select auth.uid()));
+  with check (
+    public.owns_profile_for_contact(id)
+    or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
+  );
 
 create policy contacts_admin_all on public.practitioner_contacts
   for all to bluehex_admin using (true) with check (true);

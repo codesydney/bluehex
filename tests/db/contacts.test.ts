@@ -22,10 +22,10 @@ import { sql } from "./harness/stack";
  * The contact is the **parent**, written before the profile that points at it, so
  * the policies need two routes in — the row you wrote (`created_by`) and the row a
  * profile of yours points at. Both are asserted here, and so are the two things
- * they say by omission: `with check` names authorship alone, so a claimer reads
- * the row Bluehex wrote and cannot edit it; and authorship stops carrying the row
- * once a profile points at it, so it is not a grant that outlives the profile
- * changing hands.
+ * they say by omission: the row belongs to whoever the profile above it belongs to
+ * now, so a claimer both reads and edits the row Bluehex wrote; and authorship
+ * stops carrying the row once a profile points at it, so it is not a grant that
+ * outlives the profile changing hands.
  */
 
 let anon: Caller;
@@ -263,7 +263,7 @@ describe("a curated contact row, written by Bluehex", () => {
     expect(afterClaim.data?.id).toBe(id);
   });
 
-  it("is still not writable by the claimer, because `with check` names only `created_by`", async () => {
+  it("is writable by the claimer, who is the person it describes", async () => {
     const id = await seedContact(admin.userId);
     const profile = await seedProfile(id, null);
 
@@ -276,15 +276,44 @@ describe("a curated contact row, written by Bluehex", () => {
 
     const result = await otherPractitioner.client
       .from("practitioner_contacts")
-      .update({ contact_note: "mine now" })
+      .update({ contact_email: address(), contact_note: "reach me here" })
+      .eq("id", id)
+      .select("contact_note")
+      .single();
+
+    /* `with check` named `created_by` alone until #49, which locked the claimer
+       out of correcting the address their own profile was about to publish. The
+       clause read as a defence against reassignment and was not one: `created_by`
+       is absent from the `authenticated` update grant, so that is refused a layer
+       lower — which is what the next test is really asserting. */
+    expectAllowed(result);
+    expect(result.data?.contact_note).toBe("reach me here");
+  });
+
+  it("still cannot have its `created_by` reassigned by the claimer", async () => {
+    /* A fresh account: `unique (user_id)` means the caller above is already an
+       owner by the time this runs. */
+    const claimer = await practitionerCaller("claimer");
+    const id = await seedContact(admin.userId);
+    const profile = await seedProfile(id, null);
+
+    expectAllowed(
+      await admin.client
+        .from("practitioners")
+        .update({ user_id: claimer.userId })
+        .eq("id", profile)
+        .select("id"),
+    );
+
+    const result = await claimer.client
+      .from("practitioner_contacts")
+      .update({ created_by: claimer.userId } as never)
       .eq("id", id);
 
-    /* Reading through the profile is a right you inherit by claiming; writing is
-       not. The `using` clause matches, so this is refused by `with check` rather
-       than silently touching no rows — 42501, "new row violates row-level
-       security policy". The spec's Testing list reads the other way in one
-       bullet; its Policies SQL is normative and says this. */
-    expectPermissionDenied(otherPractitioner, result);
+    /* The privilege layer, not the policy — 42501 for want of a column grant.
+       Editing the details and taking the row's authorship are two different
+       things, and only the second was ever meant to be refused. */
+    expectPermissionDenied(claimer, result);
     expect(result.error?.code).toBe(sqlstate.insufficientPrivilege);
   });
 });

@@ -1329,7 +1329,10 @@ create policy contacts_update_own on public.practitioner_contacts
     public.owns_profile_for_contact(id)
     or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
   )
-  with check (created_by = (select auth.uid()));
+  with check (
+    public.owns_profile_for_contact(id)
+    or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
+  );
 
 create policy contacts_admin_all on public.practitioner_contacts
   for all to bluehex_admin using (true) with check (true);
@@ -1341,7 +1344,9 @@ The authorship clause covers the row you just wrote, including an orphan whose p
 
 **Three policies rather than one `for all`**, because the clause has to differ by verb. On `insert` the row is not in the table yet, so a helper that reads it back returns false and would refuse every contact row ever written; on `select` and `update` the row is in hand and the whole question can be asked.
 
-`with check` still names authorship alone. You may not write a contact row into existence with somebody else's `created_by`, and you may not reassign an existing one to yourself. Reading through the profile is a right you inherit by claiming; writing is not — a claimer reads the row Bluehex wrote and cannot edit it. If the product wants that, this is the line to change.
+**A contact row is writable by whoever the profile above it belongs to now**, which is the second correction #49 made and the one that had stood longest. `with check` on update named `created_by` alone from the #35 spike onwards, justified as *you may not reassign an existing row to yourself* — and that is not a thing a policy defends here. `created_by` is absent from the `authenticated` update grant, so reassignment is refused a layer lower, by the privilege check, which is what the test asserting `42501` on that write has always been proving. Once insert became a policy of its own, the clause had exactly one remaining effect: it stopped the claimer of a curated profile from correcting the address their own profile was about to publish. Both the policy and the Testing bullet that contradicted it were wrong; the bullet was right about the behaviour anyone would expect.
+
+Insert still names authorship, because there is nothing else it could name — no profile points at the row yet. You may not write a contact row into existence with somebody else's `created_by`.
 
 **`created_by` is nullable**, because it references `auth.users` and has to survive an account deletion — see the table. Both clauses stay correct: a null `created_by` makes the comparison null rather than true, so it fails closed, and the profile clause is unaffected because it never mentions the column.
 
@@ -1794,7 +1799,7 @@ the most valuable one in the suite and it transfers directly.
 
 - **A profile cannot be inserted without a `contact_id`.** The insert is refused by `not null` on the column, not by a trigger or a check — so this asserts the foreign key points the way the design needs it to. Two profiles cannot share a contact row either, which is the `unique`.
 - A practitioner can read back a contact row they wrote before any profile pointed at it, and cannot read one written by somebody else.
-- After claiming a curated profile, the new owner can **read** the contact row **Bluehex** wrote — the profile clause of `contacts_read_own`, which is easy to omit and fails as "my own details are invisible to me". **This bullet used to say "read and edit", which the policy above contradicts and #49 resolved in the policy's favour:** `with check` names only `created_by = auth.uid()`, so an update by the claimer is refused, and the Policies section says so in as many words — reading through the profile is a right you inherit by claiming and writing is not. If the product wants the claimer to edit those details, that is a change to `with check`, not a test to relax.
+- After claiming a curated profile, the new owner can **read and edit** the contact row **Bluehex** wrote — the profile clause of `contacts_read_own` and `contacts_update_own`, easy to omit and failing as "my own details are invisible to me". **This bullet and the policy disagreed for two revisions, and #49 settled it the bullet's way**: the `with check` naming `created_by` alone was defending against a reassignment the column grant already refuses, and its only live effect was locking the claimer out. A separate assertion covers reassignment, where it belongs — at the privilege layer.
 - **A profile insert cannot point at a contact row somebody else wrote.** `contact_id` is in the `authenticated` insert grant, so without `owns_contact` in `practitioners_insert_own` a profile insert is a read grant on any unused contact row — the profile clause of `contacts_read_own` then answers true for the caller. `unique (contact_id)` is not that assertion: it covers the row that is already taken, not the one going spare. The clause reads `contact_id is null or owns_contact(contact_id)` because row level security is checked *before* column constraints on insert — without the first half the policy answers `42501` for a row whose real problem is a missing `contact_id`, and the bullet above it stops testing what it says it tests.
 - **The author of a contact row loses it when the profile above it changes hands**, in both directions — no read and no write. The reassignment is two legal steps, so this is a state the admin flow reaches on purpose.
 - **`approved_at` and `approved_by` are written when an admin PATCHes `status` rather than calling the RPC, and cleared when the profile stops being approved.** The trigger is the only thing that holds down both paths, and the assertion has to be written from the PATCH to prove it.
