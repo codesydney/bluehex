@@ -302,9 +302,7 @@ Files written before this rule are still hard-wrapped. Reflow a paragraph when y
   directory data and its types; `supabase.ts` is the database client.
   `database.types.ts` is **generated** — regenerate it with `pnpm db:types` after a
   migration rather than editing it.
-- `supabase/` — `config.toml` for the local stack, `migrations/` for the schema, and
-  `seed/` for reference data that is real but has no permanent home yet, loaded
-  locally by `seed.sql`. All committed.
+- `supabase/` — `config.toml` for the local stack, `migrations/` for the schema, and `seed/` for reference data that is real but has no permanent home yet, loaded locally by `seed.sql`. All committed.
 
 `practitioners.ts` ships an empty array on purpose. **Real people only** — no placeholder
 profiles. The directory renders an invitation card for the empty slots instead.
