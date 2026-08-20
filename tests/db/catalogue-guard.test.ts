@@ -250,10 +250,45 @@ describe("correct_catalogue_entry", () => {
     expect(result.data?.platform).toBe("Pearson VUE");
   });
 
-  it("does not leave the declaration behind for the next statement", async () => {
-    /* `set_config(…, true)` is transaction-local. If it leaked, the escape hatch
-       would silently disarm the guard for everything that followed it on the same
-       connection — which is every subsequent request PostgREST serves on it. */
+  it("does not leave the declaration on for the rest of the transaction", async () => {
+    /* The scope that actually matters, and the one two PostgREST requests cannot
+       reach: transaction-local is not statement-local, so a declaration left standing
+       disarms the guard for everything that follows it in the same transaction. Run
+       through `sql()` because that is the only seam here that holds a transaction open
+       across statements — and `catalogue_guard` has no `current_user` allow-list, so it
+       fires for `postgres` exactly as it does for an admin over HTTP. */
+    const corrected = await seedEntry("in-transaction corrected");
+    await seedClaim(corrected.id);
+    const protectedEntry = await seedEntry("in-transaction protected");
+    await seedClaim(protectedEntry.id);
+
+    await sql("begin");
+    try {
+      await sql(
+        "select public.correct_catalogue_entry($1, 'course', 'Anthropic Academy', $2)",
+        [corrected.id, testLabel("corrected in a transaction")],
+      );
+
+      await expect(
+        sql("update public.credential_catalogue set label = $1 where id = $2", [
+          testLabel("repointed in the same transaction"),
+          protectedEntry.id,
+        ]),
+      ).rejects.toMatchObject({ code: sqlstate.checkViolation });
+    } finally {
+      /* The failed statement has already aborted the transaction; this releases it so
+         `afterEach` can sweep. */
+      await sql("rollback");
+    }
+  });
+
+  it("does not leave the declaration behind for the next request", async () => {
+    /* The weaker half, and worth keeping for what it says rather than for what it
+       catches: from the API's side the escape hatch is per call, because PostgREST
+       runs each request in a transaction of its own. Note that this cannot observe a
+       setting that outlived its transaction — that would depend on which pooled
+       connection served the second request, which nothing here controls. The test
+       above is the one with teeth. */
     const corrected = await seedEntry("corrected entry");
     await seedClaim(corrected.id);
     const protectedEntry = await seedEntry("protected entry");

@@ -294,12 +294,23 @@ describe("what a credential row may say", () => {
         earned_at: "2026-01-15",
         evidence_url: "HTTPS://Example.com/proof",
       })
+      .select("id")
+      .single();
+
+    /* Read back through the admin rather than through the writer: `evidence_url` is
+       writable by the practitioner and readable by nobody but `bluehex_admin`, which
+       is the asymmetry the grant block argues for and the test two describes down
+       asserts. */
+    const stored = await admin.client
+      .from("practitioner_credentials")
       .select("evidence_url")
+      .eq("id", shouted.data!.id)
       .single();
 
     /* RFC 3986 makes the scheme case-insensitive, so the check is too. */
     expectAllowed(shouted);
-    expect(shouted.data?.evidence_url).toBe("HTTPS://Example.com/proof");
+    expectAllowed(stored);
+    expect(stored.data?.evidence_url).toBe("HTTPS://Example.com/proof");
   });
 });
 
@@ -326,11 +337,18 @@ describe("`verified` is not the practitioner's to write", () => {
        the harness's `sql()` seam exists for exactly this. */
     const credential = await seedCredential(mine, entryA);
 
-    await sql("grant update (verified) on public.practitioner_credentials to authenticated");
+    await sql(
+      `grant update (verified, verified_at, verified_by)
+         on public.practitioner_credentials to authenticated`,
+    );
     try {
       const result = await practitioner.client
         .from("practitioner_credentials")
-        .update({ verified: true })
+        .update({
+          verified: true,
+          verified_at: "2026-01-01T00:00:00Z",
+          verified_by: practitioner.userId,
+        })
         .eq("id", credential)
         .select("verified")
         .single();
@@ -339,9 +357,26 @@ describe("`verified` is not the practitioner's to write", () => {
          why the assertion is on the value rather than on a status code. */
       expectAllowed(result);
       expect(result.data?.verified).toBe(false);
+
+      /* All three columns, not only the flag: they are defended by the same two
+         mechanisms and pinned by the same branch, and `verified_at` is the one a
+         later migration is likelier to re-grant unnoticed. */
+      const stamps = await admin.client
+        .from("practitioner_credentials")
+        .select("verified, verified_at, verified_by")
+        .eq("id", credential)
+        .single();
+
+      expectAllowed(stamps);
+      expect(stamps.data).toEqual({
+        verified: false,
+        verified_at: null,
+        verified_by: null,
+      });
     } finally {
       await sql(
-        "revoke update (verified) on public.practitioner_credentials from authenticated",
+        `revoke update (verified, verified_at, verified_by)
+           on public.practitioner_credentials from authenticated`,
       );
     }
   });
@@ -453,6 +488,33 @@ describe("editing a claim clears the check of it", () => {
 
     expectAllowed(result);
     expect(result.data?.verified).toBe(false);
+  });
+
+  it("clears for an admin editing the claim, exactly as for the practitioner", async () => {
+    /* The clearing rule is below `credentials_guard`'s allow-list rather than after an
+       early return, so it applies to every caller. An admin repointing a *verified*
+       credential at another catalogue entry with the attestation left standing is the
+       badge asserting a check of a claim nobody made — the same destruction
+       `catalogue_guard` refuses one table over, arriving through the table it protects.
+       `bluehex_admin` holds unrestricted `update` here, so nothing but this stops it. */
+    const credential = await seedCredential(mine, entryA, {
+      verified: true,
+      verifiedBy: admin.userId,
+    });
+
+    const result = await admin.client
+      .from("practitioner_credentials")
+      .update({ catalogue_id: entryB, earned_at: "2001-01-01" })
+      .eq("id", credential)
+      .select("verified, verified_at, verified_by")
+      .single();
+
+    expectAllowed(result);
+    expect(result.data).toEqual({
+      verified: false,
+      verified_at: null,
+      verified_by: null,
+    });
   });
 
   it("does not clear on `evidence_public`", async () => {
@@ -714,6 +776,49 @@ describe("another practitioner", () => {
     expect(await verifiedThrough(practitioner, credential)).toBe(true);
   });
 
+  it("cannot read the raw `evidence_url`, and neither can the owner", async () => {
+    /* The half of the masking that a test written only against `anon` misses.
+       `credentials_read_public` shows every signed-in caller every credential on every
+       approved profile, so a raw `evidence_url` granted to `authenticated` would be
+       readable by any account on any row — column privileges are per *role* while row
+       level security is per *row*, and "the owner can see their own" is not sayable as
+       a grant. That link is the practitioner's full legal name, which is the whole
+       reason `evidence_public` is theirs to decide.
+
+       The owner is refused too, and that is the cost rather than an oversight: reading
+       their own back to populate an edit form needs a per-row route that belongs with
+       the editor in #14. Until then it fails closed. */
+    const credential = await seedCredential(mine, entryA, {
+      evidenceUrl: "https://example.com/private-proof",
+    });
+
+    const asStranger = await otherPractitioner.client
+      .from("practitioner_credentials")
+      .select("evidence_url")
+      .eq("id", credential);
+    const asOwner = await practitioner.client
+      .from("practitioner_credentials")
+      .select("evidence_url")
+      .eq("id", credential);
+    const optOutState = await otherPractitioner.client
+      .from("practitioner_credentials")
+      .select("evidence_public")
+      .eq("id", credential);
+    const masked = await otherPractitioner.client
+      .from("practitioner_credentials")
+      .select("evidence_url_public")
+      .eq("id", credential)
+      .single();
+
+    expectPermissionDenied(otherPractitioner, asStranger);
+    expectPermissionDenied(practitioner, asOwner);
+    /* Whether somebody has opted out is not public either — it is a fact about the
+       same decision. */
+    expectPermissionDenied(otherPractitioner, optOutState);
+    expectAllowed(masked);
+    expect(masked.data?.evidence_url_public).toBeNull();
+  });
+
   it("cannot see the credentials of an unclaimed profile", async () => {
     const unclaimed = await seedProfile({ status: "pending" });
     await seedCredential(unclaimed, entryA);
@@ -788,6 +893,44 @@ describe("the admin write path", () => {
     expect(result.data?.verified).toBe(false);
     expect(result.data?.verified_at).toBeNull();
     expect(result.data?.verified_by).toBeNull();
+  });
+
+  it("stamps provenance on a direct `PATCH` too, not only through the RPC", async () => {
+    /* `set_credential_verified()` cannot be made the only door while `bluehex_admin`
+       holds unrestricted `update` on the table, so the trigger is what makes the stamp
+       true down every path — the same argument `practitioners_guard` makes for
+       `approved_at` and `approved_by`. Without it a plain `PATCH {"verified": true}`
+       publishes a badge with no record of who checked it or when, and `verified_at`
+       reads as "never verified" on a verified credential. */
+    const credential = await seedCredential(mine, entryA);
+
+    const result = await admin.client
+      .from("practitioner_credentials")
+      .update({ verified: true })
+      .eq("id", credential)
+      .select("verified, verified_at, verified_by")
+      .single();
+
+    expectAllowed(result);
+    expect(result.data?.verified).toBe(true);
+    expect(result.data?.verified_at).not.toBeNull();
+    expect(result.data?.verified_by).toBe(admin.userId);
+
+    /* And the same rule read backwards: taking it away takes the stamps with it,
+       whichever door the write came through. */
+    const withdrawn = await admin.client
+      .from("practitioner_credentials")
+      .update({ verified: false })
+      .eq("id", credential)
+      .select("verified, verified_at, verified_by")
+      .single();
+
+    expectAllowed(withdrawn);
+    expect(withdrawn.data).toEqual({
+      verified: false,
+      verified_at: null,
+      verified_by: null,
+    });
   });
 
   it("is refused to anon and to a practitioner, including on their own credential", async () => {

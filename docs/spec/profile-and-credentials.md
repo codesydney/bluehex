@@ -1188,8 +1188,9 @@ grant select, insert, update, delete on public.credential_catalogue to bluehex_a
 grant select (id, practitioner_id, catalogue_id, earned_at, verified,
               evidence_url_public)
   on public.practitioner_credentials to anon;
+-- #50 drops `evidence_url` and `evidence_public` from this list; see the note below
 grant select (id, practitioner_id, catalogue_id, earned_at, verified, verified_at,
-              evidence_url, evidence_public, evidence_url_public,
+              evidence_url_public,
               created_at, updated_at)
   on public.practitioner_credentials to authenticated;
 grant insert (practitioner_id, catalogue_id, earned_at, evidence_url, evidence_public)
@@ -1233,6 +1234,10 @@ Note what `anon` never gets: `user_id`, `contact_id`, `status`, any provenance c
 `kind` and `label` are no longer on `practitioner_credentials` at all, so they are absent from these lists rather than withheld. A reader diffing against the previous version should confirm that: a column that quietly reappeared on the credential row would be free text back in the model.
 
 **`user_id` and `contact_id` are not readable by `authenticated` either**, which closes the gap review found on this grant. Column privileges are per *role* and RLS is per *row*, so a column readable "by the owner" is really readable by every signed-in caller on every row they can see — and both of these are handles to somebody else's account or PII. Nothing needs them: a practitioner knows their own `auth.uid()` without reading it back, `practitioners_read_own` filters on `user_id` without granting it, and the contact row is reached through its own table rather than through the pointer.
+
+**Corrected by #50: `evidence_url` and `evidence_public` are not readable by `authenticated` either.** The list above granted both, which reads as "the owner can see their own" and is not what a column grant says — it is the paragraph immediately above, applied to a third column and reached the wrong way. `credentials_read_public` shows every signed-in caller every credential on every approved profile, so the raw column beside the masked one made `evidence_url_public` decorative: an account created a minute ago could read, and filter on, every practitioner's private certificate link. That link is the full legal name the opt-in exists to let them withhold, so the leak was of exactly the thing "Evidence visibility is the practitioner's call" decides in the practitioner's favour. Proved against the local stack with a signed-in non-owner, and `tests/db/credentials.test.ts` asserts the refusal for a practitioner as well as for `anon`.
+
+What it costs, unpaid for now: the owner cannot read their own `evidence_url` back to populate an edit form. A column grant cannot say "the owner only" and a generated column cannot mask on `auth.uid()`, so the route is a per-row one — a `security definer` read over the caller's own credentials, joining `owns_profile()` and `profile_is_approved()` — and it belongs with the editor that needs it, in #14. Until then this fails closed. Do not restore the grant to unblock the form; that is the same trade this paragraph refuses.
 
 `status` stays, and is safe for a reason worth stating rather than assuming: another practitioner's row is only ever visible to you when it is `approved`, so `status` on a row that is not yours always reads the same value. It discloses nothing that visibility itself did not.
 
@@ -1444,6 +1449,7 @@ Written out rather than described, because the three mistakes these are here to 
    returns trigger language plpgsql
    set search_path = ''
    as $$
+   declare privileged boolean;
    begin
      new.updated_at := now();
 
@@ -1454,31 +1460,60 @@ Written out rather than described, because the three mistakes these are here to 
      -- as the owner of the table it modifies, so `verified_by`'s `on delete set null`
      -- reaches this trigger as `postgres` rather than as GoTrue's role. The same is
      -- true of `practitioners_guard`, which names it anyway
-     if current_user in ('bluehex_admin', 'postgres', 'supabase_admin')
-     then
-       return new;
-     end if;
+     --
+     -- #50 corrected the shape as well: this gates the pin and nothing else. An early
+     -- `return new` skipped the clearing rule and the stamp too, and `bluehex_admin`
+     -- holds unrestricted `update` here, so a plain `PATCH` published a badge with no
+     -- provenance and repointed a verified credential with the attestation standing
+     privileged := current_user in ('bluehex_admin', 'postgres', 'supabase_admin');
 
      if tg_op = 'INSERT' then
        -- no OLD to pin to: a credential is born unverified
-       new.verified    := false;
-       new.verified_at := null;
-       new.verified_by := null;
+       if not privileged then
+         new.verified    := false;
+         new.verified_at := null;
+         new.verified_by := null;
+       end if;
+
+       if new.verified then
+         new.verified_at := coalesce(new.verified_at, now());
+         new.verified_by := coalesce(new.verified_by, (select auth.uid()));
+       else
+         new.verified_at := null;
+         new.verified_by := null;
+       end if;
+
        return new;
      end if;
 
-     new.verified    := old.verified;
-     new.verified_at := old.verified_at;
-     new.verified_by := old.verified_by;
+     if not privileged then
+       new.verified    := old.verified;
+       new.verified_at := old.verified_at;
+       new.verified_by := old.verified_by;
+     end if;
 
-     -- an edit to the claim invalidates the check of it; `evidence_public` is
-     -- deliberately absent — it changes the claim's visibility, not the claim.
-     -- `catalogue_id` replaces the old `kind` and `label` pair: changing which
-     -- credential you claim is the largest edit there is, and it is now one column
+     -- an edit to the claim invalidates the check of it, whoever is editing;
+     -- `evidence_public` is deliberately absent — it changes the claim's visibility,
+     -- not the claim. `catalogue_id` replaces the old `kind` and `label` pair:
+     -- changing which credential you claim is the largest edit there is, and it is
+     -- now one column
      if new.catalogue_id is distinct from old.catalogue_id
         or new.earned_at  is distinct from old.earned_at
         or new.evidence_url is distinct from old.evidence_url then
        new.verified    := false;
+       new.verified_at := null;
+       new.verified_by := null;
+     end if;
+
+     -- provenance follows the flag down every path rather than only through
+     -- `set_credential_verified()` — the same rule `practitioners_guard` states for
+     -- `approved_at` and `approved_by`, and for the same reason: the RPC cannot be the
+     -- only door while `bluehex_admin` holds `update`. The `coalesce` leaves the RPC's
+     -- own values alone, and a non-privileged caller reaches neither branch
+     if new.verified and not old.verified then
+       new.verified_at := coalesce(new.verified_at, now());
+       new.verified_by := coalesce(new.verified_by, (select auth.uid()));
+     elsif not new.verified and old.verified then
        new.verified_at := null;
        new.verified_by := null;
      end if;
@@ -1696,13 +1731,17 @@ Written out rather than described, because the three mistakes these are here to 
     update public.credential_catalogue
        set kind = new_kind, platform = new_platform, label = new_label
      where id = entry_id;
+    -- #50 turns it back off: transaction-local is not statement-local, and left on the
+    -- declaration disarms the guard for everything that follows in the same transaction.
+    -- After any `found` check, never before one — `perform` assigns `FOUND` itself
+    perform set_config('bluehex.catalogue_correction', 'off', true);
   end;
   $$;
   ```
 
   It takes all three watched columns rather than only the one being corrected, and every caller passes the current value for the two it is not changing. The alternative — nullable parameters meaning "leave this alone" — makes an omitted argument and an intended `null` the same call, on the columns where getting it wrong rewrites what somebody's badge asserts. `course_url` is absent for the reason the guard does not watch it: a link correction is a plain `UPDATE` and needs no declared intent.
 
-  `security invoker`, like the rest — an admin already holds `update` on the table, so this borrows no privilege and adds no reach. `set_config(..., true)` is transaction-local, so the setting does not survive the statement into another caller's session. What it buys is that the destructive version of the same statement now requires a different call, which is the whole of `catalogue_guard`'s value: `active` and `on delete restrict` already make the destructive *delete* the harder path, and this makes the destructive *update* match.
+  `security invoker`, like the rest — an admin already holds `update` on the table, so this borrows no privilege and adds no reach. `set_config(..., true)` is transaction-local, so the setting does not survive into another caller's session — and #50 turns it back off before returning, because transaction-local is not statement-local and a declaration left standing disarms the guard for every statement after it in the same transaction. What it buys is that the destructive version of the same statement now requires a different call, which is the whole of `catalogue_guard`'s value: `active` and `on delete restrict` already make the destructive *delete* the harder path, and this makes the destructive *update* match.
 
 **`assign_profile_owner()` is gone.** Claiming is a plain `PATCH` setting `user_id`, and `practitioners_guard` stamps `owner_assigned_at/by` on the way through — which is strictly better than the RPC was, because an RPC can be bypassed by anyone holding the `update` grant and a trigger cannot. The ones that remain earn their place: two write across tables atomically, three write provenance from `auth.uid()` rather than from whatever the caller passes, and the fourth carries an intent no `PATCH` can express.
 

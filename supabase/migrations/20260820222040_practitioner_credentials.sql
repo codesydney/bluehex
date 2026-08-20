@@ -7,7 +7,7 @@
 -- `clear_profile_verification()` with all three of its triggers, and the
 -- `set_credential_verified()` and `correct_catalogue_entry()` RPCs. The spec is
 -- normative and its SQL is written out deliberately; this file copies it rather than
--- re-deriving it. Five places depart from it, each marked **Departs from the spec**
+-- re-deriving it. Seven places depart from it, each marked **Departs from the spec**
 -- with the reason, and each carrying a test that fails without it.
 --
 -- It also completes two things earlier migrations deliberately left undone:
@@ -81,7 +81,7 @@ create table public.practitioner_credentials (
     unique (practitioner_id, catalogue_id)
 );
 
--- **Departs from the spec (1/5): the index is on `catalogue_id`, not on
+-- **Departs from the spec (1/7): the index is on `catalogue_id`, not on
 -- `practitioner_id`.** The spec asks for `practitioner_id`, and the unique constraint
 -- above already provides it: a btree on `(practitioner_id, catalogue_id)` serves
 -- `where practitioner_id = $1` on its leading column, so a second index on that
@@ -114,6 +114,26 @@ alter table public.practitioner_credentials enable row level security;
 --
 -- `verified_by` is admin-only in every direction: who performed a check is not public,
 -- and is not another practitioner's business either.
+--
+-- **Departs from the spec (2/7): `evidence_url` and `evidence_public` are readable by
+-- nobody but `bluehex_admin`**, and the spec's list is amended to match. It grants both to
+-- `authenticated`, which reads as "the owner can see their own" and is not what a column
+-- grant says: privileges are per *role* and row level security is per *row*, so a column
+-- granted to `authenticated` is readable by every signed-in caller on every row they can
+-- see — and `credentials_read_public` below shows them every credential on every approved
+-- profile. The raw column beside the masked one is the masked one doing nothing: any
+-- account, thirty seconds old, could read every practitioner's private certificate link,
+-- which is the full legal name that `evidence_public` exists to let them withhold. It is
+-- the same argument the spec makes two paragraphs later for keeping `user_id` and
+-- `contact_id` off this role, and `evidence_url` is the third column with that shape.
+--
+-- The cost is real and is deliberately not paid here: the owner cannot read their own
+-- `evidence_url` back to populate an edit form. No application code exists to want it
+-- yet, a column grant cannot say "the owner only", and a generated column cannot mask on
+-- `auth.uid()`, so the route is a per-row one — a `security definer` read over the
+-- caller's own credentials, alongside `profile_is_approved()` — and it belongs with the
+-- editor that needs it in #14. Until then this fails closed, which is the right way
+-- round.
 
 revoke all on public.practitioner_credentials from anon, authenticated;
 
@@ -121,7 +141,7 @@ grant select (id, practitioner_id, catalogue_id, earned_at, verified,
               evidence_url_public)
   on public.practitioner_credentials to anon;
 grant select (id, practitioner_id, catalogue_id, earned_at, verified, verified_at,
-              evidence_url, evidence_public, evidence_url_public,
+              evidence_url_public,
               created_at, updated_at)
   on public.practitioner_credentials to authenticated;
 grant insert (practitioner_id, catalogue_id, earned_at, evidence_url, evidence_public)
@@ -145,7 +165,7 @@ grant select, insert, update, delete
 -- asking whether a profile is published, from another table's policy
 -- ---------------------------------------------------------------------------
 
--- **Departs from the spec (2/5), where the spec asks it to be settled here.** The
+-- **Departs from the spec (3/7), where the spec asks it to be settled here.** The
 -- spec writes `credentials_read_public` as an inline
 -- `exists (select 1 from public.practitioners p where … and p.status = 'approved')`
 -- and then notes that `anon` has no `select` on `p.status`, leaving the fix to this
@@ -211,14 +231,31 @@ create policy credentials_admin_all on public.practitioner_credentials
 -- `55000 record "old" is not assigned yet` on every credential a practitioner ever
 -- adds. On insert the attestation columns are forced to their unattested values; on
 -- update they are pinned to `OLD` and the clearing rule applies.
+--
+-- **Departs from the spec (4/7): the allow-list gates the pin and nothing else.** The
+-- spec returns early for a privileged caller, which skips the clearing rule and the
+-- provenance stamp along with the pin — and `bluehex_admin` holds unrestricted `update`
+-- on this table, so both were reachable with a plain `PATCH`. It let an admin publish a
+-- badge with `verified_at` and `verified_by` still null, making `set_credential_verified()`
+-- one write path among several rather than the canonical one; and it let an admin repoint
+-- a *verified* credential at another catalogue entry with the attestation left standing,
+-- so the badge asserted a check of a claim nobody made — which is exactly what
+-- `catalogue_guard` is added below to refuse one table over.
+--
+-- `practitioners_guard` does not have that shape and this now matches it: there the
+-- allow-list gates only the pin block, while the ownership state machine and the
+-- `approved_at`/`approved_by` maintenance run for every caller including admins, on the
+-- stated grounds that a plain `PATCH {"status": "approved"}` must not publish a profile
+-- with no record of who published it. The same sentence, one table along.
 create function public.credentials_guard()
 returns trigger language plpgsql
 set search_path = ''
 as $$
+declare privileged boolean;
 begin
   new.updated_at := now();
 
-  -- **Departs from the spec (3/5): `service_role` is not on this list.** The spec
+  -- **Departs from the spec (5/7): `service_role` is not on this list.** The spec
   -- names it; `practitioners_guard` already does not, for a reason that applies
   -- identically here — it holds no write privilege on this table, so listing it
   -- changes nothing today and pre-authorizes a bypass of the one function that says
@@ -237,33 +274,60 @@ begin
   -- which the list already covers. Listing a role that never arrives is the same
   -- pre-authorization `service_role` is excluded for, so it is left out and the
   -- account-deletion assertion is what says the cascade still works.
-  if current_user in ('bluehex_admin', 'postgres', 'supabase_admin')
-  then
-    return new;
-  end if;
+  privileged := current_user in ('bluehex_admin', 'postgres', 'supabase_admin');
 
   if tg_op = 'INSERT' then
     -- no OLD to pin to: a credential is born unverified. Forced rather than refused,
     -- so a client that round-trips the whole row gets a saved credential rather than
     -- an error it cannot act on
-    new.verified    := false;
-    new.verified_at := null;
-    new.verified_by := null;
+    if not privileged then
+      new.verified    := false;
+      new.verified_at := null;
+      new.verified_by := null;
+    end if;
+
+    -- and the stamp holds on the way in too, so a row born verified names who said so
+    if new.verified then
+      new.verified_at := coalesce(new.verified_at, now());
+      new.verified_by := coalesce(new.verified_by, (select auth.uid()));
+    else
+      new.verified_at := null;
+      new.verified_by := null;
+    end if;
+
     return new;
   end if;
 
-  new.verified    := old.verified;
-  new.verified_at := old.verified_at;
-  new.verified_by := old.verified_by;
+  if not privileged then
+    new.verified    := old.verified;
+    new.verified_at := old.verified_at;
+    new.verified_by := old.verified_by;
+  end if;
 
-  -- An edit to the claim invalidates the check of it. `evidence_public` is
-  -- deliberately absent — it changes the claim's *visibility*, not the claim — and
-  -- `catalogue_id` replaces the old `kind`/`label` pair, so changing which credential
-  -- you claim is now one column and is still the largest edit there is.
+  -- An edit to the claim invalidates the check of it, **whoever is editing**. An admin
+  -- correcting an `earned_at` is correcting the thing that was checked, and the badge
+  -- has to stop asserting the old check exactly as it does for the practitioner.
+  -- `evidence_public` is deliberately absent — it changes the claim's *visibility*, not
+  -- the claim — and `catalogue_id` replaces the old `kind`/`label` pair, so changing
+  -- which credential you claim is now one column and is still the largest edit there is.
   if new.catalogue_id  is distinct from old.catalogue_id
      or new.earned_at    is distinct from old.earned_at
      or new.evidence_url is distinct from old.evidence_url then
     new.verified    := false;
+    new.verified_at := null;
+    new.verified_by := null;
+  end if;
+
+  -- Provenance follows the flag down every path rather than only through
+  -- `set_credential_verified()`, which is the same rule `practitioners_guard` states for
+  -- `approved_at` and `approved_by`: the RPC cannot be made the only door while
+  -- `bluehex_admin` holds `update`, so a direct write must carry the stamp too. The
+  -- `coalesce` leaves the RPC's own values alone. Non-privileged callers never reach
+  -- either branch — the pin above has already restored `OLD`.
+  if new.verified and not old.verified then
+    new.verified_at := coalesce(new.verified_at, now());
+    new.verified_by := coalesce(new.verified_by, (select auth.uid()));
+  elsif not new.verified and old.verified then
     new.verified_at := null;
     new.verified_by := null;
   end if;
@@ -352,7 +416,13 @@ create trigger catalogue_guard
 --
 -- `security invoker` like the rest: an admin already holds `update` on the table, so
 -- this borrows no privilege and adds no reach. `set_config(…, true)` is
--- transaction-local, so the setting does not survive into another caller's session.
+-- transaction-local, so the setting does not survive into another caller's session —
+-- **and it is turned back off before returning**, because transaction-local is not
+-- statement-local. Left on, the declaration disarms the guard for everything that
+-- follows it in the same transaction: an entry corrected and a second one repointed in
+-- one transaction is refused only because of the reset. Nothing reaches that today, one
+-- PostgREST request being one transaction, but the failure it would be is this file's
+-- own least acceptable shape — silent, and in the direction of permitting.
 create function public.correct_catalogue_entry(
   entry_id uuid, new_kind text, new_platform text, new_label text)
 returns public.credential_catalogue language plpgsql
@@ -370,6 +440,12 @@ begin
   if not found then
     raise exception 'no such catalogue entry' using errcode = 'P0002';
   end if;
+
+  -- after the `found` check, not before it: `perform` assigns `FOUND` itself, so
+  -- resetting the declaration first would make the check read this statement's result
+  -- rather than the update's and no missing entry would ever be reported. The raise
+  -- above aborts the transaction, which discards the setting on the failing path anyway
+  perform pg_catalog.set_config('bluehex.catalogue_correction', 'off', true);
 
   return result;
 end;
@@ -407,7 +483,7 @@ $$;
 revoke execute on function public.clear_profile_verification(uuid)
   from public, anon, authenticated, bluehex_admin;
 
--- **Departs from the spec (4/5): the trigger functions are `security definer` too.**
+-- **Departs from the spec (6/7): the trigger functions are `security definer` too.**
 -- The spec makes `clear_profile_verification()` the only privileged function among the
 -- triggers, and that cannot hold. A trigger function runs as the caller unless it says
 -- otherwise, so a plain one would be a practitioner renaming their own profile,
@@ -498,7 +574,7 @@ create trigger contacts_email_change_clears_credentials
 -- executable by PUBLIC by default, so the `revoke` is the mechanism and is not
 -- optional.
 --
--- **Departs from the spec (5/5), in the smallest way: it returns the row.** The spec
+-- **Departs from the spec (7/7), in the smallest way: it returns the row.** The spec
 -- gives the signature and not the body. Returning the credential matches
 -- `approve_practitioner()` and `reject_practitioner()`, and it saves the caller a
 -- second round trip to read back a column they are not granted anyway — `verified_at`
