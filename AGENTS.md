@@ -43,7 +43,7 @@ or `yarn` — they would create a competing lockfile.
 - `pnpm lint` — ESLint (flat config, `eslint-config-next`)
 - `pnpm test` — Vitest, once (what CI runs)
 - `pnpm test:watch` — Vitest, watching
-- `pnpm test:db` — Vitest against the local Supabase stack (needs `pnpm db:start`); CI runs it too, in its own `Schema` workflow rather than in the required check
+- `pnpm test:db` — Vitest against the local Supabase stack (needs `pnpm db:start`, and `pnpm db:reset` after pulling a branch that changes `supabase/seed.sql`, since `db:start` against a stack that is already up is a no-op and never applies a new seed); CI runs it too, in its own `Schema` workflow rather than in the required check
 - `pnpm test:e2e` — build, serve and test the production app on port 3100 in desktop and mobile Chromium
 - `pnpm db:start` / `pnpm db:stop` — the local Supabase stack (needs Docker running)
 - `pnpm db:reset` — drop the local database and re-apply every migration from scratch
