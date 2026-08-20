@@ -47,12 +47,19 @@ afterEach(async () => {
 /** Sets up through SQL. Assertions are made through a caller, never by re-reading here. */
 async function seedCredentialEntry(
   label: string,
-  { source = "Anthropic Academy", active = true, sortOrder = 0 } = {},
+  {
+    kind = "course",
+    platform = "Anthropic Academy",
+    courseUrl = null as string | null,
+    active = true,
+    sortOrder = 0,
+  } = {},
 ): Promise<void> {
   await sql(
-    `insert into public.credential_catalogue (source, label, active, sort_order)
-     values ($1, $2, $3, $4)`,
-    [source, testLabel(label), active, sortOrder],
+    `insert into public.credential_catalogue
+       (kind, platform, label, course_url, active, sort_order)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [kind, platform, testLabel(label), courseUrl, active, sortOrder],
   );
 }
 
@@ -77,7 +84,7 @@ describe("credential_catalogue reads", () => {
   it("is readable by anon and by a practitioner, retired entries included", async () => {
     await seedCredentialEntry("retired course", { active: false });
 
-    const columns = "id, source, label, active, sort_order";
+    const columns = "id, kind, platform, label, course_url, active, sort_order";
     const asAnon = await anon.client
       .from("credential_catalogue")
       .select(columns)
@@ -94,6 +101,44 @@ describe("credential_catalogue reads", () => {
     expect(asAnon.data?.[0]?.active).toBe(false);
     expectAllowed(asPractitioner);
     expect(asPractitioner.data).toHaveLength(1);
+  });
+
+  it("grants `kind`, `platform` and `course_url` to anon and to a practitioner", async () => {
+    await seedCredentialEntry("a certification", {
+      kind: "certification",
+      platform: "Pearson VUE",
+      courseUrl: "https://anthropic-partners.skilljar.com/harness-entry",
+    });
+
+    /* The grant that fails closed and silently. Reads on this table are
+       column-scoped and a column added by `alter table` inherits no privilege, so
+       the three columns #103 added are invisible until named in `grant select (…)`
+       — refused `42501` before any policy runs. Every other test in this file goes
+       on passing while the picker cannot see them, which is why this is asserted
+       rather than inferred from the migration. */
+    const columns = "kind, platform, course_url";
+    const asAnon = await anon.client
+      .from("credential_catalogue")
+      .select(columns)
+      .eq("label", testLabel("a certification"))
+      .single();
+    const asPractitioner = await practitioner.client
+      .from("credential_catalogue")
+      .select(columns)
+      .eq("label", testLabel("a certification"))
+      .single();
+
+    expectAllowed(asAnon);
+    expect(asAnon.data).toEqual({
+      kind: "certification",
+      platform: "Pearson VUE",
+      course_url: "https://anthropic-partners.skilljar.com/harness-entry",
+    });
+    /* `platform` and `course_url` disagreeing is the two axes working rather than a
+       data error: Pearson VUE delivers the exam, and the page describing it lives on
+       a partner Skilljar tenant. */
+    expectAllowed(asPractitioner);
+    expect(asPractitioner.data).toEqual(asAnon.data);
   });
 
   it("refuses `select *`, and any column outside the grant list", async () => {
@@ -121,7 +166,11 @@ describe("credential_catalogue writes", () => {
 
     const insert = await practitioner.client
       .from("credential_catalogue")
-      .insert({ source: "Anthropic Academy", label: testLabel("invented") });
+      .insert({
+        kind: "course",
+        platform: "Anthropic Academy",
+        label: testLabel("invented"),
+      });
     const update = await practitioner.client
       .from("credential_catalogue")
       .update({ label: testLabel("renamed") })
@@ -130,12 +179,25 @@ describe("credential_catalogue writes", () => {
       .from("credential_catalogue")
       .delete()
       .eq("label", testLabel("a course"));
+    /* Readable is not writable. The three columns #103 added are in the `select`
+       grant and in no other, so this is the other half of the grant assertion
+       above — a `grant update (…)` written by reflex alongside the read would let a
+       practitioner reweigh their own credential from `course` to `certification`. */
+    const reweigh = await practitioner.client
+      .from("credential_catalogue")
+      .update({
+        kind: "certification",
+        platform: "Pearson VUE",
+        course_url: "https://example.com/mine",
+      })
+      .eq("label", testLabel("a course"));
 
     /* The entire enforcement of "a practitioner cannot invent a credential":
        `catalogue_id` is a foreign key, and the table it points at is admin-only. */
     expectPermissionDenied(practitioner, insert);
     expectPermissionDenied(practitioner, update);
     expectPermissionDenied(practitioner, remove);
+    expectPermissionDenied(practitioner, reweigh);
 
     const survivors = await anon.client
       .from("credential_catalogue")
@@ -149,7 +211,11 @@ describe("credential_catalogue writes", () => {
 
     const insert = await anon.client
       .from("credential_catalogue")
-      .insert({ source: "Claude Certification", label: testLabel("invented") });
+      .insert({
+        kind: "certification",
+        platform: "Pearson VUE",
+        label: testLabel("invented"),
+      });
     const update = await anon.client
       .from("credential_catalogue")
       .update({ label: testLabel("renamed") })
@@ -171,11 +237,13 @@ describe("credential_catalogue writes", () => {
     const added = await admin.client
       .from("credential_catalogue")
       .insert({
-        source: "Claude Certification",
+        kind: "certification",
+        platform: "Pearson VUE",
         label: testLabel("builder"),
+        course_url: "https://anthropic-partners.skilljar.com/harness-builder",
         sort_order: 3,
       })
-      .select("id, label, active, sort_order")
+      .select("id, kind, platform, label, course_url, active, sort_order")
       .single();
     expectAllowed(added);
     expect(added.data?.active).toBe(true);
@@ -213,28 +281,84 @@ describe("credential_catalogue writes", () => {
     expectAllowed(removed);
   });
 
-  it("refuses the same entry twice, and a source outside the two-value axis", async () => {
-    await seedCredentialEntry("a course", { source: "Anthropic Academy" });
+  it("refuses a true duplicate, and allows a label that differs on either axis", async () => {
+    await seedCredentialEntry("a course", { platform: "Anthropic Academy" });
 
     const duplicate = await admin.client
       .from("credential_catalogue")
-      .insert({ source: "Anthropic Academy", label: testLabel("a course") });
-    /* `unique (source, label)` rather than a slug: the id is the reference, and
-       this is what stops two admins adding the same course twice. */
+      .insert({
+        kind: "course",
+        platform: "Anthropic Academy",
+        label: testLabel("a course"),
+      });
+    /* `unique (kind, platform, label)` rather than a slug: the id is the reference,
+       and matching on all three is what stops two admins adding the same entry
+       twice. */
     expectSqlstate(duplicate, sqlstate.uniqueViolation);
 
-    /* The same label under the other source is a different credential. */
-    const otherSource = await admin.client
+    /* The same label on the other platform is a different credential. */
+    const otherPlatform = await admin.client
       .from("credential_catalogue")
-      .insert({ source: "Claude Certification", label: testLabel("a course") });
-    expectAllowed(otherSource);
+      .insert({
+        kind: "certification",
+        platform: "Pearson VUE",
+        label: testLabel("a course"),
+      });
+    expectAllowed(otherPlatform);
 
-    const nonsense = await admin.client
+    /* And the same label on the *same* platform under the other `kind` — a course
+       and the exam that certifies it, both on the Academy. This is the pair that
+       `unique (platform, label)` refused, and the reason the constraint names all
+       three: the axes are split precisely so they can vary independently, and
+       today's course/Academy and certification/Pearson alignment is a fact about
+       the current catalogue rather than a rule to encode. */
+    const otherKind = await admin.client
       .from("credential_catalogue")
-      .insert({ source: "AWS", label: testLabel("solutions architect") });
-    /* `source` is a genuine two-value axis about weight and stays a check
-       constraint; it is the labels that outgrew one and became rows. */
-    expectSqlstate(nonsense, sqlstate.checkViolation);
+      .insert({
+        kind: "certification",
+        platform: "Anthropic Academy",
+        label: testLabel("a course"),
+      });
+    expectAllowed(otherKind);
+  });
+
+  it("refuses a `kind` or a `platform` outside its two-value axis", async () => {
+    const badKind = await admin.client
+      .from("credential_catalogue")
+      .insert({
+        kind: "workshop",
+        platform: "Anthropic Academy",
+        label: testLabel("a workshop"),
+      });
+    const badPlatform = await admin.client
+      .from("credential_catalogue")
+      .insert({
+        kind: "certification",
+        platform: "AWS",
+        label: testLabel("solutions architect"),
+      });
+
+    /* Two genuine two-value axes, each still a check constraint; it is the labels
+       that outgrew one and became rows. Asserted separately because one list
+       widened by accident would otherwise be invisible. */
+    expectSqlstate(badKind, sqlstate.checkViolation);
+    expectSqlstate(badPlatform, sqlstate.checkViolation);
+  });
+
+  it("refuses a `course_url` the `https_url` domain rejects", async () => {
+    const refused = await admin.client
+      .from("credential_catalogue")
+      .insert({
+        kind: "course",
+        platform: "Anthropic Academy",
+        label: testLabel("hostile link"),
+        course_url: "javascript:alert(1)",
+      });
+
+    /* `course_url` is granted to `anon` and rendered as an `href`, so it carries the
+       same exposure as the published profile links and reuses their domain rather
+       than being plain `text`. */
+    expectSqlstate(refused, sqlstate.checkViolation);
   });
 });
 
@@ -382,7 +506,7 @@ describe("service_catalogue writes", () => {
       .from("service_catalogue")
       .insert({ label: testLabel("a service") });
 
-    /* `label` is unique on its own here — there is no `source` axis, and two rows
+    /* `label` is unique on its own here — there is no `platform` axis, and two rows
        spelling the same service would be two chips filtering the same thing. */
     expectSqlstate(duplicate, sqlstate.uniqueViolation);
   });

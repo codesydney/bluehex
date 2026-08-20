@@ -38,30 +38,34 @@ describe("credential_catalogue seed", () => {
        left out: two are ungranted and the third is a uuid the JSON cannot know. */
     const loaded = await anon.client
       .from("credential_catalogue")
-      .select("source, label, active, sort_order")
+      .select("kind, platform, label, course_url, active, sort_order")
       .not("label", "like", "harness %")
-      .order("source")
+      .order("platform")
       .order("sort_order");
 
     expectAllowed(loaded);
-    /* "Anthropic Academy" sorts before "Claude Certification", so ordering by
-       source and then `sort_order` is the JSON's own order. Deep-equal rather than
-       a set comparison: `sort_order` is what a grouped picker renders by, so a row
-       in the wrong position is a real defect. */
+    /* "Anthropic Academy" sorts before "Pearson VUE", so ordering by platform and
+       then `sort_order` is the JSON's own order. Deep-equal rather than a set
+       comparison: `sort_order` is what a grouped picker renders by, so a row in the
+       wrong position is a real defect. Naming `kind`, `platform` and `course_url`
+       here is also what makes this file fail if their `grant select` is ever
+       dropped — the whole read is refused `42501`, not just the column. */
     expect(loaded.data).toEqual(
-      catalogue.map(({ source, label, sortOrder }) => ({
-        source,
+      catalogue.map(({ kind, platform, label, courseUrl, sortOrder }) => ({
+        kind,
+        platform,
         label,
+        course_url: courseUrl,
         active: true,
         sort_order: sortOrder,
       })),
     );
   });
 
-  it("carries 24 rows split 20 Academy to 4 Certification", async () => {
+  it("carries 24 rows split 20 Academy courses to 4 Pearson VUE certifications", async () => {
     const loaded = await anon.client
       .from("credential_catalogue")
-      .select("source, label, sort_order")
+      .select("kind, platform, label, course_url, sort_order")
       .not("label", "like", "harness %");
 
     expectAllowed(loaded);
@@ -70,14 +74,37 @@ describe("credential_catalogue seed", () => {
        the two published pages, so they change only when Anthropic's do. */
     expect(loaded.data).toHaveLength(24);
     expect(
-      loaded.data?.filter((row) => row.source === "Anthropic Academy"),
+      loaded.data?.filter(
+        (row) => row.kind === "course" && row.platform === "Anthropic Academy",
+      ),
     ).toHaveLength(20);
     expect(
-      loaded.data?.filter((row) => row.source === "Claude Certification"),
+      loaded.data?.filter(
+        (row) => row.kind === "certification" && row.platform === "Pearson VUE",
+      ),
     ).toHaveLength(4);
 
-    /* `sort_order` restarts at 0 per source, so exactly two rows hold each value
-       the shorter list reaches. `unique (source, label)` does not constrain
+    /* Every row carries a link, though the column is nullable — an entry whose page
+       does not exist yet is still a real entry, so this is a fact about these 24
+       rows rather than about the schema. */
+    expect(
+      loaded.data?.filter((row) => row.course_url?.startsWith("https://")),
+    ).toHaveLength(24);
+
+    /* The four certifications are the case where `platform` and `course_url`
+       legitimately disagree: Pearson VUE delivers the exam, and the page describing
+       it lives on a partner Skilljar tenant rather than the Academy's. Asserted so
+       that a later "tidy-up" repointing them at `anthropic.skilljar.com` fails. */
+    expect(
+      loaded.data?.filter(
+        (row) =>
+          row.kind === "certification" &&
+          row.course_url?.startsWith("https://anthropic-partners.skilljar.com/"),
+      ),
+    ).toHaveLength(4);
+
+    /* `sort_order` restarts at 0 per platform, so exactly two rows hold each value
+       the shorter list reaches. `unique (kind, platform, label)` does not constrain
        `sort_order` at all, which is what makes this worth asserting rather than
        assuming. */
     expect(loaded.data?.filter((row) => row.sort_order === 0)).toHaveLength(2);

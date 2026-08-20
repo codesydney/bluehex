@@ -56,7 +56,7 @@ alone marks Verified.
 
 ## Credentials
 
-**Catalogue entry** — one credential that *exists in the world*, listed by Bluehex: a named Anthropic Academy course or a named Claude Certification. The catalogue is the closed set of things a practitioner may claim, and only Bluehex writes it. It carries the `source`, so weight is a property of the credential rather than of anyone's claim to it.
+**Catalogue entry** — one credential that *exists in the world*, listed by Bluehex: a named Anthropic Academy course or a named Claude Certification. The catalogue is the closed set of things a practitioner may claim, and only Bluehex writes it. It carries the `kind` — `course` or `certification` — so weight is a property of the credential rather than of anyone's claim to it. Alongside it the entry carries the `platform` that awards it (`Anthropic Academy` or `Pearson VUE`) and the `course_url` its page is published at. Those are three facts about the credential, not one: a certification is awarded by Pearson VUE and described on a partner Skilljar tenant, and #103 split them apart because a single `source` column held the weight and the awarding body in the same string, free to disagree the moment either moved.
 
 **Credential** — a practitioner's claim to hold a catalogue entry, evidenced and checked. It names an entry rather than describing one: there is no free text, so the word cannot be widened by anybody but Bluehex. A university degree or a non-Anthropic certification is **not** a credential here and cannot be entered as one; it belongs to a sister concept if it is ever wanted.
 

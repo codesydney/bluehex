@@ -52,29 +52,35 @@ export type Database = {
       credential_catalogue: {
         Row: {
           active: boolean
+          course_url: string | null
           created_at: string
           id: string
+          kind: string
           label: string
+          platform: string
           sort_order: number
-          source: string
           updated_at: string
         }
         Insert: {
           active?: boolean
+          course_url?: string | null
           created_at?: string
           id?: string
+          kind: string
           label: string
+          platform: string
           sort_order?: number
-          source: string
           updated_at?: string
         }
         Update: {
           active?: boolean
+          course_url?: string | null
           created_at?: string
           id?: string
+          kind?: string
           label?: string
+          platform?: string
           sort_order?: number
-          source?: string
           updated_at?: string
         }
         Relationships: []

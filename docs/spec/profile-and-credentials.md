@@ -84,9 +84,11 @@ The reason it works as a lock is that it is not editable by the person who wants
 
 **Decided.** A credential is a row in `practitioner_credentials`, a child of the
 profile. Claude Certifications and Anthropic Academy certificates are the *same*
-entity distinguished by `source` — both come from Anthropic and both are checked by the
+entity distinguished by `kind` — both come from Anthropic and both are checked by the
 same human doing the same thing. They differ in weight, and weight is a property rather
-than a type.
+than a type. (`kind` was called `source` until #103, which split
+the weight axis from the `platform` that was sharing the column with it — see the
+`credential_catalogue` DDL.)
 
 **A child table rather than `jsonb`,** because credentials are what the badge attests
 to. They need their own grants and their own trigger, and a `jsonb` column would make
@@ -105,30 +107,30 @@ a fact that has since moved.
 
 **Decided.** `credential_catalogue` is a Bluehex-owned table listing every Claude
 credential that exists — each Anthropic Academy course and each Claude Certification, one
-row apiece. `practitioner_credentials.catalogue_id` references it, and **`source` and
+row apiece. `practitioner_credentials.catalogue_id` references it, and **`kind` and
 `label` leave the practitioner's row entirely.** A practitioner picks from a list; there
 is no free text anywhere in a credential.
 
 **This closes a gap rather than adding a feature.** `CONTEXT.md` has always said the word
 is deliberately narrow, and that "widening this term silently widens what the Verified
-badge asserts". Nothing enforced it. `label` was free text against a two-value `source`,
+badge asserts". Nothing enforced it. `label` was free text against a two-value axis,
 so `AWS Solutions Architect` filed under `Anthropic Academy` was a legal row that rendered
 in the credentials block on the page whose entire job is credibility. The narrowness was
 prose with no mechanism — the same failure `AGENTS.md` names on `verified`, where the
 policy that reads correctly and enforces nothing is the one that passes review.
 
 **A table, not a widened check constraint**, and this supersedes the reasoning that put
-`source` in a check constraint in the first place. That argument was right about which
+the axis in a check constraint in the first place. That argument was right about which
 axis moves — Anthropic ships new credentials — and drew the wrong conclusion from it at
-this cardinality. Two source values are a constraint; roughly two dozen named courses
+this cardinality. Two values are a constraint; roughly two dozen named courses
 growing on somebody else's release schedule are data, and holding them in DDL means a
 migration every time Anthropic publishes a course. `status` stays an enum for the reason
 it always did: it grew once, and that is growth a deliberate migration should announce.
 
 Three things fall out, and they are why this is worth more than the validation:
 
-- **`source` becomes a property of the entry**, so a row claiming
-  `source = 'Anthropic Academy'` with `label = 'Claude Certification'` stops being
+- **Weight becomes a property of the entry**, so a row claiming
+  `platform = 'Anthropic Academy'` with `label = 'Claude Certification'` stops being
   representable. Two representations of one fact that can disagree — the objection that
   removed `certified` — applied here too and was not noticed.
 - **`unique (practitioner_id, catalogue_id)`** becomes expressible: you cannot claim the
@@ -315,7 +317,7 @@ depends on the answer, since nobody in the community holds one yet.
 ### `certified` is derived, not stored
 
 **Decided.** The profile has no `certified` column. It is "has a credential whose
-catalogue entry carries `source = 'Claude Certification'`", derived from rows the
+catalogue entry carries `kind = 'certification'`", derived from rows the
 directory card is already embedding in order to list them. Every credential row is earned
 now, so there is no second condition to test.
 
@@ -325,7 +327,7 @@ own credentials. Storing it as well means two representations of one fact that c
 disagree, and the disagreement surfaces as a card claiming certification while listing
 none, on the page whose entire job is credibility.
 
-The derivation now reads `source` off the catalogue rather than off the credential, which
+The derivation now reads `kind` off the catalogue rather than off the credential, which
 is a second place the same duplicated-fact objection was quietly applying and is now
 closed — see the catalogue decision above.
 
@@ -741,9 +743,9 @@ DDL has moved.
 
 **Every foreign key to `auth.users` names an `on delete` action**, and every one in the product schema is `set null`. `public.admins.user_id` is the exception at `cascade`, correctly — an admin list entry is *about* the account and has nothing left to say once it is gone. Everywhere else the default would apply, and the default is `NO ACTION`, which refuses the delete rather than doing anything to the child row: a single provenance reference anywhere in the schema turns "delete my account" into `23503 update or delete on table "users" violates foreign key constraint`, and the Deletion section's whole design never runs. The attribution is what is expendable here — that a profile was approved, or a credential checked, is a record worth keeping after the account that did it is gone.
 
-**~~The catalogue ships with its rows, and that is a judgement call worth flagging.~~ Superseded by #89 for `credential_catalogue`, and the reasoning is recorded here rather than deleted so that the next reader does not "restore" the seed.** The argument below is that an empty catalogue means nobody can enter a credential at all — which is true and, when the migration landed, cost nothing: `practitioner_credentials` does not exist until #50 and the directory ships no profiles, so nobody could enter one regardless. What decides it is the asymmetry between the two failures. An empty catalogue is fixed by an `insert` whenever the real list appears, and an `insert` is this table's sanctioned correction path anyway — the paragraph below says so itself. A **wrong** label is permanent, sits in migration history, and is a wrong credential name displayed behind the Verified badge, which is the one thing this directory sells. No list of Claude credentials existed in this repository at the time — `src/app/prototype/catalogue.ts` holds 24 invented entries and its own header forbids copying them into a migration — so seeding it would have meant compiling one, which is Bluehex's and Anthropic's to state rather than an implementer's to invent. **The list has since arrived, and the amendment stands rather than being undone by it.** Bluehex compiled and confirmed the 24 real entries from <https://anthropic.skilljar.com/> and <https://www.pearsonvue.com/us/en/anthropic.html>; they live in `supabase/seed/credential-catalogue.json` as the canonical record and load locally through `supabase/seed.sql`, which runs at the end of `pnpm db:reset` and never against the hosted project. The migration still creates the table empty. That is deliberate and not a step left unfinished: where the catalogue is permanently housed — an admin surface, an API call, eventually a migration — is still open, and a migration is the one place a wrong row cannot be taken back, so the rows sit somewhere reversible until the question is answered. `tests/db/credential-catalogue-seed.test.ts` is what keeps the JSON and the loader from drifting apart. What an eventual migration inherits is the argument this paragraph records: an initial seed establishes the vocabulary once, and every change after it is an admin `UPDATE` or `active = false` rather than a second migration. The paragraph below stands as written for `credential_catalogue`. What carries over to `service_catalogue` is the narrow claim in it: seeded reference data is not a throwaway row, and a correction to it afterwards is an admin `UPDATE` rather than a second migration. The rest is credential-specific — `service_catalogue` has neither `catalogue_guard` nor `correct_catalogue_entry()`, which is exactly why it is one of the four tables that take `set_updated_at` instead (see Triggers).
+**~~The catalogue ships with its rows, and that is a judgement call worth flagging.~~ Superseded by #89 for `credential_catalogue`, and the reasoning is recorded here rather than deleted so that the next reader does not "restore" the seed.** The argument below is that an empty catalogue means nobody can enter a credential at all — which is true and, when the migration landed, cost nothing: `practitioner_credentials` does not exist until #50 and the directory ships no profiles, so nobody could enter one regardless. What decides it is the asymmetry between the two failures. An empty catalogue is fixed by an `insert` whenever the real list appears, and an `insert` is this table's sanctioned correction path anyway — the paragraph below says so itself. A **wrong** label is permanent, sits in migration history, and is a wrong credential name displayed behind the Verified badge, which is the one thing this directory sells. No list of Claude credentials existed in this repository at the time — `src/app/prototype/catalogue.ts` holds 24 invented entries and its own header forbids copying them into a migration — so seeding it would have meant compiling one, which is Bluehex's and Anthropic's to state rather than an implementer's to invent. **The list has since arrived, and the amendment stands rather than being undone by it.** Bluehex compiled and confirmed the 24 real entries from <https://anthropic.skilljar.com/> and <https://www.pearsonvue.com/us/en/anthropic.html>; they live in `supabase/seed/credential-catalogue.json` as the canonical record and load locally through `supabase/seed.sql`, which runs at the end of `pnpm db:reset` and never against the hosted project. The migration still creates the table empty. That is deliberate and not a step left unfinished: where the catalogue is permanently housed — an admin surface, an API call, eventually a migration — is still open, and a migration is the one place a wrong row cannot be taken back, so the rows sit somewhere reversible until the question is answered. `tests/db/credential-catalogue-seed.test.ts` is what keeps the JSON and the loader from drifting apart. What an eventual migration inherits is the argument this paragraph records: an initial seed establishes the vocabulary once, and every change after it is an admin `UPDATE` or `active = false` rather than a second migration. The paragraph below is the original argument, retained for its reasoning rather than because it still instructs: its "Seed them in the migration" no longer holds for `credential_catalogue`, which is exactly what this amendment supersedes. What carries over to `service_catalogue` is the narrow claim in it: seeded reference data is not a throwaway row, and a correction to it afterwards is an admin `UPDATE` rather than a second migration. The rest is credential-specific — `service_catalogue` has neither `catalogue_guard` nor `correct_catalogue_entry()`, which is exactly why it is one of the four tables that take `set_updated_at` instead (see Triggers).
 
-`AGENTS.md` forbids anything throwaway in migration history, and seeding reference data is the edge of that rule: these rows are not test fixtures, they are the closed vocabulary the model is built on, and an empty catalogue means nobody can enter a credential at all. Seed them in the migration. What must **not** go in migration history is any correction to them afterwards — a course Anthropic renames is an admin operation, not a second migration, or the history fills with Anthropic's release notes. On an entry nobody has claimed yet that is a plain `UPDATE`; on one with claims against it, `catalogue_guard` requires `correct_catalogue_entry()`, because at that point the same statement could also be a repoint.
+`AGENTS.md` forbids anything throwaway in migration history, and seeding reference data is the edge of that rule: these rows are not test fixtures, they are the closed vocabulary the model is built on, and an empty catalogue means nobody can enter a credential at all. ~~Seed them in the migration.~~ (Superseded for `credential_catalogue` by the amendment above; still true of `service_catalogue`, which seeds its six labels in `20260820201450_catalogues.sql`.) What must **not** go in migration history is any correction to them afterwards — a course Anthropic renames is an admin operation, not a second migration, or the history fills with Anthropic's release notes. On an entry nobody has claimed yet that is a plain `UPDATE`; on one with claims against it, `catalogue_guard` requires `correct_catalogue_entry()`, because at that point the same statement could also be a repoint.
 
 ### Prerequisites: the role, the admin list, and the hook
 
@@ -879,9 +881,19 @@ the check constraint deliberately does not name a list.
 -- else can insert, and there is no free-text escape from it anywhere in the model
 create table public.credential_catalogue (
   id uuid primary key default gen_random_uuid(),
-  source text not null
-    check (source in ('Claude Certification', 'Anthropic Academy')),
+  -- the weight axis. Lowercase because it is a closed internal category, following
+  -- `status`; `platform` beside it is title case because it is a proper noun
+  kind text not null
+    check (kind in ('certification', 'course')),
+  -- who awards it, which is a different fact from what it weighs
+  platform text not null
+    check (platform in ('Anthropic Academy', 'Pearson VUE')),
   label text not null,
+  -- the page the entry is published on. Nullable: an entry Bluehex knows of before
+  -- its page exists is still a real entry, and a placeholder URL is worse than none.
+  -- `https_url` rather than `text` for the same reason as the profile links — it is
+  -- granted to `anon` and rendered as an `href`
+  course_url public.https_url,
   -- retiring an entry hides it from the picker without invalidating the claims of
   -- people who earned it. What a retired entry looks like on a profile is not
   -- decided — see the catalogue section
@@ -895,17 +907,21 @@ create table public.credential_catalogue (
   -- this column exists to record
   updated_at timestamptz not null default now(),
 
-  unique (source, label)
+  unique (kind, platform, label)
 );
 
 alter table public.credential_catalogue enable row level security;
 ```
 
-`source` keeps its check constraint here, where it is a genuine two-value axis about weight
-and stays one. The thing that outgrew a constraint was the *labels*, which is why they
+`kind` and `platform` keep their check constraints here, where each is a genuine two-value
+axis and stays one. The thing that outgrew a constraint was the *labels*, which is why they
 became rows.
 
-**No `slug` or stable external key.** The `id` is the reference and `unique (source, label)`
+**Amended by #103: the single `source` column became `kind` and `platform`, and `course_url` was added.** `source` carried two axes at once — `check (source in ('Claude Certification', 'Anthropic Academy'))`, where the first value names a weight and the second names an awarding body. Storing a `platform` beside it would have written `Anthropic Academy` twice on twenty of the twenty-four rows, free to disagree later, which is the same two-representations-of-one-fact objection that removed `certified`. The four certifications are the proof that the two are distinct: `platform = 'Pearson VUE'` while `course_url` points at `anthropic-partners.skilljar.com`, because the exam is delivered by Pearson VUE and the page describing it lives on a partner Skilljar tenant. Landed in `20260820214711_catalogue_kind_platform_course_url.sql`, before #50 rather than after it, so that the guard and the RPC below are written against the right shape once.
+
+**`unique (kind, platform, label)`, all three.** A true duplicate matches on every axis, so that is what the constraint names. The narrower `unique (platform, label)` was tried first and refused a pair the model is supposed to allow: a course and the exam that certifies it can legitimately share a name, and they collide the moment both sit on one platform. That they do not collide today — courses on `Anthropic Academy`, certifications on `Pearson VUE` — is a fact about the current catalogue rather than a rule, and encoding it in a constraint would re-couple the two axes this table just split apart.
+
+**No `slug` or stable external key.** The `id` is the reference and `unique (kind, platform, label)`
 is what stops the same course being added twice by two admins. A human-readable key would
 be a third representation of the same fact and would go stale on a rename.
 
@@ -1159,7 +1175,7 @@ grant select, insert, update, delete on public.practitioner_services to bluehex_
 -- against the whole set. No insert, update or delete to anyone but an admin, and
 -- that omission is the entire enforcement of "a practitioner cannot invent a
 -- credential"
-grant select (id, source, label, active, sort_order)
+grant select (id, kind, platform, label, course_url, active, sort_order)
   on public.credential_catalogue to anon, authenticated;
 grant select, insert, update, delete on public.credential_catalogue to bluehex_admin;
 
@@ -1199,7 +1215,9 @@ grant select, insert, update, delete on public.practitioner_review_notes to blue
 
 `created_by` is **not** in the `authenticated` insert list — it defaults to `auth.uid()` and a practitioner cannot name someone else as the author of a contact row. Nor is it readable: it is plumbing for the read policy, not information.
 
-**The catalogue's grant list is where "a practitioner cannot invent a credential" is actually enforced.** The check constraint that used to hold `source` is gone and the narrowness now rests on two things: `catalogue_id` being a foreign key, and nobody but `bluehex_admin` holding `insert` on the table it points at. Both are needed — a practitioner who could insert a catalogue row would simply add "AWS Solutions Architect" and then reference it, which is the free-text hole reopened one table along. This is the same "not reachable beats not named in the grant list" reasoning as `public.admins`, and it is the line to check first if the credential model ever looks like it has stopped constraining anything.
+**The catalogue's grant list is where "a practitioner cannot invent a credential" is actually enforced.** The check constraint that used to hold the credential's name is gone and the narrowness now rests on two things: `catalogue_id` being a foreign key, and nobody but `bluehex_admin` holding `insert` on the table it points at. Both are needed — a practitioner who could insert a catalogue row would simply add "AWS Solutions Architect" and then reference it, which is the free-text hole reopened one table along. This is the same "not reachable beats not named in the grant list" reasoning as `public.admins`, and it is the line to check first if the credential model ever looks like it has stopped constraining anything.
+
+**The three columns #103 added are named in that list, and that is the whole of the change on this side.** Reads here are column-scoped, so `kind`, `platform` and `course_url` were invisible to `anon` and `authenticated` until they appeared above — a column added by `alter table` inherits no column privilege, and a query naming one is refused `42501` before any policy is consulted. It fails closed, which is right, and it is silent, which is why the read is asserted in Testing rather than left to this line. None of the three is writable by `authenticated`: nobody but `bluehex_admin` writes this table at all.
 
 `anon` reads the catalogue deliberately, and it is worth being explicit that this is not a leak: it is a list of courses Anthropic publishes, containing nothing about any practitioner.
 
@@ -1207,7 +1225,7 @@ grant select, insert, update, delete on public.practitioner_review_notes to blue
 
 Note what `anon` never gets: `user_id`, `contact_id`, `status`, any provenance column, `evidence_url`, `evidence_public`, and every column of `practitioner_contacts` and `practitioner_review_notes`. `verified_by` is admin-only on credentials too — who performed a check is not public.
 
-`source` and `label` are no longer on `practitioner_credentials` at all, so they are absent from these lists rather than withheld. A reader diffing against the previous version should confirm that: a column that quietly reappeared on the credential row would be free text back in the model.
+`kind` and `label` are no longer on `practitioner_credentials` at all, so they are absent from these lists rather than withheld. A reader diffing against the previous version should confirm that: a column that quietly reappeared on the credential row would be free text back in the model.
 
 **`user_id` and `contact_id` are not readable by `authenticated` either**, which closes the gap review found on this grant. Column privileges are per *role* and RLS is per *row*, so a column readable "by the owner" is really readable by every signed-in caller on every row they can see — and both of these are handles to somebody else's account or PII. Nothing needs them: a practitioner knows their own `auth.uid()` without reading it back, `practitioners_read_own` filters on `user_id` without granting it, and the contact row is reached through its own table rather than through the pointer.
 
@@ -1439,7 +1457,7 @@ Written out rather than described, because the three mistakes these are here to 
 
      -- an edit to the claim invalidates the check of it; `evidence_public` is
      -- deliberately absent — it changes the claim's visibility, not the claim.
-     -- `catalogue_id` replaces the old `source` and `label` pair: changing which
+     -- `catalogue_id` replaces the old `kind` and `label` pair: changing which
      -- credential you claim is the largest edit there is, and it is now one column
      if new.catalogue_id is distinct from old.catalogue_id
         or new.earned_at  is distinct from old.earned_at
@@ -1469,7 +1487,7 @@ Written out rather than described, because the three mistakes these are here to 
 
    The case that *would* justify one — repointing an entry at a different credential entirely, so everyone's claim now says something they did not claim — is not an edit anybody should make, and **saying so is not enough**. `active` and `on delete restrict` both act on *deletion*: `restrict` refuses `delete from credential_catalogue` while claims exist, and `active` offers retirement instead. Neither touches `update`, and `bluehex_admin` holds unrestricted `update` on the table — so the equally destructive repoint would be one statement, refused by a paragraph. That is the pattern `AGENTS.md` names on `verified`. It is `catalogue_guard` that refuses it.
 
-3. **`catalogue_guard`** — `before update` on `credential_catalogue`. Bumps `updated_at`, which is otherwise never written after insert on a table whose stated correction path is an admin `UPDATE`. And it refuses a change to `source` or `label` on an entry that has claims against it, unless the caller has declared the change a correction:
+3. **`catalogue_guard`** — `before update` on `credential_catalogue`. Bumps `updated_at`, which is otherwise never written after insert on a table whose stated correction path is an admin `UPDATE`. And it refuses a change to `kind`, `platform` or `label` on an entry that has claims against it, unless the caller has declared the change a correction:
 
    ```sql
    create function public.catalogue_guard()
@@ -1479,7 +1497,8 @@ Written out rather than described, because the three mistakes these are here to 
    begin
      new.updated_at := now();
 
-     if (new.source is distinct from old.source
+     if (new.kind is distinct from old.kind
+         or new.platform is distinct from old.platform
          or new.label is distinct from old.label)
         and current_setting('bluehex.catalogue_correction', true) is distinct from 'on'
         and exists (select 1 from public.practitioner_credentials c
@@ -1499,6 +1518,8 @@ Written out rather than described, because the three mistakes these are here to 
      before update on public.credential_catalogue
      for each row execute function public.catalogue_guard();
    ```
+
+   **The three watched columns are the ones that say which credential the entry *is*, and `course_url` is deliberately not among them.** `kind`, `platform` and `label` are what a claim renders and what the badge therefore asserts, so changing any of them on a claimed entry makes somebody's claim say something they did not claim. A page moving is a link correction: the credential is the same credential, nobody's claim changes meaning, and requiring the escape hatch for it would train admins to reach for the escape hatch.
 
    **The rename path this appears to block is the reason the escape hatch exists.** The seeding rule above says a course Anthropic renames is an admin `UPDATE` rather than a second migration, and that is still true — but Postgres cannot tell a wording fix from a repoint, because the two are the same statement and differ only in intent. So intent is declared: `correct_catalogue_entry()` sets a transaction-local setting the trigger reads, and is the only sanctioned way to change either column on a claimed entry. Everything else raises.
 
@@ -1646,22 +1667,24 @@ Written out rather than described, because the three mistakes these are here to 
 
 - `approve_practitioner(profile_id)` / `reject_practitioner(profile_id, note)` — as #35, except that both now touch `practitioner_review_notes` rather than a column: `reject` upserts the note, `approve` deletes it.
 - `set_credential_verified(credential_id, value)` — replaces `set_practitioner_verified`. Verification is per credential now.
-- `correct_catalogue_entry(entry_id, new_source, new_label)` — the sanctioned way to fix the wording of a catalogue entry that already has claims against it. It declares intent and nothing else:
+- `correct_catalogue_entry(entry_id, new_kind, new_platform, new_label)` — the sanctioned way to fix the wording of a catalogue entry that already has claims against it. It declares intent and nothing else:
 
   ```sql
   create function public.correct_catalogue_entry(
-    entry_id uuid, new_source text, new_label text)
+    entry_id uuid, new_kind text, new_platform text, new_label text)
   returns void language plpgsql
   set search_path = ''
   as $$
   begin
     perform set_config('bluehex.catalogue_correction', 'on', true);
     update public.credential_catalogue
-       set source = new_source, label = new_label
+       set kind = new_kind, platform = new_platform, label = new_label
      where id = entry_id;
   end;
   $$;
   ```
+
+  It takes all three watched columns rather than only the one being corrected, and every caller passes the current value for the two it is not changing. The alternative — nullable parameters meaning "leave this alone" — makes an omitted argument and an intended `null` the same call, on the columns where getting it wrong rewrites what somebody's badge asserts. `course_url` is absent for the reason the guard does not watch it: a link correction is a plain `UPDATE` and needs no declared intent.
 
   `security invoker`, like the rest — an admin already holds `update` on the table, so this borrows no privilege and adds no reach. `set_config(..., true)` is transaction-local, so the setting does not survive the statement into another caller's session. What it buys is that the destructive version of the same statement now requires a different call, which is the whole of `catalogue_guard`'s value: `active` and `on delete restrict` already make the destructive *delete* the harder path, and this makes the destructive *update* match.
 
@@ -1714,8 +1737,8 @@ the most valuable one in the suite and it transfers directly.
   removing a `practitioner_services` row of either kind clears nothing either — it is a
   child table now, so this is an assertion about a different table rather than a column.
 - **`https_url` refuses what it is there to refuse.** `javascript:alert(1)`, `data:…`,
-  `http://example.com` and `https:///foo` are all rejected on `practitioners.website_url`
-  *and* on `practitioner_credentials.evidence_url`; `HTTPS://Example.com` is accepted, so
+  `http://example.com` and `https:///foo` are all rejected on `practitioners.website_url`,
+  on `practitioner_credentials.evidence_url` *and* on `credential_catalogue.course_url`; `HTTPS://Example.com` is accepted, so
   the check is case-insensitive as intended. This is the backstop for the only mechanism
   standing between a practitioner-written string and an `href` on a public page.
 - `anon` can read `website_url`, `github_url`, `linkedin_url` and `booking_url`, and a
@@ -1758,6 +1781,14 @@ the most valuable one in the suite and it transfers directly.
 - A retired (`active = false`) entry is still readable by `anon`, so a profile holding it
   still renders. The picker's filtering of `active` is a query concern and is not asserted
   here.
+- **`anon` and `authenticated` can read `kind`, `platform` and `course_url`**, and neither
+  can write any of them. This is the assertion that catches a forgotten `grant select (…)`
+  after a column is added: reads here are column-scoped, a new column inherits no privilege,
+  and the refusal is `42501` before any policy runs — so it fails closed and silently, and
+  every other test in this file goes on passing while the picker cannot see the column.
+- **`kind` and `platform` each refuse a third value**, `23514` from their own check
+  constraints. Two genuine two-value axes, asserted separately: one list widened by accident
+  would otherwise be invisible.
 - **Repointing a claimed entry is refused with an exception**, and the same statement through `correct_catalogue_entry()` succeeds and leaves every claim verified. Assert on the error rather than on the row being unchanged, as with `A → B` below. The pair with the `on delete restrict` assertion above is the point: the destructive `update` and the destructive `delete` are now equally hard, where before only one of them was.
 - **An unclaimed entry is renamable by a plain `UPDATE`**, which is the case the guard must not catch — it fires on claims, not on the columns.
 - **`updated_at` moves when a catalogue row is corrected.** Trivial to assert and easy to ship broken, because a column with a default reads plausibly forever — and this is the table whose corrections are `UPDATE`s by design, so it is the one where a frozen timestamp misleads most.
