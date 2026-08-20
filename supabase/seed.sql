@@ -17,12 +17,19 @@
 --
 -- Two things to hold to, as this file grows:
 --
---   * Make it re-runnable. `db:reset` is the only path here, so a plain `insert` is
---     fine, but anything hand-run wants `on conflict do nothing`.
---   * Seed data is fake data, and this is the one place that is fine — it never leaves
---     a developer's machine. The "real people only" rule in AGENTS.md is about the
---     directory the public sees, not about local fixtures. Do not confuse the two by
---     seeding the hosted project.
+--   * Make it re-runnable, and know what that buys. Both paths above hand this file a
+--     database the migrations have just created, so `on conflict do nothing` is not
+--     what makes `db:reset` or `supabase start` work — it is what makes a hand-run
+--     harmless. And harmless is all it is: the loader is additive, never convergent.
+--     A re-run inserts what is missing and skips what conflicts, so it cannot carry an
+--     *edit* across. An edited row reaches an already-seeded stack through
+--     `pnpm db:reset` and by no other route; a correction to a live catalogue is an
+--     admin `UPDATE`, per `docs/spec/profile-and-credentials.md`.
+--   * Seed data is fake data, and this is the one place that is fine. It runs on a
+--     developer's machine and on a CI runner, and never against the hosted project —
+--     that last clause is the line, not the machine. The "real people only" rule in
+--     AGENTS.md is about the directory the public sees, not about local fixtures. Do
+--     not confuse the two by seeding the hosted project.
 --
 -- The credentials below are the exception that proves the second rule rather than a
 -- breach of it: they are real reference data, not a fixture, and they are here
@@ -51,6 +58,12 @@
 --     it contains are not published on the page.
 --
 -- `active` takes its default for all 24: retirement is a flag flip, never a delete.
+--
+-- The `on conflict (source, label) do nothing` below is additive, per the header: it
+-- makes a hand re-run exit clean, not converge. Edit any of these rows and pick the
+-- change up with `pnpm db:reset` — a re-run skips the conflicting row and keeps the old
+-- value, and an edited *label* no longer matches the conflict target at all, so it
+-- inserts beside the stale one. `do update` would not close that second hole either.
 insert into public.credential_catalogue (source, label, sort_order) values
   ('Anthropic Academy', 'Claude 101', 0),
   ('Anthropic Academy', 'Claude Code 101', 1),
