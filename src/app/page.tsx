@@ -40,7 +40,7 @@ export default function HomePage() {
       <section className="container-x pt-36 pb-20 md:pt-48 md:pb-28">
         <SectionLabel>Claude and Anthropic specialists</SectionLabel>
 
-        <h1 className="display-1 mt-8 max-w-6xl">We only do Claude.</h1>
+        <h1 className="display-1 mt-8 max-w-6xl">Claude Specialists.</h1>
 
         <p className="mt-10 max-w-2xl text-lg text-t-muted md:text-xl">{site.tagline}</p>
 
