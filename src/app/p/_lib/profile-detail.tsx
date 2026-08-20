@@ -287,15 +287,24 @@ export function ProfileDetail({
         </div>
       ) : null}
 
-      {/* The id, not the name — see the comment in `contact/page.tsx`, which
-          resolves it back to a name against the same roster this page was
-          resolved from. */}
-      <a
-        href={`/contact?about=${encodeURIComponent(person.id)}`}
-        className="mt-9 inline-flex h-13 items-center justify-center rounded-full bg-ink px-7 font-medium text-t-invert transition-colors hover:bg-ink-tint"
-      >
-        Enquire about {person.name.split(" ")[0]}
-      </a>
+      <div className="mt-9 flex flex-wrap gap-4">
+        <a
+          href={`/contact?about=${encodeURIComponent(person.id)}`}
+          className="inline-flex h-13 items-center justify-center rounded-full bg-ink px-7 font-medium text-t-invert transition-colors hover:bg-ink-tint"
+        >
+          Enquire about {person.name.split(" ")[0]}
+        </a>
+        {person.bookingUrl ? (
+          <a
+            href={person.bookingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-13 items-center justify-center rounded-full border border-stroke bg-transparent px-7 font-medium text-t-muted transition-colors hover:border-stroke-strong hover:text-t-bright"
+          >
+            Book a meeting
+          </a>
+        ) : null}
+      </div>
     </article>
   );
 }

@@ -41,6 +41,9 @@ or `yarn` — they would create a competing lockfile.
 - `pnpm build` — production build (also runs the TypeScript type-check)
 - `pnpm start` — serve the production build
 - `pnpm lint` — ESLint (flat config, `eslint-config-next`)
+- `pnpm test` — Vitest, once (what CI runs)
+- `pnpm test:watch` — Vitest, watching
+- `pnpm test:db` — Vitest against the local Supabase stack (needs `pnpm db:start`); local-only, CI never runs it
 - `pnpm test:e2e` — build, serve and test the production app on port 3100 in desktop and mobile Chromium
 - `pnpm db:start` / `pnpm db:stop` — the local Supabase stack (needs Docker running)
 - `pnpm db:reset` — drop the local database and re-apply every migration from scratch
@@ -49,9 +52,21 @@ or `yarn` — they would create a competing lockfile.
 `pnpm dev` does not start the database — run `pnpm db:start` alongside it. `db:reset`
 and `db:types` both need it running too.
 
-Playwright is the end-to-end test runner; there is no unit test runner. Note that
-`next build` no longer runs ESLint, so `pnpm lint` is the only thing enforcing the lint
-rules — run it explicitly alongside `pnpm test:e2e`.
+Two runners and three places a test can live. **Vitest** owns two of them, as two projects in `vitest.config.mts` run by different commands, because scanning the whole repository picks up Playwright's `e2e/*.spec.ts` — the two runners share a file extension and nothing else — along with whatever a `.spec.ts` in a git-ignored working directory happens to be.
+
+- **`src/`** — unit tests over application code. `pnpm test` runs this project alone, and it is what CI runs.
+- **`tests/db/`** — the schema's invariants, asserted against the local Supabase stack through PostgREST and through Postgres directly. `pnpm test:db` runs this project alone, and **CI never runs it**: there is no Docker on the runner. `pnpm db:start` first, or the fixtures cannot be built and the run fails — though note the shape of it: the file that needs no stack still passes and the rest are reported *skipped* rather than failed, so read the exit code rather than the summary line.
+- **`e2e/`** — **Playwright**, which is not a Vitest project at all.
+
+Putting a Vitest file anywhere else means it is silently never run.
+
+**Database tests are not application code**, which is why `tests/db` is a project of its own rather than a directory under `src/`: they need a running stack, longer timeouts than a unit test has any use for, and serial execution, because they mutate global state — grants, roles, rows in `auth.users` — that no two files may hold at once. Keeping them out of `pnpm test` is also what stops a stopped Docker daemon from failing the suite CI gates on.
+
+Vitest resolves the `@/*` alias through `resolve.alias`, restated by hand — Vite does not read `paths` out of `tsconfig.json`, and a `projects` array does not inherit the root `resolve` block either, so it is restated in **both** projects. Nothing but the tests themselves checks that the three still agree.
+
+The `tests/db` harness is `tests/db/harness/`: the four callers (`anon`, two practitioners, an admin), a `sql()` seam that runs as `postgres`, and the helpers for reading a refusal. Use `expectPermissionDenied(caller, result)` rather than asserting a status code by hand — PostgREST answers **401 for `anon` and 403 for a signed-in caller on the same `permission denied`**, so the status reports who asked rather than what was decided, and a hand-written `expect(status).toBe(403)` is really an assertion that the caller held a token. Rules a status code cannot express — the ownership state machine raising `23514`, a foreign key, a unique constraint — are asserted with `expectSqlstate`. And set up through `sql()`, assert through a caller: re-reading a row as `postgres` proves nothing about a policy, because `postgres` bypasses every one of them.
+
+Note that `next build` no longer runs ESLint, so `pnpm lint` is the only thing enforcing the lint rules — run it explicitly alongside `pnpm test`, `pnpm test:db` and `pnpm test:e2e`.
 
 ## Skills
 
@@ -273,7 +288,7 @@ Files written before this rule are still hard-wrapped. Reflow a paragraph when y
 - Tailwind CSS v4 (via `@tailwindcss/postcss`; no `tailwind.config` file — configured in CSS)
 - TypeScript 6, path alias `@/*` → `src/*`
 - Supabase (Postgres) through `@supabase/supabase-js`, local stack via the Supabase CLI
-- Playwright end-to-end tests; no unit test runner
+- Vitest for unit tests (`src/`), Playwright for end-to-end (`e2e/`)
 
 ## Architecture
 
@@ -320,22 +335,11 @@ What exists: the local Supabase stack, a lazy client in `src/lib/supabase.ts`, g
 types, and the environment wiring. An earlier SQLite (`better-sqlite3`) setup was
 removed, and a Drizzle/Postgres one was scaffolded and stripped back out, before this.
 
-**There is exactly one migration, and it holds no product data.** It creates the
-`bluehex_admin` role, the `public.admins` list and the `custom_access_token_hook` that
-stamps the role onto an access token — the thing every later policy and grant refers to.
-The product schema starts with `practitioners`.
+**There are two migrations.** The first creates the `bluehex_admin` role, the `public.admins` list and the `custom_access_token_hook` that stamps the role onto an access token — the thing every later policy and grant refers to, and it holds no product data. The second is the profile core: `practitioner_contacts`, `practitioners` and `practitioner_review_notes`, their column-scoped grants, their policies, `practitioners_guard`, and the `approve_practitioner()` / `reject_practitioner()` RPCs.
 
-Nothing queried the database before that, and nothing queries it now: a health-check
-table existed briefly to prove the connection and was taken back out before it was ever
-committed, because it would have sat in the migration history permanently, describing a
-table dropped a fortnight later, to prove something the first real query proves for free.
+Nothing queried the database before that, and nothing queries it now: a health-check table existed briefly to prove the connection and was taken back out before it was ever committed, because it would have sat in the migration history permanently, describing a table dropped a fortnight later, to prove something the first real query proves for free.
 
-What does not exist yet: the `practitioners` table, any *product* RLS policy, auth in the
-application, and the hosted project's copy of the hook setting. The token-side machinery
-landing is not the app having auth — there is no `@supabase/ssr` client and no sign-in
-flow, and every policy in the spec is written against `auth.uid()`, so none of them is
-reachable from the app until #14. The rest of this section is the contract for building
-those — treat it as binding, not as a description of current state.
+What does not exist yet: anything credential-shaped (`credential_catalogue`, `practitioner_credentials` and the three `clear_profile_verification()` triggers, all #50), the services tables (#89, #90), auth in the application, and the hosted project's copy of the hook setting. The token-side machinery landing is not the app having auth — there is no `@supabase/ssr` client and no sign-in flow, and every policy in the spec is written against `auth.uid()`, so none of them is reachable from the app until #14. The rest of this section is the contract for building those — treat it as binding, not as a description of current state.
 
 - **Target is [Supabase](https://supabase.com)** — Postgres, plus the auth that comes
   with it. Local development runs the Supabase CLI stack; deployed is a hosted Supabase
