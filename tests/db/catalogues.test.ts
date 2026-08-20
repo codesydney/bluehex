@@ -48,25 +48,23 @@ afterEach(async () => {
 async function seedCredentialEntry(
   label: string,
   { source = "Anthropic Academy", active = true, sortOrder = 0 } = {},
-): Promise<string> {
-  const [row] = await sql<{ id: string }>(
+): Promise<void> {
+  await sql(
     `insert into public.credential_catalogue (source, label, active, sort_order)
-     values ($1, $2, $3, $4) returning id`,
+     values ($1, $2, $3, $4)`,
     [source, testLabel(label), active, sortOrder],
   );
-  return row!.id;
 }
 
 async function seedServiceEntry(
   label: string,
   { active = true, sortOrder = 0 } = {},
-): Promise<string> {
-  const [row] = await sql<{ id: string }>(
+): Promise<void> {
+  await sql(
     `insert into public.service_catalogue (label, active, sort_order)
-     values ($1, $2, $3) returning id`,
+     values ($1, $2, $3)`,
     [testLabel(label), active, sortOrder],
   );
-  return row!.id;
 }
 
 beforeAll(async () => {
@@ -100,12 +98,20 @@ describe("credential_catalogue reads", () => {
 
   it("refuses `select *`, and any column outside the grant list", async () => {
     const star = await anon.client.from("credential_catalogue").select();
-    const provenance = await practitioner.client
+    /* One request per column outside the grant, rather than one naming both: a
+       `select` is refused as soon as *any* column it names is ungranted, so a
+       combined probe stays red while one of the two leaks — which is the same
+       reason `select *` above cannot carry this on its own. */
+    const created = await practitioner.client
       .from("credential_catalogue")
       .select("id, created_at");
+    const updated = await practitioner.client
+      .from("credential_catalogue")
+      .select("id, updated_at");
 
     expectPermissionDenied(anon, star);
-    expectPermissionDenied(practitioner, provenance);
+    expectPermissionDenied(practitioner, created);
+    expectPermissionDenied(practitioner, updated);
   });
 });
 
@@ -138,12 +144,27 @@ describe("credential_catalogue writes", () => {
     expect(survivors.data).toEqual([{ label: testLabel("a course") }]);
   });
 
-  it("refuses insert to anon", async () => {
+  it("refuses insert, update and delete to anon", async () => {
+    await seedCredentialEntry("a course");
+
     const insert = await anon.client
       .from("credential_catalogue")
       .insert({ source: "Claude Certification", label: testLabel("invented") });
+    const update = await anon.client
+      .from("credential_catalogue")
+      .update({ label: testLabel("renamed") })
+      .eq("label", testLabel("a course"));
+    const remove = await anon.client
+      .from("credential_catalogue")
+      .delete()
+      .eq("label", testLabel("a course"));
 
+    /* Asserted rather than inferred from the absent grant, exactly as for the
+       practitioner above: a later migration re-granting the table to `anon`
+       would otherwise leave every test in this suite passing. */
     expectPermissionDenied(anon, insert);
+    expectPermissionDenied(anon, update);
+    expectPermissionDenied(anon, remove);
   });
 
   it("lets an admin add an entry, correct it and retire it", async () => {
@@ -179,10 +200,16 @@ describe("credential_catalogue writes", () => {
     expectAllowed(retired);
     expect(retired.data?.active).toBe(false);
 
+    /* `.select(...).single()` rather than a bare `delete()`: a DELETE matching
+       zero rows is a 204 with no error, and RLS filters DELETE silently through
+       `USING`, so `expectAllowed` on its own would prove the grant and not the
+       delete. `PGRST116` on zero rows is what makes a no-op fail loudly. */
     const removed = await admin.client
       .from("credential_catalogue")
       .delete()
-      .eq("id", added.data!.id);
+      .eq("id", added.data!.id)
+      .select("id")
+      .single();
     expectAllowed(removed);
   });
 
@@ -236,12 +263,18 @@ describe("service_catalogue reads", () => {
 
   it("refuses `select *`, and any column outside the grant list", async () => {
     const star = await anon.client.from("service_catalogue").select();
-    const provenance = await practitioner.client
+    /* Both provenance columns, for the same reason as the credential catalogue:
+       either one alone leaves the other free to be granted unnoticed. */
+    const created = await practitioner.client
+      .from("service_catalogue")
+      .select("id, created_at");
+    const updated = await practitioner.client
       .from("service_catalogue")
       .select("id, updated_at");
 
     expectPermissionDenied(anon, star);
-    expectPermissionDenied(practitioner, provenance);
+    expectPermissionDenied(practitioner, created);
+    expectPermissionDenied(practitioner, updated);
   });
 
   it("carries the six services from `src/lib/practitioners.ts`, in that order", async () => {
@@ -285,12 +318,24 @@ describe("service_catalogue writes", () => {
     expectPermissionDenied(practitioner, remove);
   });
 
-  it("refuses insert to anon", async () => {
+  it("refuses insert, update and delete to anon", async () => {
+    await seedServiceEntry("a service");
+
     const insert = await anon.client
       .from("service_catalogue")
       .insert({ label: testLabel("my own speciality") });
+    const update = await anon.client
+      .from("service_catalogue")
+      .update({ label: testLabel("renamed") })
+      .eq("label", testLabel("a service"));
+    const remove = await anon.client
+      .from("service_catalogue")
+      .delete()
+      .eq("label", testLabel("a service"));
 
     expectPermissionDenied(anon, insert);
+    expectPermissionDenied(anon, update);
+    expectPermissionDenied(anon, remove);
   });
 
   it("lets an admin promote a service, rename it and retire it", async () => {
@@ -319,10 +364,14 @@ describe("service_catalogue writes", () => {
     expectAllowed(retired);
     expect(retired.data?.active).toBe(false);
 
+    /* Same as the credential catalogue: the returned row is what distinguishes
+       a delete that happened from one RLS filtered to nothing. */
     const removed = await admin.client
       .from("service_catalogue")
       .delete()
-      .eq("id", promoted.data!.id);
+      .eq("id", promoted.data!.id)
+      .select("id")
+      .single();
     expectAllowed(removed);
   });
 
