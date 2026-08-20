@@ -1,19 +1,25 @@
 name: Vercel Deploy
 
 on:
-  # Deploys follow CI rather than the push, so a commit that fails `Build and lint`
-  # never reaches production. `workflow_run` is the only way to order two separate
+  # Deploys follow the checks rather than the push, so a commit that fails `Quality` or
+  # `Schema` never reaches production. `workflow_run` is the only way to order separate
   # workflows — a `needs:` cannot cross a workflow boundary — and it fires on every
   # completion, success or not, so the job below has to check the conclusion itself.
+  #
+  # Naming two workflows here does **not** mean "after both have passed". It means
+  # "after either finishes", twice: one event per workflow, in whichever order they
+  # land. The `Check the sibling workflow` step below is what turns that into an
+  # ordering — each run looks up the other workflow's result at the same commit and
+  # stands down if it has not finished, leaving the deploy to whichever event is last.
   #
   # Two consequences worth knowing. The workflow file is read from the default branch,
   # not from the commit being deployed, so a change to this file only takes effect once
   # it is on `main`. And `github.sha` here is `main`'s tip at trigger time rather than
-  # the commit CI validated, which is why the checkout below pins
+  # the commit the checks validated, which is why the checkout below pins
   # `workflow_run.head_sha` — without that, a second merge landing mid-run would ship a
   # commit that nothing had checked.
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, Schema]
     types: [completed]
     branches: [main]
 
@@ -34,6 +40,9 @@ concurrency:
 
 permissions:
   contents: read
+  # For the sibling check below, which reads this repository's workflow runs. Nothing
+  # else in this job needs it, and `contents: read` does not imply it.
+  actions: read
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -44,28 +53,154 @@ jobs:
     runs-on: ubuntu-latest
     # Two gates in one condition, because the two triggers fail differently.
     #
-    # `workflow_run` fires whenever CI completes, including when it failed or was
-    # cancelled, so the conclusion has to be checked here or a red commit ships. The
-    # `branches:` filter above already restricts it to `main`.
+    # `workflow_run` fires whenever CI or Schema completes, including when it failed or
+    # was cancelled, so the conclusion has to be checked here or a red commit ships.
+    # This covers the workflow that triggered the run; the step below covers the other
+    # one. The `branches:` filter above already restricts it to `main`.
     #
     # A dispatch runs against whichever ref the caller picks in the dropdown, and every
     # step below passes `--prod` — so without the ref check, choosing any branch there
     # ships it to production. Both sit on the job rather than in a step, so a wrong ref
-    # or a failed CI run costs a skipped run rather than a half-finished deploy.
+    # or a failed run costs a skipped run rather than a half-finished deploy.
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     steps:
+      # The trigger fires once per workflow that finishes, so this runs twice for a
+      # normal merge — once when `Quality` goes green and once when `Schema` does. Only
+      # the last of the two should ship, and neither knows in advance which it is. So
+      # each run asks after the other's result at the same commit and decides from that.
+      #
+      # It stands down rather than polling. This run exists because one workflow
+      # finished; when the other finishes it fires an event of its own, and by then both
+      # results are in. Waiting here would burn runner minutes reaching a state the next
+      # event reaches for free.
+      #
+      # The failure mode of that is a duplicate deploy, not a missed one: if the two
+      # conclude within the few seconds between this step and its sibling's, both see
+      # the other as complete and both ship the same commit. The concurrency group above
+      # orders those two rather than collapsing them — `cancel-in-progress: false` queues
+      # the second run, it does not drop it — so the cost is one wasted build and a second
+      # deployment record of an identical commit, not two deploys racing. That is the
+      # right way round, and it is the trade for the reverse being impossible: both
+      # standing down and `main` never shipping cannot happen, because a run's event is
+      # delivered only after that run has concluded, and the lookup below is narrowed to
+      # exactly one run per workflow per commit.
+      #
+      # Nothing here needs the repository, so it comes before the checkout.
+      - name: Check the sibling workflow
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          TRIGGER: ${{ github.event.workflow_run.name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" != 'workflow_run' ]; then
+            echo "Dispatched by hand — there is no sibling run to read."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # `TRIGGER` is matched on the workflow's `name:`, because that is what the event
+          # payload carries and what the `workflows:` list above matches on. The sibling
+          # is then identified by **file**, not by name: the file is the stable key, it is
+          # what the API endpoints below take, and it cannot collide the way a display
+          # name can. A third workflow added to the trigger list but not to this case
+          # falls through to the catch-all and stops deploying — noisy, but it fails
+          # closed.
+          case "$TRIGGER" in
+            CI)     sibling=Schema sibling_file=schema.yml ;;
+            Schema) sibling=CI     sibling_file=ci.yml ;;
+            *)
+              echo "Triggered by an unrecognised workflow ($TRIGGER) — not deploying."
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          # Scoped to the sibling's own workflow file *and* to `event=push`, which is what
+          # makes "one run per workflow per commit" true and the paragraph above with it.
+          # Without the event filter this matched any run at the commit, and a hand
+          # dispatch of `Schema` against `main` produces a second run at the same
+          # `head_sha` — newer, so it would win the lookup, and a cancelled one would
+          # leave the commit deployed by nothing at all.
+          run=$(gh api \
+            "repos/$REPO/actions/workflows/$sibling_file/runs?head_sha=$HEAD_SHA&event=push&per_page=100" \
+            --jq '.workflow_runs | first')
+
+          if [ -z "$run" ] || [ "$run" = null ]; then
+            # No sibling run for this commit. Two very different reasons, and conflating
+            # them is how this gate would quietly stop applying.
+            #
+            #   - The workflow is `active` and simply did not match: `Schema` filters
+            #     documentation-only pushes out with `paths-ignore`. Benign, and refusing
+            #     to deploy on it would mean a documentation merge could never reach
+            #     production.
+            #   - The workflow is **disabled by hand**, in which case every code merge
+            #     from here on ships with no schema signal — which is the hole this whole
+            #     job exists to close, re-opened silently.
+            #
+            # Both still ship, because standing down would freeze production for as long
+            # as the workflow stayed off, and that is a worse trap than shipping. But the
+            # second gets a warning annotation, so the deploy says out loud that it was
+            # not checked rather than reporting "nothing to wait for".
+            state=$(gh api "repos/$REPO/actions/workflows/$sibling_file" --jq '.state')
+            if [ "$state" = active ]; then
+              echo "No $sibling run for $HEAD_SHA and $sibling_file is active — nothing to wait for."
+            else
+              echo "::warning title=Deploying without $sibling::$sibling_file is $state, so no run exists for $HEAD_SHA. Shipping unchecked by $sibling."
+            fi
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          status=$(jq -r '.status' <<<"$run")
+          conclusion=$(jq -r '.conclusion' <<<"$run")
+          echo "$sibling at $HEAD_SHA: status=$status conclusion=$conclusion"
+
+          if [ "$status" != completed ]; then
+            echo "$sibling is still going — its own completion will deploy this commit."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          case "$conclusion" in
+            success)
+              echo "deploy=true" >> "$GITHUB_OUTPUT"
+              ;;
+            skipped)
+              # Every job in it filtered out by an `if:`. Nothing was checked and nothing
+              # failed, which is the same position as no run at all.
+              echo "$sibling was skipped — treating it as not run."
+              echo "deploy=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              # Red, cancelled or timed out. Stand down rather than fail this job: the
+              # sibling is already reporting that failure against this commit, and a
+              # second red X saying the same thing buys nothing.
+              echo "$sibling concluded $conclusion — not deploying $HEAD_SHA."
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      # Every step from here down carries the same condition, and a step skipped by it
+      # reports Success — this run was simply not the one that ships.
+      #
       # Actions are pinned to commit SHAs, not tags: a major-version tag can be
       # retargeted, and this job holds VERCEL_TOKEN. Comments record the version each
       # SHA corresponds to; bump both together.
       #
-      # `ref` pins the exact commit CI validated. On a `workflow_run` event the default
-      # checkout is the default branch's tip, which is usually the same commit and
-      # silently is not when two merges land close together — the failure mode being a
-      # deploy of something no run ever checked. `github.sha` is the fallback for a
+      # `ref` pins the exact commit the checks validated. On a `workflow_run` event the
+      # default checkout is the default branch's tip, which is usually the same commit
+      # and silently is not when two merges land close together — the failure mode being
+      # a deploy of something no run ever checked. `github.sha` is the fallback for a
       # dispatch, where there is no triggering run to read.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.gate.outputs.deploy == 'true'
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -73,6 +208,7 @@ jobs:
       # lockfile it understands. Omitting `version` makes the action read
       # `packageManager` from package.json, so the pin cannot drift from local dev.
       - name: Install pnpm
+        if: steps.gate.outputs.deploy == 'true'
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.4.0
 
       # Read from `.nvmrc` rather than a literal, so this workflow cannot drift from
@@ -83,6 +219,7 @@ jobs:
       # nowhere. Changing the major is an edit to `.nvmrc` and `engines.node`, nothing
       # else. Keep it to a major Vercel actually runs: 24.x, 22.x or 20.x.
       - name: Install Node
+        if: steps.gate.outputs.deploy == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
@@ -97,19 +234,23 @@ jobs:
       # outside both, and held to the floor only by a comment asking the next person to
       # check publication dates by hand.
       - name: Install dependencies
+        if: steps.gate.outputs.deploy == 'true'
         run: pnpm install --frozen-lockfile
 
       # `pnpm exec`, not a bare `vercel`, so this runs the version in the lockfile rather
       # than whatever a runner image happens to have on PATH.
       - name: Pull Vercel environment information
+        if: steps.gate.outputs.deploy == 'true'
         run: pnpm exec vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       # This runs the Next.js production build; a build failure fails the deploy here.
-      # That is also the only check in this job: CI on pull requests is #3 and making it
-      # block a merge is #18, so until both land nothing stops a red commit reaching
-      # production — `next build` no longer runs ESLint.
+      # It is no longer the only check in this job, though: `Quality` and `Schema` have
+      # both passed at this commit by the time these steps run, which is what the trigger
+      # and the gate above are for.
       - name: Build project artifacts
+        if: steps.gate.outputs.deploy == 'true'
         run: pnpm exec vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy project artifacts to Vercel
+        if: steps.gate.outputs.deploy == 'true'
         run: pnpm exec vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
