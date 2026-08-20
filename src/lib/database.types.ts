@@ -49,6 +49,36 @@ export type Database = {
         }
         Relationships: []
       }
+      credential_catalogue: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          label: string
+          sort_order: number
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          label: string
+          sort_order?: number
+          source: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          label?: string
+          sort_order?: number
+          source?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       practitioner_contacts: {
         Row: {
           contact_email: string
@@ -193,6 +223,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      service_catalogue: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          label: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          label: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          label?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {
