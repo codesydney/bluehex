@@ -136,14 +136,14 @@ export function SiteHeader() {
             <Image
               src="/img/favicon/bluehex.svg"
               alt=""
-              width={44}
-              height={44}
-              className="size-11 rounded-full"
+              width={52}
+              height={52}
+              className="size-[52px] rounded-full"
               priority
             />
             {/* Screen readers keep the wordmark at every width — it is the only
                 accessible name this link has, and the logo is decorative. */}
-            <span className="sr-only text-base font-medium sm:not-sr-only sm:inline">
+            <span className="sr-only text-lg font-medium sm:not-sr-only sm:inline">
               {site.name}
               <span className="text-t-muted"> | {site.caption}</span>
             </span>
