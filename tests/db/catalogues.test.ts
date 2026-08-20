@@ -281,7 +281,7 @@ describe("credential_catalogue writes", () => {
     expectAllowed(removed);
   });
 
-  it("refuses the same entry twice on one platform, and allows it on the other", async () => {
+  it("refuses a true duplicate, and allows a label that differs on either axis", async () => {
     await seedCredentialEntry("a course", { platform: "Anthropic Academy" });
 
     const duplicate = await admin.client
@@ -291,13 +291,12 @@ describe("credential_catalogue writes", () => {
         platform: "Anthropic Academy",
         label: testLabel("a course"),
       });
-    /* `unique (platform, label)` rather than a slug: the id is the reference, and
-       this is what stops two admins adding the same course twice. */
+    /* `unique (kind, platform, label)` rather than a slug: the id is the reference,
+       and matching on all three is what stops two admins adding the same entry
+       twice. */
     expectSqlstate(duplicate, sqlstate.uniqueViolation);
 
-    /* The same label on the other platform is a different credential — which is
-       also why `kind` is deliberately not in the constraint: a course and the exam
-       that certifies it can legitimately share a name. */
+    /* The same label on the other platform is a different credential. */
     const otherPlatform = await admin.client
       .from("credential_catalogue")
       .insert({
@@ -306,6 +305,21 @@ describe("credential_catalogue writes", () => {
         label: testLabel("a course"),
       });
     expectAllowed(otherPlatform);
+
+    /* And the same label on the *same* platform under the other `kind` — a course
+       and the exam that certifies it, both on the Academy. This is the pair that
+       `unique (platform, label)` refused, and the reason the constraint names all
+       three: the axes are split precisely so they can vary independently, and
+       today's course/Academy and certification/Pearson alignment is a fact about
+       the current catalogue rather than a rule to encode. */
+    const otherKind = await admin.client
+      .from("credential_catalogue")
+      .insert({
+        kind: "certification",
+        platform: "Anthropic Academy",
+        label: testLabel("a course"),
+      });
+    expectAllowed(otherKind);
   });
 
   it("refuses a `kind` or a `platform` outside its two-value axis", async () => {

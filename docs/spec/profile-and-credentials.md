@@ -907,7 +907,7 @@ create table public.credential_catalogue (
   -- this column exists to record
   updated_at timestamptz not null default now(),
 
-  unique (platform, label)
+  unique (kind, platform, label)
 );
 
 alter table public.credential_catalogue enable row level security;
@@ -919,9 +919,9 @@ became rows.
 
 **Amended by #103: the single `source` column became `kind` and `platform`, and `course_url` was added.** `source` carried two axes at once — `check (source in ('Claude Certification', 'Anthropic Academy'))`, where the first value names a weight and the second names an awarding body. Storing a `platform` beside it would have written `Anthropic Academy` twice on twenty of the twenty-four rows, free to disagree later, which is the same two-representations-of-one-fact objection that removed `certified`. The four certifications are the proof that the two are distinct: `platform = 'Pearson VUE'` while `course_url` points at `anthropic-partners.skilljar.com`, because the exam is delivered by Pearson VUE and the page describing it lives on a partner Skilljar tenant. Landed in `20260820214711_catalogue_kind_platform_course_url.sql`, before #50 rather than after it, so that the guard and the RPC below are written against the right shape once.
 
-**`unique (platform, label)`, not `unique (kind, label)`.** The same label on the same platform is a duplicate; the same label as both a course and a certification is not — a course and the exam that certifies it can legitimately share a name.
+**`unique (kind, platform, label)`, all three.** A true duplicate matches on every axis, so that is what the constraint names. The narrower `unique (platform, label)` was tried first and refused a pair the model is supposed to allow: a course and the exam that certifies it can legitimately share a name, and they collide the moment both sit on one platform. That they do not collide today — courses on `Anthropic Academy`, certifications on `Pearson VUE` — is a fact about the current catalogue rather than a rule, and encoding it in a constraint would re-couple the two axes this table just split apart.
 
-**No `slug` or stable external key.** The `id` is the reference and `unique (platform, label)`
+**No `slug` or stable external key.** The `id` is the reference and `unique (kind, platform, label)`
 is what stops the same course being added twice by two admins. A human-readable key would
 be a third representation of the same fact and would go stale on a rename.
 

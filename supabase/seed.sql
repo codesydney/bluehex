@@ -47,7 +47,7 @@
 -- Four transcription decisions, so nobody re-derives them:
 --
 --   * `sort_order` restarts at 0 per platform, matching how a grouped picker renders
---     them. `unique (platform, label)` does not constrain it, so the duplicate values
+--     them. `unique (kind, platform, label)` does not constrain it, so the duplicate values
 --     across the two platforms are expected.
 --   * The Pearson exam codes stay inside `label`. There is no code column and no
 --     slug — the code is Pearson's own public name for the exam rather than an
@@ -70,7 +70,7 @@
 --
 -- `active` takes its default for all 24: retirement is a flag flip, never a delete.
 --
--- The `on conflict (platform, label) do nothing` below is additive, per the header: it
+-- The `on conflict (kind, platform, label) do nothing` below is additive, per the header: it
 -- makes a hand re-run exit clean, not converge. Edit any of these rows and pick the
 -- change up with `pnpm db:reset` — a re-run skips the conflicting row and keeps the old
 -- value, and an edited *label* no longer matches the conflict target at all, so it
@@ -124,4 +124,4 @@ insert into public.credential_catalogue (kind, platform, label, course_url, sort
    'https://anthropic-partners.skilljar.com/claude-certified-architect-professional-certification', 2),
   ('certification', 'Pearson VUE', 'Claude Certified Developer - Foundations (CCDV-F)',
    'https://anthropic-partners.skilljar.com/claude-certified-developer-foundations-certification', 3)
-on conflict (platform, label) do nothing;
+on conflict (kind, platform, label) do nothing;

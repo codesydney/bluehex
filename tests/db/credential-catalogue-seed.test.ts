@@ -104,7 +104,7 @@ describe("credential_catalogue seed", () => {
     ).toHaveLength(4);
 
     /* `sort_order` restarts at 0 per platform, so exactly two rows hold each value
-       the shorter list reaches. `unique (platform, label)` does not constrain
+       the shorter list reaches. `unique (kind, platform, label)` does not constrain
        `sort_order` at all, which is what makes this worth asserting rather than
        assuming. */
     expect(loaded.data?.filter((row) => row.sort_order === 0)).toHaveLength(2);

@@ -66,12 +66,15 @@ alter table public.credential_catalogue
 alter table public.credential_catalogue
   drop column source;
 
--- `unique (source, label)` becomes `unique (platform, label)`: the same label on the
--- same platform is a duplicate, and it is still what stops two admins adding the same
--- course twice. The same label as both a course and a certification is not a
--- duplicate, so `kind` is deliberately not in it.
+-- `unique (source, label)` becomes `unique (kind, platform, label)`. All three, because
+-- the point of splitting the axes is that they vary independently: a course and the exam
+-- that certifies it can legitimately share a name, and `unique (platform, label)` would
+-- refuse that pair the moment both sat on one platform — today's course/Academy and
+-- certification/Pearson split is a fact about the current catalogue, not a rule. Adding
+-- the same entry twice still collides, since a true duplicate matches on all three.
 alter table public.credential_catalogue
-  add constraint credential_catalogue_platform_label_key unique (platform, label);
+  add constraint credential_catalogue_kind_platform_label_key
+    unique (kind, platform, label);
 
 -- ---------------------------------------------------------------------------
 -- grants
