@@ -44,11 +44,11 @@
 -- https://www.pearsonvue.com/us/en/anthropic.html, transcribed as those pages name
 -- them and confirmed by Bluehex.
 --
--- Three transcription decisions, so nobody re-derives them:
+-- Four transcription decisions, so nobody re-derives them:
 --
---   * `sort_order` restarts at 0 per source, matching how a grouped picker renders
---     them. `unique (source, label)` does not constrain it, so the duplicate values
---     across the two sources are expected.
+--   * `sort_order` restarts at 0 per platform, matching how a grouped picker renders
+--     them. `unique (platform, label)` does not constrain it, so the duplicate values
+--     across the two platforms are expected.
 --   * The Pearson exam codes stay inside `label`. There is no code column and no
 --     slug — the code is Pearson's own public name for the exam rather than an
 --     identifier we invented.
@@ -56,37 +56,72 @@
 --     courses rather than a course, `CONTEXT.md` defines an entry here as a named
 --     Anthropic Academy course or a named Claude Certification, and the two titles
 --     it contains are not published on the page.
+--   * Three `course_url` slugs deliberately do not match their titles —
+--     `Building with the Claude API` is published at `claude-with-the-anthropic-api`,
+--     `Claude with Amazon Bedrock` at `claude-in-amazon-bedrock`, and
+--     `Claude on Google Cloud` at `claude-with-google-vertex`. Those are Anthropic's
+--     URLs; do not "fix" them to match the label.
+--
+-- The four certifications carry `platform = 'Pearson VUE'` and a `course_url` on
+-- `anthropic-partners.skilljar.com`. That disagreement is the two axes working rather
+-- than a data error: the exam is delivered by Pearson VUE, and the page describing it
+-- lives on a partner Skilljar tenant, which is a different tenant from the Academy.
+-- It is the clearest argument that platform and page are distinct facts.
 --
 -- `active` takes its default for all 24: retirement is a flag flip, never a delete.
 --
--- The `on conflict (source, label) do nothing` below is additive, per the header: it
+-- The `on conflict (platform, label) do nothing` below is additive, per the header: it
 -- makes a hand re-run exit clean, not converge. Edit any of these rows and pick the
 -- change up with `pnpm db:reset` — a re-run skips the conflicting row and keeps the old
 -- value, and an edited *label* no longer matches the conflict target at all, so it
 -- inserts beside the stale one. `do update` would not close that second hole either.
-insert into public.credential_catalogue (source, label, sort_order) values
-  ('Anthropic Academy', 'Claude 101', 0),
-  ('Anthropic Academy', 'Claude Code 101', 1),
-  ('Anthropic Academy', 'Claude Platform 101', 2),
-  ('Anthropic Academy', 'Introduction to Claude Cowork', 3),
-  ('Anthropic Academy', 'Claude Code in Action', 4),
-  ('Anthropic Academy', 'AI Fluency: Framework & Foundations', 5),
-  ('Anthropic Academy', 'Building with the Claude API', 6),
-  ('Anthropic Academy', 'Introduction to Model Context Protocol', 7),
-  ('Anthropic Academy', 'AI Fluency for educators', 8),
-  ('Anthropic Academy', 'AI Fluency for students', 9),
-  ('Anthropic Academy', 'Model Context Protocol: Advanced Topics', 10),
-  ('Anthropic Academy', 'Claude with Amazon Bedrock', 11),
-  ('Anthropic Academy', 'Claude on Google Cloud', 12),
-  ('Anthropic Academy', 'Teaching AI Fluency', 13),
-  ('Anthropic Academy', 'AI Fluency for nonprofits', 14),
-  ('Anthropic Academy', 'Introduction to agent skills', 15),
-  ('Anthropic Academy', 'Introduction to subagents', 16),
-  ('Anthropic Academy', 'AI Capabilities and Limitations', 17),
-  ('Anthropic Academy', 'AI Fluency for Small Businesses', 18),
-  ('Anthropic Academy', 'AI Fluency for Builders', 19),
-  ('Claude Certification', 'Claude Certified Associate - Foundations (CCAO-F)', 0),
-  ('Claude Certification', 'Claude Certified Architect - Foundations (CCAR-F)', 1),
-  ('Claude Certification', 'Claude Certified Architect - Professional (CCAR-P)', 2),
-  ('Claude Certification', 'Claude Certified Developer - Foundations (CCDV-F)', 3)
-on conflict (source, label) do nothing;
+insert into public.credential_catalogue (kind, platform, label, course_url, sort_order) values
+  ('course', 'Anthropic Academy', 'Claude 101',
+   'https://anthropic.skilljar.com/claude-101', 0),
+  ('course', 'Anthropic Academy', 'Claude Code 101',
+   'https://anthropic.skilljar.com/claude-code-101', 1),
+  ('course', 'Anthropic Academy', 'Claude Platform 101',
+   'https://anthropic.skilljar.com/claude-platform-101', 2),
+  ('course', 'Anthropic Academy', 'Introduction to Claude Cowork',
+   'https://anthropic.skilljar.com/introduction-to-claude-cowork', 3),
+  ('course', 'Anthropic Academy', 'Claude Code in Action',
+   'https://anthropic.skilljar.com/claude-code-in-action', 4),
+  ('course', 'Anthropic Academy', 'AI Fluency: Framework & Foundations',
+   'https://anthropic.skilljar.com/ai-fluency-framework-foundations', 5),
+  ('course', 'Anthropic Academy', 'Building with the Claude API',
+   'https://anthropic.skilljar.com/claude-with-the-anthropic-api', 6),
+  ('course', 'Anthropic Academy', 'Introduction to Model Context Protocol',
+   'https://anthropic.skilljar.com/introduction-to-model-context-protocol', 7),
+  ('course', 'Anthropic Academy', 'AI Fluency for educators',
+   'https://anthropic.skilljar.com/ai-fluency-for-educators', 8),
+  ('course', 'Anthropic Academy', 'AI Fluency for students',
+   'https://anthropic.skilljar.com/ai-fluency-for-students', 9),
+  ('course', 'Anthropic Academy', 'Model Context Protocol: Advanced Topics',
+   'https://anthropic.skilljar.com/model-context-protocol-advanced-topics', 10),
+  ('course', 'Anthropic Academy', 'Claude with Amazon Bedrock',
+   'https://anthropic.skilljar.com/claude-in-amazon-bedrock', 11),
+  ('course', 'Anthropic Academy', 'Claude on Google Cloud',
+   'https://anthropic.skilljar.com/claude-with-google-vertex', 12),
+  ('course', 'Anthropic Academy', 'Teaching AI Fluency',
+   'https://anthropic.skilljar.com/teaching-ai-fluency', 13),
+  ('course', 'Anthropic Academy', 'AI Fluency for nonprofits',
+   'https://anthropic.skilljar.com/ai-fluency-for-nonprofits', 14),
+  ('course', 'Anthropic Academy', 'Introduction to agent skills',
+   'https://anthropic.skilljar.com/introduction-to-agent-skills', 15),
+  ('course', 'Anthropic Academy', 'Introduction to subagents',
+   'https://anthropic.skilljar.com/introduction-to-subagents', 16),
+  ('course', 'Anthropic Academy', 'AI Capabilities and Limitations',
+   'https://anthropic.skilljar.com/ai-capabilities-and-limitations', 17),
+  ('course', 'Anthropic Academy', 'AI Fluency for Small Businesses',
+   'https://anthropic.skilljar.com/ai-fluency-for-small-businesses', 18),
+  ('course', 'Anthropic Academy', 'AI Fluency for Builders',
+   'https://anthropic.skilljar.com/ai-fluency-for-builders', 19),
+  ('certification', 'Pearson VUE', 'Claude Certified Associate - Foundations (CCAO-F)',
+   'https://anthropic-partners.skilljar.com/claude-certified-associate-foundations-certification', 0),
+  ('certification', 'Pearson VUE', 'Claude Certified Architect - Foundations (CCAR-F)',
+   'https://anthropic-partners.skilljar.com/claude-certified-architect-foundations-certification', 1),
+  ('certification', 'Pearson VUE', 'Claude Certified Architect - Professional (CCAR-P)',
+   'https://anthropic-partners.skilljar.com/claude-certified-architect-professional-certification', 2),
+  ('certification', 'Pearson VUE', 'Claude Certified Developer - Foundations (CCDV-F)',
+   'https://anthropic-partners.skilljar.com/claude-certified-developer-foundations-certification', 3)
+on conflict (platform, label) do nothing;
