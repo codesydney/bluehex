@@ -335,22 +335,11 @@ What exists: the local Supabase stack, a lazy client in `src/lib/supabase.ts`, g
 types, and the environment wiring. An earlier SQLite (`better-sqlite3`) setup was
 removed, and a Drizzle/Postgres one was scaffolded and stripped back out, before this.
 
-**There is exactly one migration, and it holds no product data.** It creates the
-`bluehex_admin` role, the `public.admins` list and the `custom_access_token_hook` that
-stamps the role onto an access token — the thing every later policy and grant refers to.
-The product schema starts with `practitioners`.
+**There are two migrations.** The first creates the `bluehex_admin` role, the `public.admins` list and the `custom_access_token_hook` that stamps the role onto an access token — the thing every later policy and grant refers to, and it holds no product data. The second is the profile core: `practitioner_contacts`, `practitioners` and `practitioner_review_notes`, their column-scoped grants, their policies, `practitioners_guard`, and the `approve_practitioner()` / `reject_practitioner()` RPCs.
 
-Nothing queried the database before that, and nothing queries it now: a health-check
-table existed briefly to prove the connection and was taken back out before it was ever
-committed, because it would have sat in the migration history permanently, describing a
-table dropped a fortnight later, to prove something the first real query proves for free.
+Nothing queried the database before that, and nothing queries it now: a health-check table existed briefly to prove the connection and was taken back out before it was ever committed, because it would have sat in the migration history permanently, describing a table dropped a fortnight later, to prove something the first real query proves for free.
 
-What does not exist yet: the `practitioners` table, any *product* RLS policy, auth in the
-application, and the hosted project's copy of the hook setting. The token-side machinery
-landing is not the app having auth — there is no `@supabase/ssr` client and no sign-in
-flow, and every policy in the spec is written against `auth.uid()`, so none of them is
-reachable from the app until #14. The rest of this section is the contract for building
-those — treat it as binding, not as a description of current state.
+What does not exist yet: anything credential-shaped (`credential_catalogue`, `practitioner_credentials` and the three `clear_profile_verification()` triggers, all #50), the services tables (#89, #90), auth in the application, and the hosted project's copy of the hook setting. The token-side machinery landing is not the app having auth — there is no `@supabase/ssr` client and no sign-in flow, and every policy in the spec is written against `auth.uid()`, so none of them is reachable from the app until #14. The rest of this section is the contract for building those — treat it as binding, not as a description of current state.
 
 - **Target is [Supabase](https://supabase.com)** — Postgres, plus the auth that comes
   with it. Local development runs the Supabase CLI stack; deployed is a hosted Supabase

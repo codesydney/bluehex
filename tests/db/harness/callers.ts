@@ -8,24 +8,24 @@
  * tests that prove a policy ever executes are the ones written from somebody
  * else's account.
  *
- * **Sign-ups are rate limited**: `sign_in_sign_ups = 30` per five minutes per IP
- * in `supabase/config.toml`, and an admin costs two of them (a sign-up, then a
- * sign-in to mint a token the hook has stamped). Create fixtures once in a
- * `beforeAll` and share them across a file's tests rather than per test.
+ * **Sign-ups are rate limited**: `sign_in_sign_ups` in `supabase/config.toml`, and
+ * an admin costs two of them (a sign-up, then a sign-in to mint a token the hook
+ * has stamped). Create fixtures once in a `beforeAll` and share them across a
+ * file's tests rather than per test.
  *
  * That advice is per file, and the budget is per IP — so it does not clear the
- * ceiling it looks like it clears. A file building the full set costs four calls,
- * so around seven such files exhaust a five-minute window in two runs, and the
- * second run of an iterate-on-a-failing-test loop is where somebody meets it. It
- * arrives as a `beforeAll` failing on what reads like an auth error, in a file
+ * ceiling it looks like it clears. A file building the full set costs five calls,
+ * so the CLI's default of 30 is exhausted by two runs of a three-file suite, and
+ * the second run of an iterate-on-a-failing-test loop is where somebody meets it.
+ * It arrives as a `beforeAll` failing on what reads like an auth error, in a file
  * that passed a minute earlier, with its tests reported skipped rather than
- * failed. The fix when it starts to bite is one line: raise `sign_in_sign_ups` in
- * `supabase/config.toml`. That file configures the local stack and nothing else —
- * nothing in this repository pushes it to the hosted project, where the limits are
- * the dashboard's — so the usual objection to loosening a rate limit does not
- * apply. Prefer it to a `globalSetup` sharing callers across files: that would cap
- * the cost too, but it trades the rate limit for cross-file coupling, which is the
- * thing `fileParallelism: false` and per-file cleanup currently buy.
+ * failed. #49 met it and raised the limit to 200, which is the one-line fix: that
+ * file configures the local stack and nothing else — nothing in this repository
+ * pushes it to the hosted project, where the limits are the dashboard's — so the
+ * usual objection to loosening a rate limit does not apply. It is preferred to a
+ * `globalSetup` sharing callers across files: that would cap the cost too, but it
+ * trades the rate limit for cross-file coupling, which is the thing
+ * `fileParallelism: false` and per-file cleanup currently buy.
  */
 
 import {

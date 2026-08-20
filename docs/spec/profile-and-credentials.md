@@ -421,6 +421,8 @@ real state a single boolean cannot hold.
 
 `approved_at` / `approved_by` stay on the profile. That is `status`, a different axis.
 
+They mean **currently approved, by whom, when**, and `practitioners_guard` is what makes that true rather than `approve_practitioner()`: the RPC is not the only door, because an admin holds `update (status)` and the ownership flow needs it to. So the trigger stamps both when a row arrives at `approved` down any path, and clears them when it leaves. #49 settled this — before it, a profile approved and then rejected kept the stamp and went on claiming an approval that had been taken back, which is what a review queue sorts on.
+
 **The rollup rule:** the badge shows when the profile has **at least one credential and
 every credential is verified**. It got simpler when in-progress rows were removed — the
 rule used to carve them out explicitly, because a credential that could never be verified
@@ -1296,35 +1298,57 @@ triggers it does carry are `practitioner_services_cap`, which enforces a count r
 an authority, and `set_updated_at` — neither pins a column against its old value, which is
 what a guard is for.
 
-Two things this leans on, both established in #35: a policy expression is **not** subject
-to the caller's column privileges, so `p.status` and `p.user_id` are readable here even
-though `anon` cannot select them; and `auth.uid() = user_id` is null rather than true for
-an unclaimed profile, so unclaimed credentials are unreachable by every practitioner
-without an extra clause. `practitioners` has no policy referencing credentials, so there
-is no recursion.
+Two things this leans on, both established in #35: a policy expression is **not** subject to the caller's column privileges, so `p.status` and `p.user_id` are readable here even though `anon` cannot select them; and `auth.uid() = user_id` is null rather than true for an unclaimed profile, so unclaimed credentials are unreachable by every practitioner without an extra clause. `practitioners` has no policy referencing credentials, so there is no recursion.
+
+**Corrected by #49, and it is the first of those two that is wrong.** A policy escapes the caller's column privileges only for columns of **its own table** — the row is already in hand, so nothing is read. A subquery against *another* table is an ordinary query and is privilege-checked like any other, so every `exists (select 1 from public.practitioners p where …)` written above fails with `42501 permission denied for table practitioners` the moment it names `p.user_id` or `p.contact_id`, both of which are deliberately withheld from `authenticated`. It fails for the owner, reading their own row, which is the worst way for it to fail. Proved against the local stack while building the first migration: `set role authenticated; select 1 from public.practitioners p where p.user_id is null;` is refused, and the same expression inside `contacts_rw_own` refused the owner their own contact details.
+
+So the traversal is asked through a `security definer` function instead — `public.owns_profile(profile_id uuid)` and `public.owns_profile_for_contact(contact uuid)`, both returning a boolean about the caller and able to disclose nothing else. They live in `20260819194255_profile_core.sql` and every policy above that traverses the profile should be read as calling one of them: `credentials_rw_own`, `services_rw_own` and `review_notes_read_own` take `owns_profile(practitioner_id)`, and the contact policies take `owns_profile_for_contact(id)`. Two more join them for the contact table specifically — `public.owns_contact(contact uuid)` and `public.contact_is_unattached(contact uuid)` — for the reasons in the next section. `credentials_read_public` and `services_read_public` need `p.status`, which **is** granted to `authenticated` but not to `anon`, so they need the same treatment or a third helper — settle that in #50 rather than inheriting the inline form.
+
+That makes five `security definer` functions in the design rather than the two the Triggers section counts. The count was a property of the mechanism being wrong, not a budget.
 
 **`practitioner_contacts` cannot follow that pattern**, because it is now the parent rather than the child. At insert time no profile points at the row, so "the profile that references me is yours" has nothing to traverse. It needs two routes in, and both are load-bearing:
 
 ```sql
--- no anon policy at all: there is no anon grant to go with one
-create policy contacts_rw_own on public.practitioner_contacts
-  for all to authenticated
-  using (
-    created_by = (select auth.uid())
-    or exists (select 1 from public.practitioners p
-                where p.contact_id = id and p.user_id = (select auth.uid()))
-  )
+-- no anon policy at all: there is no anon grant to go with one.
+-- no delete policy and no delete grant either: a contact row outlives the profile
+-- that pointed at it, and sweeping it up is #52
+create policy contacts_insert_own on public.practitioner_contacts
+  for insert to authenticated
   with check (created_by = (select auth.uid()));
+
+create policy contacts_read_own on public.practitioner_contacts
+  for select to authenticated
+  using (
+    public.owns_profile_for_contact(id)
+    or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
+  );
+
+create policy contacts_update_own on public.practitioner_contacts
+  for update to authenticated
+  using (
+    public.owns_profile_for_contact(id)
+    or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
+  )
+  with check (
+    public.owns_profile_for_contact(id)
+    or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
+  );
 
 create policy contacts_admin_all on public.practitioner_contacts
   for all to bluehex_admin using (true) with check (true);
 ```
 
-The first clause covers the row you just wrote, including an orphan whose profile was never created. The second covers the row **Bluehex** wrote during curated intake, which a practitioner inherits the moment they claim the profile — `created_by` is the admin there, so without it a claimed practitioner could not read or edit their own contact details.
+The authorship clause covers the row you just wrote, including an orphan whose profile was never created. The profile clause covers the row **Bluehex** wrote during curated intake, which a practitioner inherits the moment they claim the profile — `created_by` is the admin there, so without it a claimed practitioner could not read their own contact details.
 
-`with check` deliberately names only the first clause. You may write rows you own; you may not write a contact row into existence with somebody else's `created_by`, and you may not reassign an existing row to yourself. Reading through the profile is a right you inherit by claiming; writing is not.
+**Authorship expires, and this is the correction #49 made.** Written as `created_by = auth.uid()` alone it is a grant nothing ever takes away, and a profile can change hands: unassign it, assign it to somebody else — the supported repair for a mis-assignment, so this is reachable rather than theoretical — and the row goes on holding the new owner's email and phone while the original author still matches. Proved against the local stack: the author kept both `select` and `update` on a row that was no longer theirs by any reading, which inverts the rule below, since the stranger who typed it could write while the person the details are about could not. `contact_is_unattached` ends it. Authorship carries the row only while no profile points at it; from then on the profile is what says whose it is.
 
-**`created_by` is nullable**, because it references `auth.users` and has to survive an account deletion — see the table. Both clauses stay correct: a null `created_by` makes the first comparison null rather than true, so it fails closed, and the second clause is unaffected because it never mentions the column.
+**Three policies rather than one `for all`**, because the clause has to differ by verb. On `insert` the row is not in the table yet, so a helper that reads it back returns false and would refuse every contact row ever written; on `select` and `update` the row is in hand and the whole question can be asked.
+
+**A contact row is writable by whoever the profile above it belongs to now**, which is the second correction #49 made and the one that had stood longest. `with check` on update named `created_by` alone from the #35 spike onwards, justified as *you may not reassign an existing row to yourself* — and that is not a thing a policy defends here. `created_by` is absent from the `authenticated` update grant, so reassignment is refused a layer lower, by the privilege check, which is what the test asserting `42501` on that write has always been proving. Once insert became a policy of its own, the clause had exactly one remaining effect: it stopped the claimer of a curated profile from correcting the address their own profile was about to publish. Both the policy and the Testing bullet that contradicted it were wrong; the bullet was right about the behaviour anyone would expect.
+
+Insert still names authorship, because there is nothing else it could name — no profile points at the row yet. You may not write a contact row into existence with somebody else's `created_by`.
+
+**`created_by` is nullable**, because it references `auth.users` and has to survive an account deletion — see the table. Both clauses stay correct: a null `created_by` makes the comparison null rather than true, so it fails closed, and the profile clause is unaffected because it never mentions the column.
 
 ```sql
 -- review notes: the owner reads, only Bluehex writes
@@ -1775,7 +1799,11 @@ the most valuable one in the suite and it transfers directly.
 
 - **A profile cannot be inserted without a `contact_id`.** The insert is refused by `not null` on the column, not by a trigger or a check — so this asserts the foreign key points the way the design needs it to. Two profiles cannot share a contact row either, which is the `unique`.
 - A practitioner can read back a contact row they wrote before any profile pointed at it, and cannot read one written by somebody else.
-- After claiming a curated profile, the new owner can read and edit the contact row **Bluehex** wrote — the second clause of `contacts_rw_own`, which is easy to omit and fails as "my own details are invisible to me".
+- After claiming a curated profile, the new owner can **read and edit** the contact row **Bluehex** wrote — the profile clause of `contacts_read_own` and `contacts_update_own`, easy to omit and failing as "my own details are invisible to me". **This bullet and the policy disagreed for two revisions, and #49 settled it the bullet's way**: the `with check` naming `created_by` alone was defending against a reassignment the column grant already refuses, and its only live effect was locking the claimer out. A separate assertion covers reassignment, where it belongs — at the privilege layer.
+- **A profile insert cannot point at a contact row somebody else wrote.** `contact_id` is in the `authenticated` insert grant, so without `owns_contact` in `practitioners_insert_own` a profile insert is a read grant on any unused contact row — the profile clause of `contacts_read_own` then answers true for the caller. `unique (contact_id)` is not that assertion: it covers the row that is already taken, not the one going spare. The clause reads `contact_id is null or owns_contact(contact_id)` because row level security is checked *before* column constraints on insert — without the first half the policy answers `42501` for a row whose real problem is a missing `contact_id`, and the bullet above it stops testing what it says it tests.
+- **The author of a contact row loses it when the profile above it changes hands**, in both directions — no read and no write. The reassignment is two legal steps, so this is a state the admin flow reaches on purpose.
+- **`approved_at` and `approved_by` are written when an admin PATCHes `status` rather than calling the RPC, and cleared when the profile stops being approved.** The trigger is the only thing that holds down both paths, and the assertion has to be written from the PATCH to prove it.
+- **A note edited outside `reject_practitioner()` restamps `written_at` and `written_by`.** An admin holds `update` on the table, so the RPC is not the only way the text changes, and `written_at` is served to the practitioner the note is about.
 - A practitioner cannot write a contact row with somebody else's `created_by`, and cannot reassign an existing one to themselves. `with check` names only the first clause of that policy for this reason.
 - **`updated_at` moves when a contact row or a review note is edited.** It is in the `authenticated` select grant on contacts, so it is a column the API serves; neither table has a guard trigger of its own, and `set_updated_at` is the only thing writing it.
 
