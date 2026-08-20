@@ -37,7 +37,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${funnelDisplay.variable} ${funnelSans.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">
+      <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <SiteHeader />
         <main className="flex-1">{children}</main>
         <SiteFooter />
