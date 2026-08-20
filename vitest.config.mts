@@ -16,10 +16,11 @@ const alias = {
 export default defineConfig({
   test: {
     /* Two projects, and they are run by different commands on purpose. `pnpm test`
-       runs `src` alone, which is what CI runs; `pnpm test:db` runs `db`, which CI
-       never does because there is no Docker on the runner and these tests need the
-       local Supabase stack. Neither command runs the other's files, so a stopped
-       stack cannot fail the suite CI gates on. */
+       runs `src` alone and is the required `Quality` check; `pnpm test:db` runs `db`
+       and needs the local Supabase stack, so CI runs it in a workflow of its own
+       (`.github/workflows/schema.yml`) rather than in that check. Neither command
+       runs the other's files, so a stopped stack cannot fail the suite that gates
+       every merge. */
     projects: [
       {
         resolve: { alias },

@@ -1,0 +1,120 @@
+# The schema's own suite: `tests/db`, run against a real Supabase stack.
+#
+# Separate from `ci.yml` on purpose. `Quality` is the required status check on `main`
+# (#18) and it finishes in a couple of minutes; this job boots Postgres, PostgREST,
+# GoTrue and Kong in containers before it asserts anything, and folding that into the
+# required check would make every pull request wait for it. Keeping it apart is also
+# the house pattern rather than a new exception — `e2e.yml` is a separate workflow for
+# the same reason.
+#
+# It is deliberately **not** a required check today. Make it one only once its real
+# runtime and flakiness are known, and read the note on `paths-ignore` below first —
+# that filter is safe precisely because this check is not required, and becomes a trap
+# on the day it is.
+name: Schema
+
+on:
+  # The four activity types are spelled out for the same reason `ci.yml` spells them
+  # out: naming any type replaces the defaults rather than adding to them, so without
+  # `ready_for_review` a pull request opened as a draft would never run this at all.
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    # Skipping a *workflow* by path filter leaves its checks pending rather than green.
+    # `ci.yml` therefore cannot do this and uses a step-level condition instead — a
+    # pending required check blocks the merge. This workflow is not required, so a
+    # documentation pull request simply never starts it, which is the cheaper shape.
+    #
+    # **If this ever becomes a required check, this filter has to go** and be replaced
+    # by the same `docs-only` step condition `ci.yml` uses, or every documentation pull
+    # request becomes unmergeable.
+    #
+    # It is a blocklist of one pattern, so anything unrecognised falls through to a
+    # run. That is the right way round: a needless container boot costs minutes, a
+    # wrongly skipped one lets a broken policy onto `main`.
+    paths-ignore:
+      - "**/*.md"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+  # So the suite can be exercised deliberately without marking a draft ready for
+  # review — which would notify every watcher just to get a build.
+  workflow_dispatch:
+
+concurrency:
+  # One stack per ref. Two runs of this workflow on the same branch would race for
+  # nothing useful, and the older one's result is never the one anybody wants.
+  group: schema-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  schema:
+    name: Schema tests
+    runs-on: ubuntu-latest
+    # Same guard as `Quality`, and a job-level `if:` for the same reason: a job skipped
+    # by `if:` reports Success, whereas a workflow skipped by filtering leaves its
+    # checks pending. Drafts get no CI in this repository; `workflow_dispatch` above is
+    # the way to ask for a run anyway.
+    if: github.event.pull_request.draft != true
+    # `supabase start` pulls and boots several containers on a cold runner. Fifteen
+    # minutes is generous for that plus a serial suite; it exists so a wedged container
+    # fails the run rather than burning an hour.
+    timeout-minutes: 15
+    steps:
+      # Actions are pinned to commit SHAs, not tags: a major-version tag can be
+      # retargeted. Comments record the version each SHA corresponds to; bump both
+      # together.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # pnpm/action-setup must come before setup-node, or the cache step finds no
+      # lockfile it understands. Omitting `version` makes the action read
+      # `packageManager` from package.json, so the pin cannot drift from local dev.
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # This is also what installs the Supabase CLI. It is a devDependency
+      # (`supabase` in package.json), so there is no `supabase/setup-cli` step here
+      # and no new third-party action to put on the Actions allowlist — and the
+      # version CI runs is the version in `pnpm-lock.yaml`, under the 7-day release
+      # floor, rather than whatever a tag pointed at this morning.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Applies every migration in `supabase/migrations/` in order and then
+      # `supabase/seed.sql`, so a migration that will not apply fails here rather than
+      # somewhere confusing inside the suite.
+      - name: Start the Supabase stack
+        run: pnpm db:start
+
+      # `pnpm test:db` is `vitest run --project db` — the `db` project alone, never
+      # `src`.
+      #
+      # **Read the exit code, not the summary line.** When the stack is unreachable the
+      # harness throws out of a `beforeAll`, and Vitest reports that file's tests as
+      # *skipped* while still exiting non-zero. A run that boots nothing therefore looks
+      # calm and fails correctly — but only to something checking the status, which is
+      # why this is a plain `run:` with no piping. A `| tail` would report the tail's
+      # exit code and turn the whole job green.
+      - name: Run the schema tests
+        run: pnpm test:db
+
+      # Diagnostics for the failure this job exists to catch, and the one that is
+      # otherwise hardest to read from a log: a container that came up unhealthy, or a
+      # migration that applied on one developer's machine and not on a clean one.
+      - name: Container logs
+        if: failure()
+        run: pnpm exec supabase status || docker ps -a

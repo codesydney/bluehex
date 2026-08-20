@@ -142,14 +142,15 @@ jobs:
       # Vitest's `src` project only — `pnpm test` is `vitest run --project src`.
       #
       # The `db` project (`tests/db`, run by `pnpm test:db`) is deliberately not here.
-      # It asserts the schema's invariants against a running Supabase stack, which is
-      # Docker, a Postgres container and a PostgREST container; this job has none of
-      # them, and standing them up would turn a fast required check into a slow one.
-      # So the schema suite is local-only for now, which is already the house pattern
-      # rather than a new exception — the end-to-end workflow is disabled by hand too.
-      # The cost is real and worth naming: nothing on a pull request catches a
-      # migration that breaks a policy, and the person who wrote it has to run
-      # `pnpm test:db` themselves.
+      # It asserts the schema's invariants against a running Supabase stack — Postgres,
+      # PostgREST, GoTrue and Kong in containers — and booting those would turn a fast
+      # required check into a slow one. Note what the reason is not: this runner does
+      # have Docker, and an earlier version of this comment said otherwise. The cost is
+      # minutes, not capability.
+      #
+      # It runs in `schema.yml` instead, which is a separate workflow for that reason
+      # and is not a required check. That is the house pattern rather than a new
+      # exception — the end-to-end suite is a separate workflow too.
       #
       # Playwright's end-to-end suite is a separate workflow, and one that is currently
       # disabled by hand — so nothing runs Playwright on a pull request at all, and this

@@ -56,9 +56,10 @@ export const databaseUrl =
  */
 export function stackUnreachable(what: string, where: string, cause: unknown): Error {
   return new Error(
-    `Cannot reach ${what} at ${where}. The database tests need the local Supabase ` +
+    `Cannot reach ${what} at ${where}. The database tests need a Supabase ` +
       "stack — start it with `pnpm db:start`. This is why they are a separate " +
-      "Vitest project and why CI does not run them.",
+      "Vitest project, and why CI boots one for them in its own workflow rather " +
+      "than in the check that gates every merge.",
     { cause },
   );
 }
