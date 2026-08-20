@@ -115,6 +115,66 @@ export type Database = {
         }
         Relationships: []
       }
+      practitioner_credentials: {
+        Row: {
+          catalogue_id: string
+          created_at: string
+          earned_at: string
+          evidence_public: boolean
+          evidence_url: string | null
+          evidence_url_public: string | null
+          id: string
+          practitioner_id: string
+          updated_at: string
+          verified: boolean
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          catalogue_id: string
+          created_at?: string
+          earned_at: string
+          evidence_public?: boolean
+          evidence_url?: string | null
+          evidence_url_public?: string | null
+          id?: string
+          practitioner_id: string
+          updated_at?: string
+          verified?: boolean
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          catalogue_id?: string
+          created_at?: string
+          earned_at?: string
+          evidence_public?: boolean
+          evidence_url?: string | null
+          evidence_url_public?: string | null
+          id?: string
+          practitioner_id?: string
+          updated_at?: string
+          verified?: boolean
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practitioner_credentials_catalogue_id_fkey"
+            columns: ["catalogue_id"]
+            isOneToOne: false
+            referencedRelation: "credential_catalogue"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practitioner_credentials_practitioner_id_fkey"
+            columns: ["practitioner_id"]
+            isOneToOne: false
+            referencedRelation: "practitioners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       practitioner_review_notes: {
         Row: {
           created_at: string
@@ -294,11 +354,41 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      clear_profile_verification: {
+        Args: { profile_id: string }
+        Returns: undefined
+      }
       contact_is_unattached: { Args: { contact: string }; Returns: boolean }
+      correct_catalogue_entry: {
+        Args: {
+          entry_id: string
+          new_kind: string
+          new_label: string
+          new_platform: string
+        }
+        Returns: {
+          active: boolean
+          course_url: string | null
+          created_at: string
+          id: string
+          kind: string
+          label: string
+          platform: string
+          sort_order: number
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "credential_catalogue"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       owns_contact: { Args: { contact: string }; Returns: boolean }
       owns_profile: { Args: { profile_id: string }; Returns: boolean }
       owns_profile_for_contact: { Args: { contact: string }; Returns: boolean }
+      profile_is_approved: { Args: { profile_id: string }; Returns: boolean }
       reject_practitioner: {
         Args: { note: string; profile_id: string }
         Returns: {
@@ -327,6 +417,29 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "practitioners"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      set_credential_verified: {
+        Args: { credential_id: string; value: boolean }
+        Returns: {
+          catalogue_id: string
+          created_at: string
+          earned_at: string
+          evidence_public: boolean
+          evidence_url: string | null
+          evidence_url_public: string | null
+          id: string
+          practitioner_id: string
+          updated_at: string
+          verified: boolean
+          verified_at: string | null
+          verified_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "practitioner_credentials"
           isOneToOne: true
           isSetofReturn: false
         }
