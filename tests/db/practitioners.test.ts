@@ -147,6 +147,23 @@ describe("creating a profile", () => {
     expectSqlstate(result, sqlstate.notNullViolation);
   });
 
+  it("is refused against a contact row somebody else wrote", async () => {
+    const theirs = await seedContact(otherPractitioner.userId);
+
+    /* `contact_id` is in the insert grant, so without `owns_contact` in
+       `practitioners_insert_own` this succeeds and the second clause of
+       `contacts_read_own` then hands `newcomer` the other practitioner's email
+       and phone — the one route `practitioner_contacts` was split out to close.
+       `unique (contact_id)` does not cover it: the row is unused. */
+    const result = await newcomer.client.from("practitioners").insert({
+      contact_id: theirs,
+      user_id: newcomer.userId,
+      name: "Helping myself",
+    });
+
+    expectPermissionDenied(newcomer, result);
+  });
+
   it("cannot point at a contact row another profile already uses", async () => {
     const contact = await seedContact(newcomer.userId);
     const [existing] = await sql<{ id: string }>(
@@ -410,6 +427,49 @@ describe("the Bluehex-owned columns", () => {
   });
 });
 
+describe("the approval stamp, down both paths", () => {
+  it("is written when an admin PATCHes `status` rather than calling the RPC", async () => {
+    const profile = await seedProfile({ status: "pending" });
+
+    const result = await admin.client
+      .from("practitioners")
+      .update({ status: "approved" } as never)
+      .eq("id", profile)
+      .select("id");
+
+    /* The admin `update` grant is deliberate — the ownership flow needs it — so
+       `approve_practitioner()` can never be the only door. The stamp therefore
+       belongs to the trigger, which fires down both. */
+    expectAllowed(result);
+    expect(await columnOf<Date | null>(profile, "approved_at")).not.toBeNull();
+    expect(await columnOf<string | null>(profile, "approved_by")).toBe(admin.userId);
+
+    await sql("delete from public.practitioners where id = $1", [profile]);
+  });
+
+  it("is cleared when the profile stops being approved", async () => {
+    const profile = await seedProfile({ status: "pending" });
+
+    expectAllowed(await admin.client.rpc("approve_practitioner", { profile_id: profile }));
+    expect(await columnOf<Date | null>(profile, "approved_at")).not.toBeNull();
+
+    expectAllowed(
+      await admin.client.rpc("reject_practitioner", {
+        profile_id: profile,
+        note: "not yet",
+      }),
+    );
+
+    /* `approved_at` / `approved_by` mean "currently approved". A rejected row
+       that kept them went on claiming an approval that had been taken back, and
+       `approved_at` is what a review queue sorts on. */
+    expect(await columnOf<Date | null>(profile, "approved_at")).toBeNull();
+    expect(await columnOf<string | null>(profile, "approved_by")).toBeNull();
+
+    await sql("delete from public.practitioners where id = $1", [profile]);
+  });
+});
+
 describe("ownership, which is a state machine rather than a permission", () => {
   it("stamps provenance when an unclaimed profile is claimed", async () => {
     const unclaimed = await seedProfile({ userId: null, status: "pending" });
@@ -466,6 +526,23 @@ describe("ownership, which is a state machine rather than a permission", () => {
     expectSqlstate(result, sqlstate.checkViolation);
     expect(await columnOf<string>(claimed, "user_id")).toBe(otherPractitioner.userId);
     await sql("delete from public.practitioners where id = $1", [claimed]);
+  });
+
+  it("withdraws the profile when the account behind it is deleted", async () => {
+    const leaver = await practitionerCaller("leaver");
+    const profile = await seedProfile({ userId: leaver.userId, status: "approved" });
+
+    await sql("delete from auth.users where id = $1", [leaver.userId]);
+
+    /* The reason `supabase_auth_admin` is in the guard's allow-list: pin
+       `user_id` back and the `set null` this delete performs is defeated,
+       leaving `practitioners.user_id` pointing at a row that is gone. Nothing
+       raises when that happens, which is why it is asserted rather than
+       assumed. */
+    expect(await columnOf<string | null>(profile, "user_id")).toBeNull();
+    expect(await columnOf<string>(profile, "status")).toBe("withdrawn");
+
+    await sql("delete from public.practitioners where id = $1", [profile]);
   });
 
   it("gets a mis-assigned profile to the right account in two legal steps", async () => {

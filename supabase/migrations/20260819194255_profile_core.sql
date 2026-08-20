@@ -257,12 +257,51 @@ as $$
   );
 $$;
 
+-- The same question asked of the contact row rather than the profile: did I write
+-- this one, and is anything pointing at it yet. `practitioner_contacts.created_by`
+-- is not granted to `authenticated`, and `practitioners.contact_id` is granted to
+-- nobody but `bluehex_admin`, so neither is askable inline from a policy on the
+-- other table.
+--
+-- Two functions rather than one because the two callers want different questions.
+-- `practitioners_insert_own` wants authorship alone: at the moment a profile is
+-- inserted its contact is unattached by definition, and a contact that already has
+-- a profile is refused by `unique (contact_id)` — which is the mechanism that
+-- should report it, rather than a policy shadowing the constraint with a 403.
+create function public.owns_contact(contact uuid)
+returns boolean language sql stable security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.practitioner_contacts c
+     where c.id = contact
+       and c.created_by = (select auth.uid())
+  );
+$$;
+
+-- `contacts_read_own` and `contacts_update_own` want the other half. Authorship is what carries a contact row
+-- while nothing points at it; the moment a profile does, the profile is what says
+-- who the row belongs to, and authorship stops meaning anything. Without this,
+-- `created_by` is a grant that never expires — see the Policies section.
+create function public.contact_is_unattached(contact uuid)
+returns boolean language sql stable security definer
+set search_path = ''
+as $$
+  select not exists (
+    select 1 from public.practitioners p where p.contact_id = contact
+  );
+$$;
+
 -- Functions in `public` are executable by PUBLIC by default. `anon` never needs
--- either of these: it has no grant on the two tables whose policies call them.
+-- any of these: it has no grant on the tables whose policies call them.
 revoke execute on function public.owns_profile(uuid) from public, anon;
 revoke execute on function public.owns_profile_for_contact(uuid) from public, anon;
+revoke execute on function public.owns_contact(uuid) from public, anon;
+revoke execute on function public.contact_is_unattached(uuid) from public, anon;
 grant execute on function public.owns_profile(uuid) to authenticated;
 grant execute on function public.owns_profile_for_contact(uuid) to authenticated;
+grant execute on function public.owns_contact(uuid) to authenticated;
+grant execute on function public.contact_is_unattached(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- policies
@@ -281,9 +320,25 @@ create policy practitioners_admin_all on public.practitioners
   for all to bluehex_admin
   using (true) with check (true);
 
+-- `contact_id` is in the `authenticated` insert grant, so without the second
+-- clause a profile insert is a read grant on somebody else's contact row: point
+-- your own profile at a contact row you did not write and the profile clause of
+-- `contacts_read_own` then answers true for you, which is the one route this table was
+-- split out to close. `unique (contact_id)` is not that clause — it stops two
+-- profiles sharing a row, not a stranger taking an unused one.
+--
+-- `contact_id is null` is let through here so that `not null` on the column is
+-- what refuses a profile with no contact at all. Row level security is checked
+-- before column constraints on insert, so without it the policy answers first and
+-- reports `42501` for a row whose real problem is a missing `contact_id` — each
+-- rule should fail with its own error, the same reason `unique (contact_id)` is
+-- left to report the contact row that is already taken.
 create policy practitioners_insert_own on public.practitioners
   for insert to authenticated
-  with check ((select auth.uid()) = user_id);
+  with check (
+    (select auth.uid()) = user_id
+    and (contact_id is null or public.owns_contact(contact_id))
+  );
 
 create policy practitioners_update_own on public.practitioners
   for update to authenticated
@@ -301,22 +356,52 @@ create policy practitioners_update_own on public.practitioners
 -- `practitioner_contacts` cannot follow the child-table pattern, because it is
 -- the parent. At insert time no profile points at the row, so "the profile that
 -- references me is yours" has nothing to traverse. It needs two routes in and
--- both are load-bearing: the first clause covers the row you just wrote,
--- including an orphan whose profile was never created, and the second covers the
--- row Bluehex wrote during curated intake, which a practitioner inherits the
--- moment they claim the profile.
+-- both are load-bearing: the first covers the row you just wrote, including an
+-- orphan whose profile was never created, and the second covers the row Bluehex
+-- wrote during curated intake, which a practitioner inherits the moment they
+-- claim the profile.
 --
--- `with check` deliberately names only the first clause. You may write rows you
--- own; you may not write a contact row into existence with somebody else's
--- `created_by`, and you may not reassign an existing row to yourself. Reading
--- through the profile is a right you inherit by claiming; writing is not.
+-- **Authorship expires.** `created_by = auth.uid()` on its own is a grant nothing
+-- ever takes away, and a profile can change hands: unassign it, assign it to
+-- somebody else, and the row now holds the new owner's email and phone while the
+-- original author still matches. That is the supported repair for a mis-assigned
+-- profile, so it is reachable rather than theoretical, and it inverts the rule
+-- below — the stranger who typed the row keeps write access while the person the
+-- details are about does not. `contact_is_unattached` is what ends it: authorship
+-- carries the row only while no profile points at it, and from then on the profile
+-- is what says whose it is.
+--
+-- Three policies rather than one `for all`, because the clause has to differ by
+-- verb. On `insert` the row is not in the table yet, so a helper that reads it
+-- back returns false and would refuse every contact ever written; on `select` and
+-- `update` the row is in hand and the full question can be asked.
+--
+-- `with check` still names authorship alone. You may not write a contact row into
+-- existence with somebody else's `created_by`, you may not reassign an existing
+-- one to yourself, and reading through the profile is a right you inherit by
+-- claiming while writing is not — a claimer reads the row Bluehex wrote and cannot
+-- edit it. If the product wants that, this is the line to change; see the spec.
+--
+-- No `delete` policy and no `delete` grant: a contact row outlives the profile
+-- that pointed at it, and clearing it up is #52.
 --
 -- No `anon` policy at all: there is no `anon` grant to go with one.
-create policy contacts_rw_own on public.practitioner_contacts
-  for all to authenticated
+create policy contacts_insert_own on public.practitioner_contacts
+  for insert to authenticated
+  with check (created_by = (select auth.uid()));
+
+create policy contacts_read_own on public.practitioner_contacts
+  for select to authenticated
   using (
-    created_by = (select auth.uid())
-    or public.owns_profile_for_contact(id)
+    public.owns_profile_for_contact(id)
+    or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
+  );
+
+create policy contacts_update_own on public.practitioner_contacts
+  for update to authenticated
+  using (
+    public.owns_profile_for_contact(id)
+    or (created_by = (select auth.uid()) and public.contact_is_unattached(id))
   )
   with check (created_by = (select auth.uid()));
 
@@ -350,7 +435,12 @@ as $$
 begin
   new.updated_at := now();
 
-  if current_user not in ('bluehex_admin', 'service_role', 'postgres',
+  -- `service_role` is deliberately absent. It holds no write privilege on this
+  -- table, so listing it changed nothing today and pre-authorized a bypass for the
+  -- day somebody grants it — of the one function that says who may move `status`
+  -- and `user_id`. Admin authority is the `bluehex_admin` role and never the
+  -- service key; see `docs/adr/0001-admins-are-a-postgres-role.md`.
+  if current_user not in ('bluehex_admin', 'postgres',
                           'supabase_admin', 'supabase_auth_admin')
   then
     new.status            := old.status;
@@ -381,6 +471,27 @@ begin
     end if;
   end if;
 
+  -- `approved_at` and `approved_by` mean "currently approved, by whom, when", and
+  -- the trigger is what makes that true down every path rather than only through
+  -- `approve_practitioner()`. An admin holds `update (status)` — that is what the
+  -- ownership flow needs and the RPC cannot be made the only door — so a plain
+  -- `PATCH {"status": "approved"}` publishes a profile, and without this it
+  -- publishes one with no record of who published it. The `coalesce` leaves the
+  -- RPC's own values alone.
+  --
+  -- Clearing on the way out is the same rule read backwards, and it is the half
+  -- that was wrong before: a profile approved and later rejected kept the stamp
+  -- and went on claiming it had been approved, which is exactly what a review
+  -- queue sorts on. Last written wins, so `updated_at` is where "when did this
+  -- last change" lives.
+  if new.status = 'approved' and old.status is distinct from 'approved' then
+    new.approved_at := coalesce(new.approved_at, now());
+    new.approved_by := coalesce(new.approved_by, (select auth.uid()));
+  elsif new.status is distinct from 'approved' and old.status = 'approved' then
+    new.approved_at := null;
+    new.approved_by := null;
+  end if;
+
   return new;
 end;
 $$;
@@ -389,9 +500,9 @@ create trigger practitioners_guard
   before update on public.practitioners
   for each row execute function public.practitioners_guard();
 
--- `set_updated_at()` — for the tables with no guard of their own. Without it
--- `updated_at` takes its default at insert and is never written again, and on
--- `practitioner_contacts` it is in the `authenticated` select grant: a column the
+-- `set_updated_at()` — for `practitioner_contacts`, the one table with no guard of
+-- its own. Without it `updated_at` takes its default at insert and is never
+-- written again, and there it is in the `authenticated` select grant: a column the
 -- API serves and that would be wrong.
 create function public.set_updated_at()
 returns trigger language plpgsql
@@ -407,9 +518,33 @@ create trigger contacts_set_updated_at
   before update on public.practitioner_contacts
   for each row execute function public.set_updated_at();
 
-create trigger review_notes_set_updated_at
+-- A note carries who last wrote it, not a history, so `written_at` and
+-- `written_by` have to move whenever the text does. `reject_practitioner()` sets
+-- both by hand and an admin holding `update` on the table can edit the note
+-- without them, which leaves feedback attributed to the previous admin at the
+-- previous date — and `written_at` is in the `authenticated` select grant, so that
+-- is a wrong date shown to the practitioner the note is about. Stating it here
+-- makes both write paths agree and turns the RPC's assignment into belt and
+-- braces.
+create function public.review_notes_guard()
+returns trigger language plpgsql
+set search_path = ''
+as $$
+begin
+  new.updated_at := now();
+
+  if new.note is distinct from old.note then
+    new.written_at := now();
+    new.written_by := (select auth.uid());
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger review_notes_guard
   before update on public.practitioner_review_notes
-  for each row execute function public.set_updated_at();
+  for each row execute function public.review_notes_guard();
 
 -- ---------------------------------------------------------------------------
 -- the admin write path

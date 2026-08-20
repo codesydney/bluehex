@@ -20,9 +20,12 @@ import { sql } from "./harness/stack";
  * publishes links, and never a route to the person.
  *
  * The contact is the **parent**, written before the profile that points at it, so
- * `contacts_rw_own` needs two routes in — the row you wrote (`created_by`) and the
- * row a profile of yours points at. Both are asserted here, and so is the third
- * thing the policy says by omission: `with check` names only the first clause.
+ * the policies need two routes in — the row you wrote (`created_by`) and the row a
+ * profile of yours points at. Both are asserted here, and so are the two things
+ * they say by omission: `with check` names authorship alone, so a claimer reads
+ * the row Bluehex wrote and cannot edit it; and authorship stops carrying the row
+ * once a profile points at it, so it is not a grant that outlives the profile
+ * changing hands.
  */
 
 let anon: Caller;
@@ -254,7 +257,7 @@ describe("a curated contact row, written by Bluehex", () => {
       .eq("id", id)
       .single();
 
-    /* The second clause of `contacts_rw_own`. Omitting it fails as "my own
+    /* The profile clause of `contacts_read_own`. Omitting it fails as "my own
        contact details are invisible to me", which nobody guesses from the error. */
     expectAllowed(afterClaim);
     expect(afterClaim.data?.id).toBe(id);
@@ -283,6 +286,66 @@ describe("a curated contact row, written by Bluehex", () => {
        bullet; its Policies SQL is normative and says this. */
     expectPermissionDenied(otherPractitioner, result);
     expect(result.error?.code).toBe(sqlstate.insufficientPrivilege);
+  });
+});
+
+describe("a contact row whose profile has changed hands", () => {
+  it("stops answering to the practitioner who wrote it", async () => {
+    /* `created_by` is a grant nothing ever takes away unless something ends it.
+       A profile can be reassigned — unassign, then assign, which is the supported
+       repair for a mis-assignment — and the row then holds the new owner's
+       details while the original author still matches `created_by`. Without
+       `contact_is_unattached` the stranger who typed the row goes on reading and
+       writing it, while the person the details are about cannot.
+
+       Fresh accounts rather than the file's fixtures: `unique (user_id)` means an
+       account can own one profile, and both of the callers above are already
+       owners by the time this runs. */
+    const author = await practitionerCaller("author");
+    const successor = await practitionerCaller("successor");
+
+    const id = await seedContact(author.userId);
+    const profile = await seedProfile(id, author.userId);
+
+    expectAllowed(
+      await admin.client
+        .from("practitioners")
+        .update({ user_id: null })
+        .eq("id", profile)
+        .select("id"),
+    );
+    expectAllowed(
+      await admin.client
+        .from("practitioners")
+        .update({ user_id: successor.userId })
+        .eq("id", profile)
+        .select("id"),
+    );
+
+    const read = await author.client
+      .from("practitioner_contacts")
+      .select("id, contact_email")
+      .eq("id", id);
+    expectAllowed(read);
+    expect(read.data).toEqual([]);
+
+    const write = await author.client
+      .from("practitioner_contacts")
+      .update({ contact_note: "still mine" })
+      .eq("id", id)
+      .select("id");
+    /* `using` matches nothing now, so this touches no rows rather than erroring.
+       The assertion that matters is the value, read back as `postgres`. */
+    expectAllowed(write);
+    expect(write.data).toEqual([]);
+
+    const [row] = await sql<{ contact_note: string | null }>(
+      "select contact_note from public.practitioner_contacts where id = $1",
+      [id],
+    );
+    expect(row?.contact_note).toBeNull();
+
+    await sql("delete from public.practitioners where id = $1", [profile]);
   });
 });
 

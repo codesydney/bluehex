@@ -231,7 +231,9 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      contact_is_unattached: { Args: { contact: string }; Returns: boolean }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      owns_contact: { Args: { contact: string }; Returns: boolean }
       owns_profile: { Args: { profile_id: string }; Returns: boolean }
       owns_profile_for_contact: { Args: { contact: string }; Returns: boolean }
       reject_practitioner: {

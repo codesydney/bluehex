@@ -281,11 +281,37 @@ describe("the admin write path", () => {
       "select updated_at from public.practitioner_review_notes where practitioner_id = $1",
       [theirs],
     );
-    /* `set_updated_at` is the only thing writing it: this table has no guard of
-       its own, and a timestamp that silently lies is worse than an absent one. */
+    /* A timestamp that silently lies is worse than an absent one. */
     expect(new Date(after!.updated_at).getTime()).toBeGreaterThan(
       new Date(before!.updated_at).getTime(),
     );
+
+    await sql("delete from public.practitioners where id = $1", [theirs]);
+  });
+
+  it("restamps who wrote it when the note is edited outside the RPC", async () => {
+    const theirs = await seedProfile(otherPractitioner.userId);
+    /* Seeded as `postgres`, so `written_by` starts null — an admin editing the
+       text is the first person to claim it. */
+    await seedNote(theirs, "first pass");
+
+    const result = await admin.client
+      .from("practitioner_review_notes")
+      .update({ note: "second pass" })
+      .eq("practitioner_id", theirs)
+      .select("practitioner_id");
+    expectAllowed(result);
+
+    /* An admin holds `update` on this table, so `reject_practitioner()` is not
+       the only way the text changes. `written_at` is in the `authenticated`
+       select grant — leave it behind and the practitioner the note is about is
+       shown feedback dated to somebody else's edit. */
+    const [row] = await sql<{ written_by: string | null; written_at: Date }>(
+      `select written_by, written_at from public.practitioner_review_notes
+        where practitioner_id = $1`,
+      [theirs],
+    );
+    expect(row?.written_by).toBe(admin.userId);
 
     await sql("delete from public.practitioners where id = $1", [theirs]);
   });
