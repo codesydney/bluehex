@@ -1,0 +1,167 @@
+# The schema's own suite: `tests/db`, run against a real Supabase stack.
+#
+# Separate from `ci.yml` on purpose. `Quality` is the required status check on `main`
+# (#18) and it finishes in a couple of minutes; this job boots Postgres, Kong,
+# PostgREST, GoTrue and Mailpit in containers before it asserts anything, and folding
+# that into the required check would make every pull request wait for it. (Five, not
+# the eleven `supabase start` boots by default — see the `-x` list below.) Keeping it
+# apart is also
+# the house pattern rather than a new exception — `e2e.yml` is a separate workflow for
+# the same reason.
+#
+# It is deliberately **not** a required check today. Make it one only once its real
+# runtime and flakiness are known, and read the note on `paths-ignore` below first —
+# that filter is safe precisely because this check is not required, and becomes a trap
+# on the day it is.
+name: Schema
+
+on:
+  # The four activity types are spelled out for the same reason `ci.yml` spells them
+  # out: naming any type replaces the defaults rather than adding to them, so without
+  # `ready_for_review` a pull request opened as a draft would never run this at all.
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+    # Skipping a *workflow* by path filter leaves its checks pending rather than green.
+    # `ci.yml` therefore cannot do this and uses a step-level condition instead — a
+    # pending required check blocks the merge. This workflow is not required, so a
+    # documentation pull request simply never starts it, which is the cheaper shape.
+    #
+    # **If this ever becomes a required check, this filter has to go** and be replaced
+    # by the same `docs-only` step condition `ci.yml` uses, or every documentation pull
+    # request becomes unmergeable.
+    #
+    # It is a blocklist of one pattern, so anything unrecognised falls through to a
+    # run. That is the right way round: a needless container boot costs minutes, a
+    # wrongly skipped one lets a broken policy onto `main`.
+    paths-ignore:
+      - "**/*.md"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+  # So the suite can be exercised deliberately without marking a draft ready for
+  # review — which would notify every watcher just to get a build.
+  #
+  # Only once this file is on the default branch, though: GitHub offers the `Run
+  # workflow` control for workflows it can see on the default branch and nowhere else.
+  # Until then the only way to get a run is to mark the pull request ready and put it
+  # back with `gh pr ready --undo`.
+  workflow_dispatch:
+
+concurrency:
+  # One stack per ref. Two runs of this workflow on the same branch would race for
+  # nothing useful, and the older one's result is never the one anybody wants.
+  group: schema-${{ github.workflow }}-${{ github.ref }}
+  # Pull requests only. On `main` the group key is `refs/heads/main` for every merge, so
+  # an unconditional cancel means two merges landing close together leave the first with
+  # no completed run — and since this is deliberately not a required check, that run is
+  # the only thing that ever says the schema suite is green at that commit. A cancelled
+  # run is not a failed one, so nobody would be told. #50, #90 and #52 merge as a serial
+  # spine, which is exactly the shape that produces closely-spaced merges.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  schema:
+    name: Schema tests
+    runs-on: ubuntu-latest
+    # Same guard as `Quality`, and a job-level `if:` for the same reason: a job skipped
+    # by `if:` reports Success, whereas a workflow skipped by filtering leaves its
+    # checks pending. Drafts get no CI in this repository; `workflow_dispatch` above is
+    # the way to ask for a run anyway.
+    if: github.event.pull_request.draft != true
+    # `supabase start` pulls and boots its containers on a cold runner. Fifteen minutes
+    # is generous for the five this job asks for plus a serial suite; it exists so a
+    # wedged container fails the run rather than burning an hour. It is still a guess —
+    # revisit it once a real run has reported an actual duration.
+    timeout-minutes: 15
+    steps:
+      # Actions are pinned to commit SHAs, not tags: a major-version tag can be
+      # retargeted. Comments record the version each SHA corresponds to; bump both
+      # together.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # pnpm/action-setup must come before setup-node, or the cache step finds no
+      # lockfile it understands. Omitting `version` makes the action read
+      # `packageManager` from package.json, so the pin cannot drift from local dev.
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # This is also what installs the Supabase CLI. It is a devDependency
+      # (`supabase` in package.json), so there is no `supabase/setup-cli` step here
+      # and no new third-party action to put on the Actions allowlist — and the
+      # version CI runs is the version in `pnpm-lock.yaml`, under the 7-day release
+      # floor, rather than whatever a tag pointed at this morning.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Applies every migration in `supabase/migrations/` in order and then
+      # `supabase/seed.sql`, so a migration that will not apply fails here rather than
+      # somewhere confusing inside the suite.
+      #
+      # Not `pnpm db:start`, which is bare `supabase start` and boots eleven containers.
+      # A developer wants all of them — Studio above all. This job talks to exactly two
+      # endpoints: `54321` (Kong, fronting PostgREST and GoTrue) and `54322` (Postgres).
+      # The other seven are pulled, booted and health-checked for nothing, and two of
+      # them — `vector` and `logflare` — are the likeliest in the set to come up
+      # unhealthy on a runner. That would be a red run caused by a service no assertion
+      # touches, indistinguishable from the broken policy this workflow exists to catch.
+      #
+      # `mailpit` is kept deliberately, and it is the one exclusion not to guess at. The
+      # suite signs users up; `enable_confirmations` is false in `config.toml`, so GoTrue
+      # should never send mail — but "should" is doing the work in that sentence, and a
+      # sign-up that hangs waiting on SMTP is a worse failure than a container nobody
+      # needed. Drop it once a real run has proved it idle.
+      #
+      # Never add `--ignore-health-check` here. It exits 0 on an unhealthy stack, which
+      # is the exact false green the next step's comment exists to prevent.
+      - name: Start the Supabase stack
+        run: >-
+          pnpm exec supabase start
+          -x studio,logflare,vector,imgproxy,storage-api,realtime,postgres-meta,edge-runtime,supavisor
+
+      # `pnpm test:db` is `vitest run --project db` — the `db` project alone, never
+      # `src`.
+      #
+      # **Read the exit code, not the summary line.** When the stack is unreachable the
+      # harness throws out of a `beforeAll`, and Vitest reports that file's tests as
+      # *skipped* while still exiting non-zero. A run that boots nothing therefore looks
+      # calm and fails correctly — but only to something checking the status, which is
+      # why this is a plain `run:` with no piping. A `| tail` would report the tail's
+      # exit code and turn the whole job green.
+      - name: Run the schema tests
+        run: pnpm test:db
+
+      # Diagnostics for the failure that is hardest to read from the log above: a
+      # container that came up unhealthy, or a migration that applied on one developer's
+      # machine and not on a clean one.
+      #
+      # Every command runs unconditionally rather than as a `||` chain. The interesting
+      # failure is the partial one — the stack came up far enough for `status` to exit 0
+      # and the suite failed anyway — and that is precisely the case where a chain would
+      # skip the container table. `|| true` on the first, and `set +e` semantics by
+      # keeping each on its own line, so a diagnostic step can never itself be the thing
+      # that fails.
+      - name: Stack diagnostics
+        if: failure()
+        run: |
+          pnpm exec supabase status || true
+          docker ps -a || true
+          for c in $(docker ps -aq); do
+            echo "::group::docker logs $(docker inspect --format '{{.Name}}' "$c")"
+            docker logs --tail=200 "$c" 2>&1 || true
+            echo "::endgroup::"
+          done
