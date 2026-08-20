@@ -1,29 +1,15 @@
 name: Vercel Deploy
 
 on:
-  # Deploys follow CI rather than the push, so a commit that fails `Build and lint`
-  # never reaches production. `workflow_run` is the only way to order two separate
-  # workflows — a `needs:` cannot cross a workflow boundary — and it fires on every
-  # completion, success or not, so the job below has to check the conclusion itself.
+  # Deploying is a deliberate act, not a consequence of merging. There is no automatic
+  # trigger here on purpose: `main` moving is a statement that the code is good, not a
+  # decision to ship it, and those are two different calls made by two different people
+  # at two different moments.
   #
   # Two consequences worth knowing. The workflow file is read from the default branch,
-  # not from the commit being deployed, so a change to this file only takes effect once
-  # it is on `main`. And `github.sha` here is `main`'s tip at trigger time rather than
-  # the commit CI validated, which is why the checkout below pins
-  # `workflow_run.head_sha` — without that, a second merge landing mid-run would ship a
-  # commit that nothing had checked.
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
-
-  # Shipping is normally a consequence of landing on `main`, and that stays the rule.
-  # This is for the case where the push happened and the run did not: a workflow
-  # disabled by hand creates no run for a push received while it is off, not a queued
-  # one, so re-enabling it afterwards leaves `main` ahead of production with nothing
-  # to re-run and no way back except an empty commit. That happened on 15 August 2026
-  # when the #63–#66 stack merged. Dispatch reconciles the two without writing a commit
-  # whose only purpose is to be pushed.
+  # so a change to this file only takes effect once it is on `main`. And a dispatch runs
+  # against whichever ref the caller picks in the dropdown, which the job below gates —
+  # see there.
   workflow_dispatch:
 
 # Never let two production deploys race. A queued run supersedes the one waiting,
@@ -34,6 +20,8 @@ concurrency:
 
 permissions:
   contents: read
+  # For the CI gate below, which reads this repository's workflow runs.
+  actions: read
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -42,32 +30,43 @@ env:
 jobs:
   deploy-production:
     runs-on: ubuntu-latest
-    # Two gates in one condition, because the two triggers fail differently.
-    #
-    # `workflow_run` fires whenever CI completes, including when it failed or was
-    # cancelled, so the conclusion has to be checked here or a red commit ships. The
-    # `branches:` filter above already restricts it to `main`.
-    #
-    # A dispatch runs against whichever ref the caller picks in the dropdown, and every
-    # step below passes `--prod` — so without the ref check, choosing any branch there
-    # ships it to production. Both sit on the job rather than in a step, so a wrong ref
-    # or a failed CI run costs a skipped run rather than a half-finished deploy.
-    if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    # Every step below passes `--prod`, so without this a dispatch from any branch in the
+    # dropdown ships that branch to production. It sits on the job rather than in a step,
+    # so a wrong ref costs a skipped run rather than a half-finished deploy.
+    if: github.ref == 'refs/heads/main'
     steps:
+      # The gate that used to be the trigger. When deploys followed CI via `workflow_run`,
+      # a red commit could not ship because no run was created for one; a dispatch has no
+      # such interlock, so the check has to be made here instead. Deliberately without a
+      # bypass input: a commit whose CI is red is a commit to fix, not a commit to ship
+      # past a toggle.
+      #
+      # First, so a red commit costs a few seconds rather than a full build. It needs no
+      # checkout — `gh` is given the repository explicitly.
+      - name: Require a green CI run for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          conclusion=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow CI \
+            --commit "$GITHUB_SHA" \
+            --limit 1 \
+            --json conclusion \
+            --jq '.[0].conclusion // ""')
+          if [ "$conclusion" != "success" ]; then
+            echo "CI on $GITHUB_SHA concluded '${conclusion:-no run found}', not 'success' — refusing to deploy." >&2
+            exit 1
+          fi
+
       # Actions are pinned to commit SHAs, not tags: a major-version tag can be
       # retargeted, and this job holds VERCEL_TOKEN. Comments record the version each
       # SHA corresponds to; bump both together.
       #
-      # `ref` pins the exact commit CI validated. On a `workflow_run` event the default
-      # checkout is the default branch's tip, which is usually the same commit and
-      # silently is not when two merges land close together — the failure mode being a
-      # deploy of something no run ever checked. `github.sha` is the fallback for a
-      # dispatch, where there is no triggering run to read.
+      # No `ref:` — a dispatch checks out the ref it was dispatched against, which the
+      # job condition has already restricted to `main`, at the same `github.sha` the gate
+      # above checked.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       # pnpm/action-setup must come before setup-node, or the cache step finds no
       # lockfile it understands. Omitting `version` makes the action read
@@ -105,9 +104,8 @@ jobs:
         run: pnpm exec vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       # This runs the Next.js production build; a build failure fails the deploy here.
-      # That is also the only check in this job: CI on pull requests is #3 and making it
-      # block a merge is #18, so until both land nothing stops a red commit reaching
-      # production — `next build` no longer runs ESLint.
+      # It is not a substitute for the gate above — `next build` no longer runs ESLint,
+      # and it runs no tests at all.
       - name: Build project artifacts
         run: pnpm exec vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 

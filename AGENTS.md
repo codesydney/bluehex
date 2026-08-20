@@ -429,8 +429,11 @@ The parts most likely to catch you out:
 
 ## Deployment
 
-Target is Vercel, deployed from the `main` branch of `codesydney/bluehex`. Pushes to
-`main` ship to production; pull requests get preview deployments.
+Target is Vercel, deployed from the `main` branch of `codesydney/bluehex`. Pull requests get preview deployments from Vercel's own integration. **Production is manual only**: `.github/workflows/vercel-deploy.yml` has `workflow_dispatch` and no automatic trigger, so a merge to `main` ships nothing until someone runs the workflow — `gh workflow run "Vercel Deploy" --ref main`, or the Run workflow button.
+
+That is a deliberate separation of two decisions that used to be one. Landing on `main` says the code is good; deploying says now is the moment to ship it. The workflow previously fired on a successful CI run, which fused them and made every merge a release. It also meant the only way to stop shipping was to disable the workflow by hand, and a push received while it was off created no run at all — leaving `main` ahead of production with nothing to re-run. See #63–#66, 15 August 2026.
+
+The cost is that CI no longer gates the deploy by construction, so the workflow's first step asserts it instead: it reads the CI run for the dispatched commit and refuses anything that did not conclude `success`. There is no bypass input, on purpose — a commit whose CI is red is one to fix, not one to ship past a toggle. It needs `actions: read`, which is why the workflow's `permissions` block names two scopes rather than one.
 
 `next build` passes with no environment variables set, which is what the lazy client in
 `src/lib/supabase.ts` is for and is worth keeping true. It does not follow that a
