@@ -78,10 +78,14 @@ jobs:
       #
       # The failure mode of that is a duplicate deploy, not a missed one: if the two
       # conclude within the few seconds between this step and its sibling's, both see
-      # the other as complete and both ship the same commit — which the concurrency
-      # group above serialises. That is the right way round. The reverse — both standing
-      # down and `main` never shipping — cannot happen, because a run's event is
-      # delivered only after that run has concluded.
+      # the other as complete and both ship the same commit. The concurrency group above
+      # orders those two rather than collapsing them — `cancel-in-progress: false` queues
+      # the second run, it does not drop it — so the cost is one wasted build and a second
+      # deployment record of an identical commit, not two deploys racing. That is the
+      # right way round, and it is the trade for the reverse being impossible: both
+      # standing down and `main` never shipping cannot happen, because a run's event is
+      # delivered only after that run has concluded, and the lookup below is narrowed to
+      # exactly one run per workflow per commit.
       #
       # Nothing here needs the repository, so it comes before the checkout.
       - name: Check the sibling workflow
@@ -101,13 +105,16 @@ jobs:
             exit 0
           fi
 
-          # These two names are the `name:` at the top of `ci.yml` and `schema.yml`, and
-          # the same two strings the `workflows:` list above matches on. A third workflow
-          # added to that list but not to this case falls through to the catch-all and
-          # stops deploying — noisy, but it fails closed.
+          # `TRIGGER` is matched on the workflow's `name:`, because that is what the event
+          # payload carries and what the `workflows:` list above matches on. The sibling
+          # is then identified by **file**, not by name: the file is the stable key, it is
+          # what the API endpoints below take, and it cannot collide the way a display
+          # name can. A third workflow added to the trigger list but not to this case
+          # falls through to the catch-all and stops deploying — noisy, but it fails
+          # closed.
           case "$TRIGGER" in
-            CI)     sibling=Schema ;;
-            Schema) sibling=CI ;;
+            CI)     sibling=Schema sibling_file=schema.yml ;;
+            Schema) sibling=CI     sibling_file=ci.yml ;;
             *)
               echo "Triggered by an unrecognised workflow ($TRIGGER) — not deploying."
               echo "deploy=false" >> "$GITHUB_OUTPUT"
@@ -115,19 +122,38 @@ jobs:
               ;;
           esac
 
-          # Newest first, which is the order the API returns them in, so a re-run of the
-          # sibling wins over the original.
-          runs=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100")
-          run=$(jq -c --arg name "$sibling" \
-            '[.workflow_runs[] | select(.name == $name)] | first' <<<"$runs")
+          # Scoped to the sibling's own workflow file *and* to `event=push`, which is what
+          # makes "one run per workflow per commit" true and the paragraph above with it.
+          # Without the event filter this matched any run at the commit, and a hand
+          # dispatch of `Schema` against `main` produces a second run at the same
+          # `head_sha` — newer, so it would win the lookup, and a cancelled one would
+          # leave the commit deployed by nothing at all.
+          run=$(gh api \
+            "repos/$REPO/actions/workflows/$sibling_file/runs?head_sha=$HEAD_SHA&event=push&per_page=100" \
+            --jq '.workflow_runs | first')
 
-          if [ "$run" = null ]; then
-            # No sibling run at all for this commit, which happens two ways and ships in
-            # both. `Schema` filters documentation-only pushes out with `paths-ignore`,
-            # and a workflow disabled by hand creates no run either. Neither is a failing
-            # check, and refusing to deploy on the absence of one would mean a
-            # documentation merge could never reach production.
-            echo "No $sibling run for $HEAD_SHA — nothing to wait for."
+          if [ -z "$run" ] || [ "$run" = null ]; then
+            # No sibling run for this commit. Two very different reasons, and conflating
+            # them is how this gate would quietly stop applying.
+            #
+            #   - The workflow is `active` and simply did not match: `Schema` filters
+            #     documentation-only pushes out with `paths-ignore`. Benign, and refusing
+            #     to deploy on it would mean a documentation merge could never reach
+            #     production.
+            #   - The workflow is **disabled by hand**, in which case every code merge
+            #     from here on ships with no schema signal — which is the hole this whole
+            #     job exists to close, re-opened silently.
+            #
+            # Both still ship, because standing down would freeze production for as long
+            # as the workflow stayed off, and that is a worse trap than shipping. But the
+            # second gets a warning annotation, so the deploy says out loud that it was
+            # not checked rather than reporting "nothing to wait for".
+            state=$(gh api "repos/$REPO/actions/workflows/$sibling_file" --jq '.state')
+            if [ "$state" = active ]; then
+              echo "No $sibling run for $HEAD_SHA and $sibling_file is active — nothing to wait for."
+            else
+              echo "::warning title=Deploying without $sibling::$sibling_file is $state, so no run exists for $HEAD_SHA. Shipping unchecked by $sibling."
+            fi
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
