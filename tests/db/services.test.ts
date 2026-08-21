@@ -414,8 +414,10 @@ describe("anon", () => {
     await seedService(mine, { label: "Rescuing agent runs at 2am" });
     const pending = await seedProfile({ status: "pending" });
     await seedService(pending, { catalogueId: serviceA });
+    const rejected = await seedProfile({ status: "rejected" });
+    await seedService(rejected, { catalogueId: serviceB });
     const withdrawn = await seedProfile({ status: "withdrawn" });
-    await seedService(withdrawn, { catalogueId: serviceB });
+    await seedService(withdrawn, { catalogueId: serviceC });
 
     const approved = await anon.client
       .from("practitioner_services")
@@ -424,13 +426,18 @@ describe("anon", () => {
     const hidden = await anon.client
       .from("practitioner_services")
       .select("id, practitioner_id")
-      .in("practitioner_id", [pending, withdrawn]);
+      .in("practitioner_id", [pending, rejected, withdrawn]);
 
     /* The child follows its parent. `services_read_public` asks whether the profile
        is published through `profile_is_approved()` — a `security definer` helper
        rather than an inline subquery, because `anon` holds no `select` on
        `practitioners.status` and the inline form is refused `42501` on the
-       directory's own read path. */
+       directory's own read path.
+
+       All three non-approved statuses, not the two that are easy to reach for. The
+       policy asks `status = 'approved'`, but a later rewrite as a pair of `<>`
+       clauses would pass a test that only seeds `pending` and `withdrawn` while
+       publishing every rejected profile's services. */
     expectAllowed(approved);
     expect(approved.data).toHaveLength(2);
     expectAllowed(hidden);

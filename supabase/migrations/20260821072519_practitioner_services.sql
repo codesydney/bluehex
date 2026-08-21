@@ -167,14 +167,38 @@ create policy services_admin_all on public.practitioner_services
 -- an `immutable` helper, and that escape hatch does not work twice — counting other
 -- rows is by definition not immutable.
 --
--- Left `security invoker`, unlike the trigger functions in
--- `20260820222040_practitioner_credentials.sql`: those were privileged because they
--- call a function the API roles hold no `execute` on, and because they read columns of
--- `practitioners` withheld from `authenticated`. This one reads only the table the
--- write is already against, and the count it needs is the count the caller can see —
--- `services_rw_own` shows an owner every row on their own profile and
--- `services_admin_all` shows an admin everything, and those are the only two callers a
--- write can arrive from.
+-- `security invoker`, like `credentials_guard` and `catalogue_guard` in
+-- `20260820222040_practitioner_credentials.sql`. Invoker is the default for a rule of
+-- this shape; the `security definer` exception in that file is reserved for the two
+-- functions that call `clear_profile_verification()`, which every API role has been
+-- revoked `execute` on, and which read columns of `practitioners` withheld from
+-- `authenticated`. This one calls nothing the caller cannot and reads only the table
+-- the write is already against, so it needs no such escalation.
+--
+-- **It is invoker for a second reason, and that one is load-bearing: the count is
+-- filtered by row level security, and it has to be.** A `before` row trigger runs
+-- ahead of the policy's `WITH CHECK`, so this function is reached by callers who are
+-- about to be refused. Because it counts as the caller, a stranger writing to a
+-- profile they cannot read counts zero, falls through, and is refused `42501` by the
+-- policy — which is the right answer. Made `security definer`, the count would be
+-- authoritative for everybody and a stranger probing a `pending` profile would learn
+-- from the refusal whether it holds three services, on exactly the profiles whose
+-- services are meant to be hidden. The privileged version of this function is the
+-- insecure one.
+--
+-- What that ordering costs, stated rather than discovered: on an *approved* profile,
+-- whose services `anon` may read anyway, a non-owner's write is refused `23514` by
+-- this cap rather than `42501` by the policy. The refusal is misattributed — a 400
+-- where 403 is the honest answer — and it discloses nothing, because the count it
+-- reflects is already public through an ordinary `GET`. Left alone deliberately: the
+-- fix is an ownership test inside a function that is a rule about what a profile may
+-- say rather than an authority over who may say it, and an allow-list here that is
+-- ever wrong fails *open* on the cap. A wrong status code on a public fact is the
+-- cheaper of the two failures.
+--
+-- The count is complete for both callers a write can actually succeed from:
+-- `services_rw_own` shows an owner every row on their own profile, and
+-- `services_admin_all` shows an admin everything.
 create function public.practitioner_services_cap()
 returns trigger language plpgsql
 set search_path = ''
