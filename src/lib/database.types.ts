@@ -210,6 +210,48 @@ export type Database = {
           },
         ]
       }
+      practitioner_services: {
+        Row: {
+          catalogue_id: string | null
+          created_at: string
+          id: string
+          label: string | null
+          practitioner_id: string
+          updated_at: string
+        }
+        Insert: {
+          catalogue_id?: string | null
+          created_at?: string
+          id?: string
+          label?: string | null
+          practitioner_id: string
+          updated_at?: string
+        }
+        Update: {
+          catalogue_id?: string | null
+          created_at?: string
+          id?: string
+          label?: string | null
+          practitioner_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practitioner_services_catalogue_id_fkey"
+            columns: ["catalogue_id"]
+            isOneToOne: false
+            referencedRelation: "service_catalogue"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practitioner_services_practitioner_id_fkey"
+            columns: ["practitioner_id"]
+            isOneToOne: false
+            referencedRelation: "practitioners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       practitioners: {
         Row: {
           approved_at: string | null
