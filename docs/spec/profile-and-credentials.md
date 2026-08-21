@@ -968,8 +968,15 @@ create table public.practitioner_services (
 );
 alter table public.practitioner_services enable row level security;
 
-create index practitioner_services_practitioner_id_idx
-  on public.practitioner_services (practitioner_id);
+-- #90 ships this on `catalogue_id` instead, for the reason #50 gave one table
+-- along. The unique constraint above already indexes
+-- `(practitioner_id, catalogue_id)` and serves `where practitioner_id = $1` on its
+-- leading column, so a second index on that column alone is write cost for no read
+-- — while `catalogue_id` is scanned by the `on delete restrict` check on every
+-- attempt to delete a catalogue entry, which is the sanctioned way an admin
+-- discovers a service is offered
+create index practitioner_services_catalogue_id_idx
+  on public.practitioner_services (catalogue_id);
 ```
 
 **The cap is a trigger, not a check constraint.** "At most three services per profile"
