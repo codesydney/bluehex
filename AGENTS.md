@@ -437,6 +437,22 @@ A push to `main` does not deploy directly — `vercel-deploy.yml` triggers on `w
 
 A red `Schema` does stop the deploy, and silently: the job stands down rather than failing, because the `Schema` run is already reporting the failure against that commit and a second red X adds nothing.
 
+### How schema reaches production
+
+**The deploy applies the migrations.** Before it builds anything, `vercel-deploy.yml` runs `supabase link --project-ref` and then `supabase db push --linked --yes`, using the CLI that is already a devDependency — no `supabase/setup-cli`, nothing on the Actions allowlist, and the version under the 7-day release floor. With no new migration the push is a no-op that exits 0, so it costs nothing on a documentation merge.
+
+**It is a step in the deploy job, not a workflow of its own, and that is the whole design.** That job is the only place that already knows both `Quality` and `Schema` are green at the exact commit being shipped, and its concurrency group is what stops two merges pushing migrations at once. A `migrate.yml` on `push: main` would apply schema at commits whose schema tests had not passed, and a third workflow named in the `workflow_run` trigger would fall through the sibling gate's `case` and stop deploying altogether. It runs *before* the build because the failure modes are asymmetric: an additive migration ahead of the code that reads it is what every migration here is written to tolerate, while code ahead of its schema is a deployed page querying tables that do not exist.
+
+**Three repository secrets, all account actions:** `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD` and `SUPABASE_PROJECT_REF`. The last is deliberately not called `SUPABASE_PROJECT_ID`, which the CLI reads as an override for `config.toml`'s `project_id` — the local Docker project, `bluehex`, not the hosted ref. The step checks all three and names the missing one, because an unset secret is an empty string and the CLI's error for that reads like a network problem.
+
+**Disabling `Vercel Deploy` now also stops migrations reaching hosted.** It used to mean only that `main` was ahead of production; it now means `main` is ahead of the hosted schema too, with no annotation anywhere to say so. Check `gh workflow list --all` before assuming a merged migration has been applied.
+
+**The access token hook is dashboard configuration, not schema, so `db push` does not carry it.** Enable `custom_access_token_hook` in the hosted project *after* the first successful push and never before — enabling it without the function takes down every sign-in with a 500, and forgetting it entirely means admins silently get `authenticated` and every admin RPC returns permission denied.
+
+**`supabase/seed.sql` never runs against the hosted project.** `--include-seed` is not passed and must not be added; the credential catalogue reaching production is a decision (#95), not a side effect of a deploy. `--include-all` is likewise off: it applies migrations the remote history has skipped past, which is a repair to perform deliberately.
+
+**Preview deployments share the production database**, which is harmless while the app only reads and stops being harmless in #14. The decision between Supabase branching (paid) and a second project with its own preview-environment variables is recorded on #48 and is needed before self-service writes land, not before the pipeline does.
+
 `next build` passes with no environment variables set, which is what the lazy client in
 `src/lib/supabase.ts` is for and is worth keeping true. It does not follow that a
 deployment can reach Supabase: `NEXT_PUBLIC_SUPABASE_URL` and
