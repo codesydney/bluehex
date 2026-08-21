@@ -367,7 +367,7 @@ What does not exist yet: `withdraw_profile()` and the erasure path (#52), auth i
   most advice on this never mentions grants. Write them explicitly. It fails closed,
   which is the right way round, and it is the same privilege layer the `verified` rule
   below depends on — so being in the habit is worth more than the keystrokes.
-- **Make the client lazy** — a `getClient()` function, not a top-level `export const db`. The module gets imported during `next build`, so reading environment variables eagerly breaks builds wherever a required variable is absent (CI, preview deployments).
+- **Make the client lazy** — a `getClient()` function, not a top-level `export const db`. The module gets imported during `next build`, so reading environment variables eagerly breaks builds wherever a required variable is absent (CI, or a clean clone with no `.env.local`).
 - **Cache the client at module scope**, not only on `globalThis`. A `globalThis`-only
   cache is typically skipped in production and leaks a new client per call.
 - **Queries are async**, unlike the synchronous `better-sqlite3` setup, so a Server Component that reads from the database must be `async`. Most of them will not also need `await connection()`. Per `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/connection.md`, `connection()` exists for a component that produces per-request output *without* touching a request-time API — its worked example is a synchronous `better-sqlite3` query, which is precisely the setup being replaced here. A Supabase server client reads cookies to resolve the session, and `cookies()` is a request-time API, so the render is already request-bound and `connection()` adds nothing. Reach for it only on a read that touches neither cookies nor headers, such as an anonymous public query — plausibly the directory listing itself. `export const dynamic` is on its way out in Next 16, so `connection()` is still the tool when one is needed.
@@ -428,8 +428,7 @@ The parts most likely to catch you out:
 
 ## Deployment
 
-Target is Vercel, deployed from the `main` branch of `codesydney/bluehex`. Pushes to
-`main` ship to production; pull requests get preview deployments.
+Target is Vercel, deployed from the `main` branch of `codesydney/bluehex`. Pushes to `main` ship to production, and **production is the only deployed environment there is.** Vercel's Git integration is not in use, so a pull request gets CI and nothing else — no preview deployment, no preview URL, and no preview environment holding a second copy of the environment variables. Two things follow. Anything depending on the hosted project is proved for the first time in production, so there is no rehearsal to catch a query that passes against the local stack and fails against the hosted one. And the preview-versus-production database question — a preview branch writing real profiles — does not arise while this stays true, which narrows what #14 has to decide rather than deferring it.
 
 A push to `main` does not deploy directly — `vercel-deploy.yml` triggers on `workflow_run` from **both** `CI` and `Schema`. Where a run of each exists, nothing ships until both are green at that commit; the exception is a workflow that produced no run at all, which is the part to read carefully below. Note what naming two workflows in a `workflow_run` trigger actually does: it fires once per workflow, not once when both have finished. The ordering comes from a gate step that reads the sibling workflow's run at the same commit and stands down unless it has finished — so whichever event lands last is the one that deploys. The lookup is scoped to the sibling's own workflow file and to `event=push`, which is what makes "one run per workflow per commit" true; without the event filter a hand dispatch of `Schema` against `main` would put a second run at the same commit and win the lookup.
 
@@ -457,8 +456,4 @@ A red `Schema` does stop the deploy, and silently: the job stands down rather th
 
 `next build` passes with no environment variables set, which is what the lazy client in
 `src/lib/supabase.ts` is for and is worth keeping true. It does not follow that a
-deployment can reach Supabase: `NEXT_PUBLIC_SUPABASE_URL` and
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be in Vercel's preview and production
-environments, or a deployed read fails at request time rather than at build time. Both
-are set as of August 2026. Nothing queries the database yet, so the first feature to do
-so is the first thing that will actually test this — a green deploy is not evidence.
+deployment can reach Supabase: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be in Vercel's production environment — the only one, per above — or a deployed read fails. Both are set there as of August 2026. Note *where* it fails is not fixed: a request-time read fails at request time, but a statically rendered page runs its query on the build machine, so the same missing variable fails the build instead. Nothing queries the database yet, so the first feature to do so is the first thing that will actually test this — a green deploy is not evidence.
