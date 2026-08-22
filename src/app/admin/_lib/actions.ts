@@ -45,7 +45,17 @@ import type { AdminStatus } from "./queue";
  * where the shell can put them on screen.
  */
 
-export type ActionOutcome = { ok: true } | { ok: false; message: string };
+/**
+ * What a write reports back.
+ *
+ * `notice` is for the case that has no other honest answer: the write landed
+ * and something after it did not. Reporting that as `ok: false` would tell an
+ * admin to retry a change Postgres has already committed, and reporting it as a
+ * bare success would hide a public page still serving the old badge.
+ */
+export type ActionOutcome =
+  | { ok: true; notice?: string }
+  | { ok: false; message: string };
 
 /** A uuid, checked before it is sent, so an obvious typo reads as one. Postgres
     answers `22P02 invalid input syntax for type uuid` otherwise, which names the
@@ -191,7 +201,24 @@ export async function setVerifiedAction(
     .select("handle")
     .eq("id", data.practitioner_id)
     .single();
-  if (lookup) return refusal(lookup);
+
+  /* `set_credential_verified()` has already committed by here. A failure of the
+     lookup that follows it is not a failure of the write, and saying otherwise
+     would send the admin back to click Verify again over a change that landed.
+     The directory is purged either way — it is the one page whose path is known
+     without the handle — and only the profile page is left stale, which is what
+     the notice says. */
+  if (lookup) {
+    revalidatePath("/");
+    purgeQueue();
+    return {
+      ok: true,
+      notice:
+        "The check was saved. The practitioner's own page could not be refreshed, so it " +
+        "may show the previous badge for up to a day — reading the profile back failed: " +
+        lookup.message,
+    };
+  }
 
   purgePublicPages(profile.handle);
   purgeQueue();
@@ -223,6 +250,29 @@ export async function setNoteAction(profileId: string, note: string): Promise<Ac
   const text = note.trim();
 
   if (!text) {
+    /* A rejection carries its reason, and this is the only path that could take
+       it away afterwards. `setStatusAction` refuses to reject without a note and
+       `reject_practitioner()` writes one in the same statement that sets the
+       status, so deleting it here would produce by the back door exactly the
+       state those two exist to prevent: a practitioner reading a refusal with no
+       explanation. Deleting a note on a pending or approved profile is fine and
+       is the point of the button. */
+    const { data: profile, error: status } = await supabase
+      .from("practitioners")
+      .select("status")
+      .eq("id", profileId)
+      .single();
+    if (status) return refusal(status);
+
+    if (profile.status === "rejected") {
+      return {
+        ok: false,
+        message:
+          "A rejected profile keeps its note. The practitioner reads it — put the profile " +
+          "back to pending first if the reason no longer stands.",
+      };
+    }
+
     const { error } = await supabase
       .from("practitioner_review_notes")
       .delete()
@@ -274,15 +324,24 @@ export async function assignOwnerAction(
 ): Promise<ActionOutcome> {
   await requireAdmin("/admin");
 
+  /* An empty field unassigns. That is not a convenience: `practitioners_guard`
+     refuses `A → B`, so unassigning is the *only* repair for a profile handed to
+     the wrong account, and the spec leans on it — "a mis-assignment is still
+     recoverable without database access: unassign (`A → null`, which withdraws
+     the profile while its ownership is in question), then claim it to the right
+     account". Without this branch that sentence is false and the repair needs
+     psql. The guard forces `withdrawn` on the way out, so the profile leaves the
+     directory while its ownership is in question rather than staying published
+     with nobody behind it. */
   const account = accountId.trim();
-  if (!UUID.test(account)) {
+  if (account !== "" && !UUID.test(account)) {
     return { ok: false, message: "That is not an account id. It is a uuid, from the account's own record." };
   }
 
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("practitioners")
-    .update({ user_id: account })
+    .update({ user_id: account === "" ? null : account })
     .eq("id", profileId)
     .select("handle")
     .single();

@@ -113,6 +113,10 @@ export function ReviewQueue({ queue, reviewer }: { queue: QueueProfile[]; review
      the screen is showing a row Postgres has already changed. */
   const [pending, startTransition] = useTransition();
   const [failure, setFailure] = useState<string | null>(null);
+  /* Separate from `failure` because it is the opposite report: the write landed.
+     One state holding both would have to encode which, and the banner would have
+     to decode it to choose a label. */
+  const [notice, setNotice] = useState<string | null>(null);
 
   /**
    * One write, with whatever came back put on screen.
@@ -130,10 +134,12 @@ export function ReviewQueue({ queue, reviewer }: { queue: QueueProfile[]; review
    */
   const run = (work: () => Promise<ActionOutcome>) => {
     setFailure(null);
+    setNotice(null);
     startTransition(async () => {
       try {
         const outcome = await work();
         if (outcome?.ok === false) setFailure(outcome.message);
+        else if (outcome?.notice) setNotice(outcome.notice);
       } catch (error) {
         setFailure(error instanceof Error ? error.message : "The write did not go through.");
       }
@@ -273,6 +279,7 @@ export function ReviewQueue({ queue, reviewer }: { queue: QueueProfile[]; review
           reviewer={reviewer}
           pending={pending}
           failure={failure}
+          notice={notice}
           position={position}
           total={ordered.length}
           onStep={step}
@@ -299,6 +306,7 @@ function ProfilePanel({
   reviewer,
   pending,
   failure,
+  notice,
   position,
   total,
   onStep,
@@ -308,6 +316,7 @@ function ProfilePanel({
   reviewer: string;
   pending: boolean;
   failure: string | null;
+  notice: string | null;
   position: number;
   total: number;
   onStep: (delta: number) => void;
@@ -385,6 +394,18 @@ function ProfilePanel({
           className="mt-6 rounded-tight border border-stroke-strong bg-surface px-4 py-3 text-sm"
         >
           <strong className="font-medium">Not written.</strong> {failure}
+        </p>
+      ) : null}
+
+      {/* The write landed and something after it did not. Deliberately not the
+          same banner: "Not written" over a change Postgres has committed is the
+          one message this screen must never show. */}
+      {notice ? (
+        <p
+          role="status"
+          className="mt-6 rounded-tight border border-stroke bg-surface px-4 py-3 text-sm"
+        >
+          <strong className="font-medium">Written.</strong> {notice}
         </p>
       ) : null}
 
@@ -513,11 +534,35 @@ function ProfilePanel({
             <p className="mt-2 max-w-prose text-sm text-t-muted">
               Check the account&rsquo;s verified address is {profile.contactEmail} first —
               that address is the lock on an unclaimed profile, and nothing here checks it
-              for you. Hands over a profile that may already carry the badge, clears every
-              check on it, and cannot be undone: a profile never changes owners twice.
+              for you, because nothing reachable from here resolves an id to an address.
+              Hands over a profile that may already carry the badge and clears every check
+              on it. A profile never changes owners twice, so getting it wrong is repaired
+              by unassigning below rather than by assigning again.
             </p>
           </div>
-        ) : null}
+        ) : (
+          /* The other half of the state machine, and the reason the trigger can
+             refuse `A → B` outright: `A → null` is the repair. Without it a
+             profile handed to the wrong account is stuck there — the spec's
+             "recoverable without database access" would be false, and the panel
+             above would be telling an admin to do something it had no way to
+             undo. Withdrawing is the guard's doing, not a second write. */
+          <div className="mt-5">
+            <Action
+              onClick={() => actions.assignOwner(profile.id, "")}
+              disabled={pending}
+              quiet
+            >
+              Unassign owner
+            </Action>
+            <p className="mt-2 max-w-prose text-sm text-t-muted">
+              Takes the profile away from its account and withdraws it, so it leaves the
+              directory while its ownership is in question. This is the repair for a
+              profile assigned to the wrong person: unassign, then assign it to the right
+              account.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Credentials — a working surface, and the one panel on the page.
