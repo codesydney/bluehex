@@ -79,13 +79,40 @@ describe("evidence is linked and never embedded", () => {
     }
   });
 
-  it.each(everyProfile)("opens every evidence link with noopener noreferrer for %s", (_name, html) => {
+  it.each(everyProfile)("links only https, and only with noopener noreferrer, for %s", (_name, html) => {
+    /* Every anchor, not the http ones. Skipping the rest is how this assertion
+       would step around the case it exists to catch: a `javascript:` href would
+       be filtered out before the check and the suite would stay green. */
     for (const anchor of html.match(/<a\b[^>]*>/g) ?? []) {
-      if (!/href="https?:/.test(anchor)) continue;
-
+      expect(anchor).toMatch(/href="https:\/\//i);
       expect(anchor).toContain('rel="noopener noreferrer"');
       expect(anchor).toContain('target="_blank"');
     }
+  });
+
+  it.each([
+    "javascript:alert(document.cookie)",
+    " javascript:alert(1)",
+    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+    "http://anthropic.skilljar.com/certificate/x",
+    "vbscript:msgbox(1)",
+  ])("refuses to link %s while still showing it", (hostile) => {
+    /* The database refuses all of these — `evidence_url` is `public.https_url`
+       — so this is the redundant half of the pair, asserted because the rule
+       belongs in the file that writes the `href` rather than only in a
+       migration. The string still renders: it is what the admin is judging, and
+       an evidence URL that is not an https address is itself the finding. */
+    const person = queue.find((candidate) => candidate.name === "Aroha Ngata")!;
+    const html = render([
+      {
+        ...person,
+        credentials: [{ ...person.credentials[0]!, evidenceUrl: hostile }],
+      },
+    ]);
+
+    expect(html).not.toMatch(/<a\b/);
+    expect(html).toContain("Not an https address, so there is nothing to open.");
+    expect(html).toContain(escapeForHtml(hostile));
   });
 
   it("shows the URL as text as well as linking it", () => {
@@ -100,6 +127,16 @@ describe("evidence is linked and never embedded", () => {
 
 function escapeForRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/* React escapes text children; the assertion has to compare against what lands
+   in the markup rather than against the input. */
+function escapeForHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /* ------------------------------------------------------------------ */

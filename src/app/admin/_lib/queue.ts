@@ -133,6 +133,27 @@ export function checkable(profile: QueueProfile): QueueCredential[] {
 }
 
 /**
+ * The evidence URL, if it is one a browser may be pointed at.
+ *
+ * Defence in depth, and deliberately redundant: `practitioner_credentials.evidence_url`
+ * is `public.https_url`, whose check is `value ~* '^https://…'`, so Postgres already
+ * refuses `javascript:` and `data:` at insert. The redundancy is the point — the rule
+ * that nothing on this screen may be a route to executing somebody else's string is
+ * stated in the component that renders the link, and it should be true there rather
+ * than true three migrations away. It is the same reasoning that puts both a column
+ * privilege and a trigger on `verified`: neither being sufficient alone is not a
+ * reason to drop either.
+ *
+ * Case-insensitive because the domain's check is, so a legal `HTTPS://` row is not
+ * refused by the stricter half of the pair. Untrimmed on purpose: browsers strip
+ * leading whitespace before resolving a URL, so ` javascript:…` is a real shape and
+ * anchoring at position zero is what rejects it.
+ */
+export function openableEvidence(url: string | null): string | null {
+  return url && /^https:\/\//i.test(url) ? url : null;
+}
+
+/**
  * Edited since the last check. Derived from two timestamps rather than stored,
  * and only meaningful once something has actually been verified.
  *

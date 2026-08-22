@@ -7,6 +7,7 @@ import {
   countByFilter,
   hasDrifted,
   matchesFilter,
+  openableEvidence,
   outstanding,
   partitionQueue,
   sortQueue,
@@ -167,6 +168,42 @@ describe("unchecked and checkable", () => {
 
     expect(unchecked(person)).toHaveLength(0);
     expect(checkable(person)).toHaveLength(0);
+  });
+});
+
+describe("evidence a browser may be pointed at", () => {
+  it("passes an ordinary https address through", () => {
+    expect(openableEvidence("https://anthropic.skilljar.com/certificate/x")).toBe(
+      "https://anthropic.skilljar.com/certificate/x",
+    );
+  });
+
+  it("is case-insensitive, because the domain's check is", () => {
+    /* `evidence_url` is `public.https_url`, whose check uses `~*`. A guard
+       stricter than the constraint would refuse a row Postgres accepted. */
+    expect(openableEvidence("HTTPS://example.invalid/a")).toBe("HTTPS://example.invalid/a");
+  });
+
+  it("refuses every scheme that is not https", () => {
+    for (const hostile of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "vbscript:msgbox(1)",
+      "http://example.invalid/a",
+      "file:///etc/passwd",
+      "//example.invalid/a",
+    ]) {
+      expect(openableEvidence(hostile)).toBeNull();
+    }
+  });
+
+  it("refuses a leading-whitespace scheme, which a browser would strip and resolve", () => {
+    expect(openableEvidence(" javascript:alert(1)")).toBeNull();
+    expect(openableEvidence("\njavascript:alert(1)")).toBeNull();
+  });
+
+  it("passes null through", () => {
+    expect(openableEvidence(null)).toBeNull();
   });
 });
 

@@ -68,6 +68,7 @@ import {
   badgeShows,
   checkable,
   countByFilter,
+  openableEvidence,
   outstanding,
   partitionQueue,
   queueFilters,
@@ -89,10 +90,32 @@ export function ReviewQueue({
   queue: QueueProfile[];
   reviewer: string;
 }) {
+  /* A working copy over the server's snapshot, and the snapshot beside it so the
+     two can be told apart.
+
+     `useState` reads its initialiser once and ignores the prop for ever after,
+     which is invisible against static fixtures and is a trap for #14: a Server
+     Action followed by `revalidateTag` produces a fresh server render handing
+     down a new `queue`, and without this the screen would go on showing the copy
+     it took at mount. On a badge surface that is the worst shape the bug can
+     take — the admin sees their own optimistic edit and cannot tell it from the
+     row Postgres actually holds. Resetting during render is React's documented
+     way to adjust state when a prop changes; it re-runs this component
+     immediately, before the browser paints anything.
+
+     The view state below is deliberately not reset. Where an admin is in the
+     list is theirs, not the server's, and a revalidation that threw away their
+     filter would punish them for acting. */
+  const [snapshot, setSnapshot] = useState<QueueProfile[]>(initial);
   const [queue, setQueue] = useState<QueueProfile[]>(initial);
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [order, setOrder] = useState<QueueOrder>("oldest");
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+
+  if (snapshot !== initial) {
+    setSnapshot(initial);
+    setQueue(initial);
+  }
 
   const patch = (profileId: string, change: (profile: QueueProfile) => QueueProfile) =>
     setQueue((current) =>
@@ -581,6 +604,12 @@ function CredentialRow({
      why it was rejected; only the action column goes read-only. */
   const closed = status === "rejected" || status === "withdrawn";
 
+  /* Null unless the column holds an ordinary `https://` address. The database
+     already refuses anything else — `evidence_url` is `public.https_url` — and
+     this says the same thing where the `href` is actually written, so the rule
+     is true in the file that states it rather than three migrations away. */
+  const openable = openableEvidence(credential.evidenceUrl);
+
   return (
     <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0 flex-1">
@@ -607,16 +636,28 @@ function CredentialRow({
              URL is on screen because it is a large part of what is being
              judged: `Open certificate` renders identically for a Skilljar
              certificate page and for a file on somebody's Drive, and it hides a
-             slug an admin may have already read on another profile this week. */
+             slug an admin may have already read on another profile this week.
+
+             The text renders whatever the column holds; only `https://` is ever
+             turned into something clickable. That asymmetry is the rule doing
+             its job in both directions — the admin still reads the whole string
+             and judges it, and nothing but an ordinary web address becomes a
+             thing this page will point a browser at. */
           <div className="mt-2">
-            <a
-              href={credential.evidenceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex text-sm underline underline-offset-4"
-            >
-              Open certificate
-            </a>
+            {openable ? (
+              <a
+                href={openable}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex text-sm underline underline-offset-4"
+              >
+                Open certificate
+              </a>
+            ) : (
+              <p className="text-sm text-t-muted">
+                Not an https address, so there is nothing to open.
+              </p>
+            )}
             <p className="mt-1 text-sm break-all text-t-muted">{credential.evidenceUrl}</p>
           </div>
         ) : null}
