@@ -46,14 +46,24 @@ function held(
   return { entry: entryByLabel(label), earnedAt, verified, evidenceUrl };
 }
 
-/* The ids are uuid-shaped because `profilePath` takes the first six characters
-   of the row's uuid, and a two-character stand-in makes that truncation a no-op
-   — the surface would serve `/p/mara-ellison-l1` and never show the URL this
-   drawing exists to look at. */
+/* The handles are written out rather than derived. Until #119 the URL carried the
+   first six characters of the row's uuid, which is why these ids are uuid-shaped
+   — a two-character stand-in made the truncation a no-op and the surface showed
+   `/p/mara-ellison-l1` instead of the URL this drawing exists to look at. The
+   handle is its own column now, so it is stated: `pr0t0ty1` … `pr0t0ty3`,
+   obviously invented and still valid under `practitioners_handle_format`, which
+   wants eight lowercase Crockford base32 characters. The digits standing in for
+   vowels are not decoration — Crockford excludes `i`, `l`, `o` and `u` so a
+   handle read aloud is unambiguous, and `prototype` cannot be spelled without
+   them.
+
+   These three people are not in Postgres, so every row on this page 404s when
+   clicked. That is by design and predates #119 — see NOTES.md. */
 
 export const launchPopulation: Profile[] = [
   {
     id: "2f1a3c9d-4b7e-4c21-9a86-1d0f5e83b7c4",
+    handle: "pr0t0ty1",
     name: "Mara Ellison",
     headline: "Staff engineer, agent platforms",
     location: "Sydney",
@@ -80,6 +90,7 @@ export const launchPopulation: Profile[] = [
   },
   {
     id: "8c5d1e07-3a94-4f6b-b2d8-06e7a1c94f52",
+    handle: "pr0t0ty2",
     name: "Toby Nakamura",
     headline: "Independent consultant",
     location: "Wellington",
@@ -105,6 +116,7 @@ export const launchPopulation: Profile[] = [
        anything yet. A roster that made either absence look like a broken
        profile would be wrong about the population it launches with. */
     id: "b41f6a2e-9c30-4d85-8e17-5fa2c3d70b19",
+    handle: "pr0t0ty3",
     name: "Devon Achebe",
     headline: "Backend developer, moving into AI work",
     location: "Melbourne",

@@ -5,6 +5,7 @@ import {
   credentialSource,
   hasVerifiedBadge,
   isCertified,
+  isProfileHandle,
   profilePath,
   services,
   vocabularyServices,
@@ -145,16 +146,59 @@ describe("the built-in service vocabulary", () => {
 });
 
 describe("where a profile lives", () => {
-  it("resolves on the uuid rather than the name", () => {
-    expect(profilePath({ id: "2f1a3c9d-4b7e-4c21-9a86-1d0f5e83b7c4", name: "Mara Ellison" })).toBe(
-      "/p/mara-ellison-2f1a3c",
-    );
+  it("is the handle and nothing else", () => {
+    expect(profilePath({ handle: "seed0001" })).toBe("/p/seed0001");
   });
 
-  it("drops the slug rather than leading with a bare hyphen", () => {
-    expect(profilePath({ id: "9f3c1a00-0000-4000-8000-000000000000", name: "李雷" })).toBe(
-      "/p/9f3c1a",
-    );
+  it("does not read the name, so a rename cannot move a published URL", () => {
+    /* The whole of #119, as a type and as a value. `profilePath` takes
+       `Pick<Profile, "handle">`, so a caller cannot even pass a name — the older
+       signature emitted `/p/mara-ellison-2f1a3c` and this one could not produce
+       that string if it wanted to. The name is display text; the identifier is a
+       column. */
+    const person = { handle: "seed0001", name: "Mara Ellison" };
+    const renamed = { ...person, name: "Her New Name" };
+
+    expect(profilePath(person)).toBe(profilePath(renamed));
+    expect(profilePath(person)).not.toContain("mara");
+  });
+});
+
+describe("what could be a handle", () => {
+  it("accepts eight lowercase Crockford base32 characters", () => {
+    expect(isProfileHandle("seed0001")).toBe(true);
+    /* Every symbol in the alphabet, in two handles, so a predicate that had
+       quietly dropped one would fail here rather than in production on one
+       profile in sixteen. */
+    expect(isProfileHandle("01234567")).toBe(true);
+    expect(isProfileHandle("89abcdef")).toBe(true);
+    expect(isProfileHandle("ghjkmnpq")).toBe(true);
+    expect(isProfileHandle("rstvwxyz")).toBe(true);
+  });
+
+  it("rejects the four letters Crockford leaves out", () => {
+    /* `i`, `l`, `o` and `u` are excluded so a handle read aloud or copied off a
+       screen is unambiguous. A predicate that accepted them would accept a
+       string `new_profile_handle()` cannot produce and the column constraint
+       would refuse — a handle that can never match a row. */
+    for (const letter of ["i", "l", "o", "u"]) {
+      expect(isProfileHandle(`seed000${letter}`)).toBe(false);
+    }
+  });
+
+  it("rejects anything that is not exactly eight of them", () => {
+    expect(isProfileHandle("seed001")).toBe(false);
+    expect(isProfileHandle("seed00011")).toBe(false);
+    expect(isProfileHandle("")).toBe(false);
+    /* Uppercase is a different handle rather than the same one. Crockford's own
+       specification folds case on input; folding here would give one profile
+       several URLs, which is what dropping the slug removed. */
+    expect(isProfileHandle("SEED0001")).toBe(false);
+    /* The shapes that arrive from a URL and are not handles at all. */
+    expect(isProfileHandle("mara-ellison-2f1a3c")).toBe(false);
+    expect(isProfileHandle("../../etc")).toBe(false);
+    /* Anchored at both ends: a valid handle wearing a suffix is not one. */
+    expect(isProfileHandle("seed0001\nseed0002")).toBe(false);
   });
 });
 

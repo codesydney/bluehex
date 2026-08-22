@@ -51,6 +51,17 @@ const INES = "22222222-0000-4000-8000-000000000006"; // pending
 const RAFAEL = "22222222-0000-4000-8000-000000000007"; // rejected
 const SABINE = "22222222-0000-4000-8000-000000000008"; // withdrawn, holds a verified credential
 
+/**
+ * The literal handles, in the same order (#119).
+ *
+ * They are what makes a seeded profile linkable — `/p/seed0001` is Mara, and
+ * nothing has to be looked up to know it. Taking the column default would give a
+ * different URL on every reset, which is the same objection that makes the ids
+ * literal.
+ */
+const HANDLES = ["seed0001", "seed0002", "seed0003", "seed0004", "seed0005",
+                 "seed0006", "seed0007", "seed0008"];
+
 const PUBLISHED = [MARA, TOBY, DEVON, PRIYA, HOLLIS];
 const UNPUBLISHED = [INES, RAFAEL, SABINE];
 const SEEDED = [...PUBLISHED, ...UNPUBLISHED];
@@ -84,6 +95,39 @@ describe("the seeded population", () => {
     expect(new Set(rows.map((row) => row.status))).toEqual(
       new Set(["approved", "pending", "rejected", "withdrawn"]),
     );
+  });
+
+  it("gives every profile a distinct handle, which is what #119 fixed", async () => {
+    /* Read through `anon` for the five it can see, because that is the directory's
+       own read path: the *View profile* link on the roster is built from this
+       column, and before #119 it was built from `id.slice(0, 6)` — which for these
+       eight uuids is `222222` every time, so every link on a freshly reset
+       directory landed on Mara Ellison. Eight distinct handles is what makes each
+       link reach the right person, and this is the assertion that says so. */
+    const visible = await anon.client
+      .from("practitioners")
+      .select("id, handle")
+      .in("id", PUBLISHED);
+
+    expectAllowed(visible);
+    const byId = new Map(visible.data!.map((row) => [row.id, row.handle]));
+    expect([...byId.values()].sort()).toEqual(HANDLES.slice(0, 5));
+
+    /* The other three through `sql()`: `anon` cannot see an unpublished profile at
+       all, so there is no caller who could read their handles, and the claim here
+       is about what the seed contains rather than about who may read it. Pairing
+       each handle with its own profile is the point — a set-equality alone would
+       pass on eight handles shuffled between eight people. */
+    const all = await sql<{ id: string; handle: string }>(
+      "select id::text, handle from public.practitioners where id = any($1::uuid[])",
+      [SEEDED],
+    );
+
+    expect(all).toHaveLength(8);
+    expect(
+      SEEDED.map((id) => all.find((row) => row.id === id)?.handle),
+    ).toEqual(HANDLES);
+    expect(new Set(all.map((row) => row.handle)).size).toBe(8);
   });
 
   it("leaves every seeded profile unclaimed, because the seed creates no accounts", async () => {
