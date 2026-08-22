@@ -52,4 +52,8 @@ export const navigation: NavGroup[] = [
   { label: "Home", href: "/" },
   { label: "Practitioners", href: "/#practitioners" },
   { label: "Contact", href: "/contact" },
+  /* One entry for signing in and signing up, because with magic links they are
+     the same request. It is also correct for someone already signed in: the
+     proxy sends them on to their profile rather than showing them the form. */
+  { label: "Sign in", href: "/sign-in" },
 ];
