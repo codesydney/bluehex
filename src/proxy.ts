@@ -61,6 +61,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const destination = authRedirect(
     {
       pathname: request.nextUrl.pathname,
+      /* Carried so that signing in returns the visitor to the URL they asked
+         for and not merely to its path. */
+      search: request.nextUrl.search,
       returnTo: request.nextUrl.searchParams.get(RETURN_TO_PARAM),
     },
     claims,
@@ -71,6 +74,15 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const response = destination
     ? NextResponse.redirect(new URL(destination, request.nextUrl))
     : NextResponse.next({ request });
+
+  if (destination) {
+    /* Where the gate sends someone depends entirely on their session, so a
+       shared cache holding one of these would bounce the next visitor to
+       somebody else's answer. A 307 is not on the list of status codes RFC 9111
+       lets a cache store on its own initiative, so nothing well-behaved would
+       store it anyway — this says so rather than relying on it. */
+    response.headers.set("Cache-Control", "private, no-store");
+  }
 
   for (const { name, value, options } of cookiesToWrite) {
     response.cookies.set(name, value, options);

@@ -20,29 +20,27 @@ export default async function ProfilePage() {
   const viewer = await requireAccount("/profile");
 
   return (
-    <>
-      <PageHeader
-        label="Account"
-        title="You are signed in"
-        lead={
-          <>
-            Signed in as <strong className="text-t-bright">{viewer.email ?? viewer.id}</strong>.
-            The profile editor lands here with #71.
-          </>
-        }
-      >
-        <div className="flex flex-wrap items-center gap-4">
-          <SignOutButton />
-          {viewer.isAdmin ? (
-            <Link
-              href="/admin"
-              className="text-sm text-t-muted underline underline-offset-4 hover:text-t-bright"
-            >
-              Admin
-            </Link>
-          ) : null}
-        </div>
-      </PageHeader>
-    </>
+    <PageHeader
+      label="Account"
+      title="You are signed in"
+      lead={
+        <>
+          Signed in as <strong className="text-t-bright">{viewer.email ?? viewer.id}</strong>. The
+          profile editor lands here with #71.
+        </>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-4">
+        <SignOutButton />
+        {viewer.isAdmin ? (
+          <Link
+            href="/admin"
+            className="text-sm text-t-muted underline underline-offset-4 hover:text-t-bright"
+          >
+            Admin
+          </Link>
+        ) : null}
+      </div>
+    </PageHeader>
   );
 }

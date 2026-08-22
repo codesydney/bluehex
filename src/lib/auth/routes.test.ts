@@ -124,6 +124,22 @@ describe("authRedirect", () => {
     expect(authRedirect({ pathname: "/admin" }, null)).toBe(`${SIGN_IN_PATH}?next=%2Fadmin`);
   });
 
+  it("carries the query string, not only the path", () => {
+    /* The destination has to survive a round trip through a mailbox, which is
+       where a dropped query string is least recoverable. */
+    expect(authRedirect({ pathname: "/admin/queue", search: "?open=17" }, null)).toBe(
+      `${SIGN_IN_PATH}?next=%2Fadmin%2Fqueue%3Fopen%3D17`,
+    );
+  });
+
+  it("still reads the requirement off the path alone", () => {
+    /* A query string must not be able to make a gated route look public. */
+    expect(authRedirect({ pathname: "/admin", search: "?x=1" }, null)).toBe(
+      `${SIGN_IN_PATH}?next=%2Fadmin%3Fx%3D1`,
+    );
+    expect(authRedirect({ pathname: "/admin", search: "?x=1" }, practitioner)).toBe(FORBIDDEN_PATH);
+  });
+
   it("sends a signed-in practitioner off the admin routes", () => {
     expect(authRedirect({ pathname: "/admin" }, practitioner)).toBe(FORBIDDEN_PATH);
     expect(authRedirect({ pathname: "/admin/queue" }, practitioner)).toBe(FORBIDDEN_PATH);

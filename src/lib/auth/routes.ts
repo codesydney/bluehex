@@ -116,9 +116,23 @@ export function accessFor(requirement: Requirement, claims: SessionClaims | null
   return "allow";
 }
 
-/** Where this request should be sent instead, or `null` to let it through. */
+/**
+ * Where this request should be sent instead, or `null` to let it through.
+ *
+ * `search` is separate from `pathname` rather than folded into it, and both
+ * halves of that matter. What comes back from an email has to be the whole URL,
+ * or `/admin/queue?open=17` returns as `/admin/queue` and reopens on nothing —
+ * the round trip through a mailbox is precisely where a lost query string is
+ * least recoverable. But the requirement has to be read off the path alone, or
+ * `/admin?x=1` fails to match `/admin` and falls through as public. Keeping them
+ * apart is what lets each be true without a `split("?")` in the middle.
+ */
 export function authRedirect(
-  { pathname, returnTo }: { pathname: string; returnTo?: string | null },
+  {
+    pathname,
+    search = "",
+    returnTo,
+  }: { pathname: string; search?: string; returnTo?: string | null },
   claims: SessionClaims | null,
 ): string | null {
   /* The sign-in form is not somewhere a signed-in person has any use for, and
@@ -130,7 +144,10 @@ export function authRedirect(
 
   switch (accessFor(requirementFor(pathname), claims)) {
     case "sign-in":
-      return signInPath(pathname);
+      /* `signInPath` runs this back through `safeReturnTo`, so a query string
+         carrying something a browser would resolve off-origin drops the whole
+         destination rather than being carried. */
+      return signInPath(`${pathname}${search}`);
     case "forbidden":
       return FORBIDDEN_PATH;
     case "allow":
