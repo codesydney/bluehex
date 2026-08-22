@@ -43,7 +43,7 @@ import {
   type BluehexControlled,
   type ProfileDraft,
 } from "@/lib/profile-draft";
-import { submitProfile, type SaveResult } from "@/lib/profile-save";
+import type { SaveProfile, SaveResult } from "@/lib/profile-save";
 import { errorFor, stepForField, validateDraft } from "@/lib/profile-validation";
 import { CredentialFields } from "./credential-fields";
 import {
@@ -64,11 +64,15 @@ export function ProfileForm({
   onChange,
   controlled,
   catalogue,
+  save,
+  existing,
 }: {
   draft: ProfileDraft;
   onChange: (next: ProfileDraft) => void;
   controlled: BluehexControlled;
   catalogue: CatalogueEntry[];
+  save: SaveProfile;
+  existing: boolean;
 }) {
   const [step, setStep] = useState(0);
   /* Errors exist from the first render and are shown only once somebody has
@@ -136,11 +140,12 @@ export function ProfileForm({
 
     setPending(true);
     try {
-      setResult(await submitProfile(toWritePayload(draft)));
+      setResult(await save(toWritePayload(draft)));
     } catch {
-      /* The seam cannot throw today and the real one will. Handling it here
-         rather than when it starts happening is the difference between an error
-         message and an unhandled rejection in somebody's console. */
+      /* A Server Action rejects on a network failure and on an expired session
+         — and `requireAccount` redirects rather than returning, which arrives
+         here as a rejection too. Either way nothing was written, because the
+         action's first statement is the guard. */
       setResult({
         ok: false,
         message: "Something went wrong on the way to Bluehex. Nothing was saved — try again.",
@@ -579,7 +584,7 @@ export function ProfileForm({
                 </ReviewStep>
               </ol>
 
-              <BluehexDecides badge={badge} controlled={controlled} />
+              <BluehexDecides badge={badge} controlled={controlled} existing={existing} />
             </StepPanel>
           ) : null}
         </div>
@@ -611,14 +616,29 @@ export function ProfileForm({
                 aria-busy={pending || undefined}
                 className="inline-flex h-12 items-center rounded-full bg-ink px-6 font-medium text-t-invert transition-colors hover:bg-ink-tint disabled:cursor-progress disabled:opacity-70"
               >
-                {pending ? "Checking…" : "Submit for review"}
+                {pending ? "Saving…" : existing ? "Save changes" : "Submit for review"}
               </button>
             )}
           </div>
 
-          {/* The seam. It is not a spinner that resolves into a success — see
-              `profile-save.ts` — and it says which of the two it is rather than
-              leaving somebody to wonder whether their profile went anywhere. */}
+          {/* What happened, in both directions. A refusal carries Postgres's own
+              words, because the ones that are reachable from this form — a
+              credential listed twice, a fourth service against the cap — are
+              things a practitioner can act on and "something went wrong" is not.
+              `role="alert"` on both: a message that appears after a button is
+              pressed and is never announced is a message a screen-reader user
+              does not have. */}
+          {result?.ok ? (
+            <p role="alert" className="max-w-xl rounded-tight bg-surface p-4 text-sm">
+              <strong className="font-medium">Saved.</strong>{" "}
+              <span className="text-t-muted">
+                {existing
+                  ? "Your profile has been updated. Anything you changed about a credential Bluehex had already checked is waiting to be checked again."
+                  : "Your profile is with Bluehex. It is not in the directory until it is approved, and the badge is separate again — nothing here sets either."}
+              </span>
+            </p>
+          ) : null}
+
           {result && !result.ok ? (
             <p role="alert" className="max-w-xl rounded-tight bg-surface p-4 text-sm text-t-muted">
               {result.message}
@@ -718,11 +738,20 @@ function Progress({ draft, catalogue }: { draft: ProfileDraft; catalogue: Catalo
 function BluehexDecides({
   badge,
   controlled,
+  existing,
 }: {
   badge: ReturnType<typeof badgeState>;
   controlled: BluehexControlled;
+  existing: boolean;
 }) {
-  const status = statusCopy[controlled.status].axis;
+  /* A profile that has never been saved has no status to report. `pending` is
+     what the insert will produce and is what the rest of the form is drawn
+     against, but saying "waiting for Bluehex to read it" over a form nobody has
+     submitted describes a queue this profile has not joined — which is exactly
+     the kind of thing this panel exists to get right. */
+  const status = existing
+    ? statusCopy[controlled.status].axis
+    : "Not submitted yet — Bluehex sees this when you submit";
 
   return (
     <div className="rounded-card bg-surface p-6">
