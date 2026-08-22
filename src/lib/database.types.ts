@@ -431,6 +431,43 @@ export type Database = {
         }
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      my_credentials: {
+        Args: never
+        Returns: {
+          catalogue_id: string
+          created_at: string
+          earned_at: string
+          evidence_public: boolean
+          evidence_url: unknown
+          id: string
+          practitioner_id: string
+          updated_at: string
+          verified: boolean
+          verified_at: string
+        }[]
+      }
+      my_profile: {
+        Args: never
+        Returns: {
+          availability: string
+          bio: string
+          booking_url: unknown
+          contact_id: string
+          country_code: string
+          created_at: string
+          focus: string[]
+          github_url: unknown
+          handle: string
+          headline: string
+          id: string
+          linkedin_url: unknown
+          location: string
+          name: string
+          status: Database["public"]["Enums"]["practitioner_status"]
+          updated_at: string
+          website_url: unknown
+        }[]
+      }
       new_profile_handle: { Args: never; Returns: string }
       owns_contact: { Args: { contact: string }; Returns: boolean }
       owns_profile: { Args: { profile_id: string }; Returns: boolean }
