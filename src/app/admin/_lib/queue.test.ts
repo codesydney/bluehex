@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readQueue } from "./fixtures";
+import { reviewQueueFixtures } from "./queue.fixtures";
 import {
   badgeShows,
   checkable,
@@ -11,7 +11,6 @@ import {
   outstanding,
   partitionQueue,
   sortQueue,
-  stampVerification,
   unchecked,
   type CatalogueEntry,
   type QueueCredential,
@@ -68,7 +67,7 @@ function profile(rest: Partial<QueueProfile> = {}): QueueProfile {
   };
 }
 
-const queue = await readQueue();
+const queue = reviewQueueFixtures();
 const byName = (name: string) => {
   const found = queue.find((candidate) => candidate.name === name);
   if (!found) throw new Error(`fixture "${name}" is gone`);
@@ -136,11 +135,11 @@ describe("the adversarial population", () => {
     }
   });
 
-  it("hands out a fresh copy each read, so a mutation cannot leak between requests", async () => {
-    const first = await readQueue();
+  it("hands out a fresh copy each read, so a mutation cannot leak between tests", () => {
+    const first = reviewQueueFixtures();
     first[0]!.status = "rejected";
 
-    expect((await readQueue())[0]!.status).toBe("pending");
+    expect(reviewQueueFixtures()[0]!.status).toBe("pending");
   });
 });
 
@@ -365,116 +364,3 @@ describe("partitioning the list", () => {
   });
 });
 
-describe("stamping a verification", () => {
-  it("records who looked and when", () => {
-    const person = profile({ credentials: [credential({ id: "x", evidenceUrl: "https://e/a" })] });
-    const after = stampVerification(person, "x", true, {
-      by: "david",
-      at: "2026-08-20T10:00:00Z",
-    });
-
-    expect(after.credentials[0]!.verified).toBe(true);
-    expect(after.credentials[0]!.verifiedBy).toBe("david");
-    expect(after.credentials[0]!.verifiedAt).toBe("2026-08-20T10:00:00Z");
-    expect(after.lastVerifiedAt).toBe("2026-08-20T10:00:00Z");
-  });
-
-  it("clears the attribution when a check is undone", () => {
-    const person = profile({
-      credentials: [
-        credential({
-          id: "x",
-          evidenceUrl: "https://e/a",
-          verified: true,
-          verifiedAt: "2026-08-20T10:00:00Z",
-          verifiedBy: "david",
-        }),
-      ],
-    });
-    const after = stampVerification(person, "x", false, { by: "sam", at: "2026-08-21T10:00:00Z" });
-
-    expect(after.credentials[0]!.verified).toBe(false);
-    expect(after.credentials[0]!.verifiedBy).toBeNull();
-    expect(after.credentials[0]!.verifiedAt).toBeNull();
-  });
-
-  it("never moves lastVerifiedAt backwards when the newest check is undone", () => {
-    /* The bug: a `max()` over the live rows alone is not monotonic. Undo the
-       most recent check and the maximum drops to an older stamp, `updatedAt` is
-       suddenly greater than it, and a profile nobody edited reads "Edited since
-       checked". Drift decides queue membership, so that is a phantom item. */
-    const person = profile({
-      status: "approved",
-      updatedAt: "2026-08-10T00:00:00Z",
-      lastVerifiedAt: "2026-08-12T00:00:00Z",
-      credentials: [
-        credential({
-          id: "old",
-          evidenceUrl: "https://e/a",
-          verified: true,
-          verifiedAt: "2026-08-11T00:00:00Z",
-          verifiedBy: "david",
-        }),
-        credential({
-          id: "new",
-          evidenceUrl: "https://e/b",
-          verified: true,
-          verifiedAt: "2026-08-12T00:00:00Z",
-          verifiedBy: "david",
-        }),
-      ],
-    });
-
-    const after = stampVerification(person, "new", false, {
-      by: "david",
-      at: "2026-08-13T00:00:00Z",
-    });
-
-    expect(after.lastVerifiedAt).toBe("2026-08-12T00:00:00Z");
-    expect(hasDrifted(after)).toBe(false);
-  });
-
-  it("leaves lastVerifiedAt null on a profile nothing was ever checked on", () => {
-    const person = profile({ credentials: [credential({ id: "x", evidenceUrl: "https://e/a" })] });
-    const after = stampVerification(person, "x", false, {
-      by: "david",
-      at: "2026-08-20T10:00:00Z",
-    });
-
-    expect(after.lastVerifiedAt).toBeNull();
-  });
-
-  it("clears drift when the last check catches up with the last edit", () => {
-    const drifted = profile({
-      status: "approved",
-      updatedAt: "2026-08-12T00:00:00Z",
-      lastVerifiedAt: "2026-08-09T00:00:00Z",
-      credentials: [
-        credential({
-          id: "x",
-          evidenceUrl: "https://e/a",
-          verified: true,
-          verifiedAt: "2026-08-09T00:00:00Z",
-          verifiedBy: "david",
-        }),
-      ],
-    });
-    expect(hasDrifted(drifted)).toBe(true);
-
-    const rechecked = stampVerification(drifted, "x", true, {
-      by: "david",
-      at: "2026-08-13T00:00:00Z",
-    });
-
-    expect(hasDrifted(rechecked)).toBe(false);
-    expect(outstanding(rechecked)).toEqual([]);
-  });
-
-  it("does not mutate the profile it was given", () => {
-    const person = profile({ credentials: [credential({ id: "x", evidenceUrl: "https://e/a" })] });
-    stampVerification(person, "x", true, { by: "david", at: "2026-08-20T10:00:00Z" });
-
-    expect(person.credentials[0]!.verified).toBe(false);
-    expect(person.lastVerifiedAt).toBeNull();
-  });
-});

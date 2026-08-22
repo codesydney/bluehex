@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { readQueue } from "./_lib/fixtures";
+import { reviewQueueFixtures } from "./_lib/queue.fixtures";
 import { checkable, type QueueProfile } from "./_lib/queue";
 import { ReviewQueue } from "./review-queue";
 
@@ -19,7 +19,7 @@ import { ReviewQueue } from "./review-queue";
  * get individually asserted.
  */
 
-const queue = await readQueue();
+const queue = reviewQueueFixtures();
 
 function render(profiles: QueueProfile[]): string {
   return renderToStaticMarkup(
@@ -192,7 +192,13 @@ describe("there is no verify-a-profile action", () => {
 
 describe("Bluehex gets no Withdraw button", () => {
   it.each(everyProfile)("offers only pending, approved and rejected for %s", (_name, html) => {
-    expect(html).not.toMatch(/withdraw/i);
+    /* A control, not the word. `withdrawn` is the practitioner's own lever and
+       `AdminStatus` will not carry it, so no button may set it — but the guard
+       *does* force it when an owner is unassigned, and the panel that unassigns
+       has to say so. A bare `/withdraw/i` over the whole document forbade
+       explaining a consequence as well as offering it, which is why it failed
+       the moment the unassign copy told the truth. */
+    expect(html).not.toMatch(/>\s*Withdraw\s*</i);
 
     const controls = ["Approve", "Reject", "Back to pending"].filter((label) =>
       html.includes(`>${label}<`),
@@ -203,19 +209,28 @@ describe("Bluehex gets no Withdraw button", () => {
   });
 });
 
-describe("owner assignment is one-way", () => {
-  it("offers it on the unclaimed profile", () => {
+describe("a profile never changes owners, and a mis-assignment is repairable", () => {
+  it("offers assignment on the unclaimed profile, and names the repair", () => {
     const html = renderOne("Ines Delacroix");
 
     expect(html).toContain(">Assign owner<");
-    expect(html).toMatch(/cannot be\s+undone/);
+    /* It used to promise the opposite — "cannot be undone" — which contradicted
+       both the spec and the three comments in this component that call
+       unassigning the repair. The screen now offers that repair, so the copy
+       says so. */
+    expect(html).toMatch(/unassigning/i);
   });
 
   it.each(everyProfile.filter(([name]) => name !== "Ines Delacroix"))(
-    "offers nothing at all once %s has an owner",
+    "offers unassignment and never reassignment once %s has an owner",
     (_name, html) => {
-      expect(html).not.toContain("Assign owner");
+      /* The invariant is `A → B`, and it is the trigger that enforces it. What
+         the screen must not do is *offer* a transfer; what it must do is offer
+         `A → null`, because that is the only route back from an owner assigned
+         by mistake and the spec calls it recoverable without database access. */
+      expect(html).not.toContain(">Assign owner<");
       expect(html).not.toMatch(/reassign|change owner|transfer/i);
+      expect(html).toContain(">Unassign owner<");
     },
   );
 });

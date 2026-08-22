@@ -3,8 +3,8 @@
  * and the order it comes back in.
  *
  * Pure functions over plain data — no React, no Next, no Supabase. That is what
- * lets the same rules be unit-tested and then reused unchanged when #14 puts a
- * query behind them: `outstanding()` decides queue membership whether the rows
+ * let the same rules be unit-tested and then survive #14 putting a query behind
+ * them unchanged: `outstanding()` decides queue membership whether the rows
  * arrived from a fixture or from PostgREST.
  *
  * The shape is the argument. `status` and `verified` are two independent axes
@@ -52,7 +52,12 @@ export type QueueCredential = {
   /**
    * The column is `verified_by uuid`. It is a display name here because the
    * badge means a *named human* looked on a given day, and a uuid names nobody
-   * — resolving it is the query's job when #14 writes one.
+   * — the query resolves it, in `queue-mapping.ts`.
+   *
+   * Null is a real answer rather than an absent one, and means the check stands
+   * with no name against it: `verified_by` is `on delete set null`, so an admin
+   * whose account is gone leaves one, and so does any privileged path that had
+   * no `auth.uid()` to record.
    */
   verifiedBy: string | null;
 };
@@ -73,9 +78,14 @@ export type AdminStatus = Exclude<ProfileStatus, "withdrawn">;
 export type QueueProfile = {
   id: string;
   name: string;
-  headline: string;
-  location: string;
-  bio: string;
+  /* Nullable, because the columns are. A profile with no headline is a real
+     row — `name` and a contact are the only things `practitioners` insists on —
+     and it is one an admin should be able to see is empty rather than one the
+     mapper fills in with `""`. Judging a submission means reading what was
+     actually written, absences included. */
+  headline: string | null;
+  location: string | null;
+  bio: string | null;
   focus: string[];
   /** What they sell. Closed set, at most three — the directory's filter axis. */
   services: string[];
@@ -159,8 +169,14 @@ export function openableEvidence(url: string | null): string | null {
  *
  * It has false positives and they are accepted: an admin edit bumps
  * `updated_at` too, and at this volume that is cheaper than a column to
- * suppress them. What is *not* accepted is a false positive manufactured by
- * this side of the comparison — see `stampVerification`.
+ * suppress them.
+ *
+ * `lastVerifiedAt` is the largest `verified_at` across the profile's live
+ * credential rows, so undoing a check can move it backwards and a profile
+ * edited between two checks then reads as drifted. That is a true statement
+ * rather than a manufactured one — the check that covered the edit has been
+ * taken back — and holding it still would need somewhere to remember a check
+ * that no longer exists, which is a column. See `queue-mapping.ts`.
  */
 export function hasDrifted(profile: QueueProfile): boolean {
   if (!profile.lastVerifiedAt) return false;
@@ -313,71 +329,22 @@ export function partitionQueue(
   };
 }
 
-/* ------------------------------------------------------------------ */
-/* The one derived write                                              */
-/* ------------------------------------------------------------------ */
-
-/**
- * A credential checked, or a check undone, with the profile's drift stamp moved
- * to match.
- *
- * Pure, and separate from whatever performs the write, because the interesting
- * part is not the write: it is that **`lastVerifiedAt` must never move
- * backwards**. Drift is `updated_at > verified_at`, so a `max()` taken over the
- * live credential rows alone is not monotonic — undoing the most recent check
- * drops the maximum back to an older one, `updated_at` is suddenly greater than
- * a timestamp that moved underneath it, and a profile nobody edited reads
- * "Edited since checked". Drift decides queue membership rather than merely
- * marking a row, so that is a phantom queue item, not a cosmetic glitch.
- *
- * Including the current value in the maximum is the whole fix, and it is also
- * the truer statement: undoing a check says something about one credential and
- * does not unmake the fact that a human looked at this profile on that day.
- *
- * `at` is passed in rather than read here so that the caller stamps the moment
- * the button was pressed. A `now` captured while the page rendered records when
- * the profile was *opened*, and a session that opens one at 23:50 and checks it
- * at 00:05 dates the attestation yesterday. The badge means a named human
- * looked on a given day, so the day is the one part that cannot be approximate.
- */
-export function stampVerification(
-  profile: QueueProfile,
-  credentialId: string,
-  verified: boolean,
-  { by, at }: { by: string; at: string },
-): QueueProfile {
-  const credentials = profile.credentials.map((credential) =>
-    credential.id === credentialId
-      ? {
-          ...credential,
-          verified,
-          verifiedAt: verified ? at : null,
-          verifiedBy: verified ? by : null,
-        }
-      : credential,
-  );
-
-  const stamps = [
-    profile.lastVerifiedAt,
-    ...credentials.map((credential) => credential.verifiedAt),
-  ].filter((stamp): stamp is string => Boolean(stamp));
-
-  return {
-    ...profile,
-    credentials,
-    lastVerifiedAt: stamps.length > 0 ? stamps.reduce((a, b) => (a > b ? a : b)) : null,
-  };
-}
-
 /**
  * What an admin can do, and — as much to the point — what they cannot.
  *
- * Every member returns `void | Promise<void>` so the surface takes a Server
- * Action without changing shape. #14 replaces the fixture-backed implementation
- * with one that calls `approve_practitioner()`, `reject_practitioner()` and
- * `set_credential_verified()` and then revalidates; the components below never
- * learn which one they were handed, and none of them writes to PostgREST
- * itself.
+ * Every member returns `void | Promise<void>`, which is what let #14 swap the
+ * implementation without touching anything below it: the client shell now wraps
+ * the Server Actions in `./actions` — `approve_practitioner()`,
+ * `reject_practitioner()`, `set_credential_verified()` and a `PATCH` of
+ * `user_id` — reports what came back, and hands down the same object. The
+ * components never learn which one they were given, and none of them writes to
+ * PostgREST itself.
+ *
+ * The wrapping is where the outcome goes. An action returns `{ ok }` rather than
+ * throwing, because a thrown error out of a Server Action is replaced with a
+ * generic message in a production build and the specific ones are what a
+ * reviewer needs; the shell reads it and puts it on screen, so this type stays
+ * about what an admin may do rather than about how a failure travels.
  *
  * Two absences are load-bearing:
  *
@@ -389,7 +356,11 @@ export function stampVerification(
  *   `"withdrawn"` is not a value this type will carry.
  */
 export type QueueActions = {
-  setStatus: (profileId: string, status: AdminStatus) => void | Promise<void>;
+  /** `note` is required in practice for `"rejected"` and meaningless otherwise:
+      `practitioner_review_notes.note` is `not null`, so there is no rejecting
+      somebody without telling them why. Optional in the type because the other
+      two statuses take none, and refused by the action when it is missing. */
+  setStatus: (profileId: string, status: AdminStatus, note?: string) => void | Promise<void>;
   setVerified: (
     profileId: string,
     credentialId: string,
@@ -397,6 +368,11 @@ export type QueueActions = {
   ) => void | Promise<void>;
   setNote: (profileId: string, note: string) => void | Promise<void>;
   /** `null → A` only. `A → B` raises `23514` in the guard, admins included, so
-      there is no reassign and no argument for one. */
-  assignOwner: (profileId: string) => void | Promise<void>;
+      there is no reassign and no argument for one.
+
+      The account is named by id rather than resolved from the contact address,
+      because nothing reachable from PostgREST turns an email into an account:
+      `auth` is not an exposed schema. The address is on screen beside the field
+      and the match is the admin's to make. */
+  assignOwner: (profileId: string, accountId: string) => void | Promise<void>;
 };
