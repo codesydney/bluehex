@@ -28,8 +28,8 @@ import { sql } from "./harness/stack";
  * own read path and it is what a developer looking at the page will get. The rest
  * goes through `sql()`, for two reasons that are worth telling apart. Some facts
  * `anon` holds no grant on — `status`, the review note, a withdrawn profile's
- * credential — and there is no caller who could read them here, since every seeded
- * profile is unclaimed. And a row that is meant to be hidden has to be shown to
+ * credential — and the profiles carrying them are the unclaimed ones, so there is
+ * no owner who could read them here either. And a row that is meant to be hidden has to be shown to
  * exist before its absence proves anything: an empty result is equally consistent
  * with the policy working and with the fixture having lost the row. Both are claims
  * about what the seed contains rather than about who may read it, and the policies
@@ -50,6 +50,12 @@ const HOLLIS = "22222222-0000-4000-8000-000000000005"; // approved, no credentia
 const INES = "22222222-0000-4000-8000-000000000006"; // pending
 const RAFAEL = "22222222-0000-4000-8000-000000000007"; // rejected
 const SABINE = "22222222-0000-4000-8000-000000000008"; // withdrawn, holds a verified credential
+
+/* The `5…` family: the accounts. Two of them own a profile above; the first owns
+   nothing and exists to be an admin. */
+const ADMIN_ACCOUNT = "55555555-0000-4000-8000-000000000001";
+const MARA_ACCOUNT = "55555555-0000-4000-8000-000000000002";
+const INES_ACCOUNT = "55555555-0000-4000-8000-000000000003";
 
 /**
  * The literal handles, in the same order (#119).
@@ -130,25 +136,88 @@ describe("the seeded population", () => {
     expect(new Set(all.map((row) => row.handle)).size).toBe(8);
   });
 
-  it("leaves every seeded profile unclaimed, because the seed creates no accounts", async () => {
-    /* Not a detail to tidy away later: a seeded `auth.users` row would be a
-       credential pair committed to the repository, and there is no sign-in flow to
-       use it with (#14). Unclaimed is a supported state — it is what curated intake
-       produces — so the fixtures are honest rather than incomplete. Stated here so
-       that the day somebody seeds an account, they do it deliberately. */
-    const claimed = await sql<{ id: string }>(
-      "select id::text from public.practitioners where id = any($1::uuid[]) and user_id is not null",
+  it("claims two profiles and leaves six unclaimed, because both are real states", async () => {
+    /* This assertion used to read the other way, and its comment said it was stated
+       "so that the day somebody seeds an account, they do it deliberately". That day
+       came: sign-in shipped, and magic link means a seeded account is an address
+       rather than a credential pair. What replaced it is not "claimed is correct" —
+       it is that *both* states are present. Claiming all eight would delete the
+       surface the *Assign owner* panel exists for, and claiming none would leave the
+       owner-side policies unexercised by a reset. The pairing is the fixture.
+
+       Mara is claimed and `approved`, which is an owner looking at a finished
+       profile; Ines is claimed and `pending`, which is an owner looking at one still
+       in review. */
+    const owners = await sql<{ id: string; user_id: string | null }>(
+      "select id::text, user_id::text from public.practitioners where id = any($1::uuid[])",
       [SEEDED],
     );
+    const owner = (id: string) => owners.find((row) => row.id === id)?.user_id ?? null;
 
-    expect(claimed).toEqual([]);
+    expect(owner(MARA)).toBe(MARA_ACCOUNT);
+    expect(owner(INES)).toBe(INES_ACCOUNT);
+    expect(owners.filter((row) => row.user_id === null)).toHaveLength(6);
+  });
+
+  it("gives every seeded account the rows GoTrue needs, so the stack can be signed in to", async () => {
+    /* The whole value of a seeded account is that `pnpm db:reset` leaves a stack
+       somebody can sign in to. Two things break that silently, and neither is
+       visible in a row that looks right:
+
+         * a `auth.users` row with no matching `auth.identities` row — GoTrue looks
+           the account up through the identity, not the user; and
+         * a null in any of the eight token columns, which GoTrue scans into a Go
+           `string`.
+
+       Both surface as `500 Database error finding user` from `/auth/v1/otp`, which
+       names neither. Nothing else in the repository would catch either, because the
+       reset succeeds and every other assertion in this file still passes. That is
+       what this test is for: it fails at `pnpm test:db` naming the column, instead
+       of a person losing an afternoon to an opaque 500. */
+    const accounts = await sql<{
+      id: string;
+      email: string;
+      identities: string;
+      null_tokens: string;
+    }>(
+      `select u.id::text,
+              u.email,
+              (select count(*) from auth.identities i
+                where i.user_id = u.id and i.provider = 'email')::text as identities,
+              (num_nulls(u.confirmation_token, u.recovery_token, u.email_change,
+                         u.email_change_token_new, u.email_change_token_current,
+                         u.phone_change, u.phone_change_token,
+                         u.reauthentication_token))::text as null_tokens
+         from auth.users u
+        where u.id = any($1::uuid[])
+        order by u.email`,
+      [[ADMIN_ACCOUNT, MARA_ACCOUNT, INES_ACCOUNT]],
+    );
+
+    expect(accounts).toHaveLength(3);
+    for (const account of accounts) {
+      expect(account.identities, `${account.email} has no email identity`).toBe("1");
+      expect(account.null_tokens, `${account.email} has a null token column`).toBe("0");
+      expect(account.email.endsWith(".invalid")).toBe(true);
+    }
+  });
+
+  it("makes exactly one of the accounts an admin", async () => {
+    /* `public.admins` is the whole of what makes an admin: the access token hook
+       reads it and stamps `bluehex_admin` onto the role claim. Seeding the row is
+       what removes the sign-out-and-back-in ritual from every handoff — and the
+       count matters as much as the membership, because a second admin here would be
+       a privilege nobody asked for, sitting in a file that is easy to skim. */
+    const admins = await sql<{ user_id: string }>("select user_id::text from public.admins");
+
+    expect(admins.map((row) => row.user_id)).toEqual([ADMIN_ACCOUNT]);
   });
 
   it("gives the rejected profile the review note that says why", async () => {
     /* Through `sql()` again, and this time there is no caller who could do it at all:
        `anon` holds no grant on `practitioner_review_notes` by any route, and the
-       `authenticated` route is `review_notes_read_own`, which needs an owner — every
-       seeded profile is unclaimed.
+       `authenticated` route is `review_notes_read_own`, which needs an owner — and
+       the rejected profile is one of the six that stay unclaimed.
 
        Worth its own assertion because the note is the reason a `rejected` fixture is
        worth having. A rejected profile is invisible in the directory, so the only
