@@ -140,6 +140,17 @@ function toCredentials(
       (row): row is QueueCredentialRow & { credential_catalogue: QueueCatalogueRow } =>
         Boolean(row.credential_catalogue),
     )
+    /* Sorted as rows rather than after mapping, because `sort_order` is a
+       property of the catalogue entry and not of anything a credential carries
+       — `CatalogueEntry` here holds the four fields a review screen reads and
+       nothing else. */
+    .sort(
+      (left, right) =>
+        Number(right.credential_catalogue.kind === "certification") -
+          Number(left.credential_catalogue.kind === "certification") ||
+        left.credential_catalogue.sort_order - right.credential_catalogue.sort_order ||
+        left.credential_catalogue.label.localeCompare(right.credential_catalogue.label),
+    )
     .map((row) => ({
       id: row.id,
       entry: toCatalogueEntry(row.credential_catalogue),
@@ -152,16 +163,7 @@ function toCredentials(
       verified: row.verified,
       verifiedAt: row.verified_at,
       verifiedBy: reviewerName(row.verified_by, viewer),
-      sortOrder: row.credential_catalogue.sort_order,
-    }))
-    .sort(
-      (left, right) =>
-        Number(right.entry.kind === "certification") -
-          Number(left.entry.kind === "certification") ||
-        left.sortOrder - right.sortOrder ||
-        left.entry.label.localeCompare(right.entry.label),
-    )
-    .map(({ sortOrder: _sortOrder, ...credential }) => credential);
+    }));
 }
 
 /**

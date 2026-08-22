@@ -57,13 +57,31 @@
  * ## The write path
  *
  * Every action is a member of `QueueActions`, each of which may return a
- * promise, and this component never talks to PostgREST. #14 hands it Server
- * Actions calling `approve_practitioner()`, `reject_practitioner()` and
- * `set_credential_verified()`; today it is handed a reducer over the fixtures,
- * so the workflow can be walked end to end and nothing persists.
+ * promise, and this component never talks to PostgREST. As of #14 they are the
+ * Server Actions in `./_lib/actions` — `approve_practitioner()`,
+ * `reject_practitioner()`, `set_credential_verified()`, an upsert of the review
+ * note, and a `PATCH` of `user_id` — assembled into one object here, exactly as
+ * the seam was drawn for.
+ *
+ * **The screen keeps no working copy of the queue, and that is a change #14
+ * made deliberately.** It used to hold a local reducer over the fixtures, which
+ * a swap to Server Actions would have turned into an optimistic edit: a refused
+ * write would leave the admin looking at a change Postgres did not make, on the
+ * one surface where the difference is the product. So the `queue` prop is
+ * rendered directly, every action awaits its write, and `revalidatePath("/admin")`
+ * is what produces the next truth. The view state — filter, order, where you
+ * are in the list — is local and is deliberately *not* reset by that
+ * revalidation: where an admin is in the queue is theirs, not the server's.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import {
+  assignOwnerAction,
+  setNoteAction,
+  setStatusAction,
+  setVerifiedAction,
+  type ActionOutcome,
+} from "./_lib/actions";
 import {
   badgeShows,
   checkable,
@@ -73,9 +91,7 @@ import {
   partitionQueue,
   queueFilters,
   queueOrders,
-  stampVerification,
   unchecked,
-  type AdminStatus,
   type QueueActions,
   type QueueCredential,
   type QueueFilter,
@@ -83,82 +99,64 @@ import {
   type QueueProfile,
 } from "./_lib/queue";
 
-export function ReviewQueue({
-  queue: initial,
-  reviewer,
-}: {
-  queue: QueueProfile[];
-  reviewer: string;
-}) {
-  /* A working copy over the server's snapshot, and the snapshot beside it so the
-     two can be told apart.
-
-     `useState` reads its initialiser once and ignores the prop for ever after,
-     which is invisible against static fixtures and is a trap for #14: a Server
-     Action followed by `revalidateTag` produces a fresh server render handing
-     down a new `queue`, and without this the screen would go on showing the copy
-     it took at mount. On a badge surface that is the worst shape the bug can
-     take — the admin sees their own optimistic edit and cannot tell it from the
-     row Postgres actually holds. Resetting during render is React's documented
-     way to adjust state when a prop changes; it re-runs this component
-     immediately, before the browser paints anything.
-
-     The view state below is deliberately not reset. Where an admin is in the
-     list is theirs, not the server's, and a revalidation that threw away their
-     filter would punish them for acting. */
-  const [snapshot, setSnapshot] = useState<QueueProfile[]>(initial);
-  const [queue, setQueue] = useState<QueueProfile[]>(initial);
+export function ReviewQueue({ queue, reviewer }: { queue: QueueProfile[]; reviewer: string }) {
+  /* View state only. Nothing here mirrors a row, so there is nothing to reset
+     when a write lands and a new `queue` arrives — and where an admin is in the
+     list survives their own actions, which is the point. */
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [order, setOrder] = useState<QueueOrder>("oldest");
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
 
-  if (snapshot !== initial) {
-    setSnapshot(initial);
-    setQueue(initial);
-  }
-
-  const patch = (profileId: string, change: (profile: QueueProfile) => QueueProfile) =>
-    setQueue((current) =>
-      current.map((profile) => (profile.id === profileId ? change(profile) : profile)),
-    );
+  /* `isPending` covers the write and the re-render that follows it, because
+     `revalidatePath` inside the action means the transition is not finished
+     until the fresh page has been applied. That is exactly the window in which
+     the screen is showing a row Postgres has already changed. */
+  const [pending, startTransition] = useTransition();
+  const [failure, setFailure] = useState<string | null>(null);
 
   /**
-   * Fixture-backed, and the only thing in this file #14 replaces. Each member
-   * is the local equivalent of one RPC; swapping in Server Actions changes this
-   * object and nothing below it.
+   * One write, with whatever came back put on screen.
+   *
+   * Actions return `{ ok }` rather than throwing, so a refusal a reviewer can
+   * act on — `23514` and its hint, a privilege they do not hold — survives to
+   * the browser instead of being flattened into a production build's generic
+   * message. The `catch` is for the other kind: a network failure, or a
+   * `redirect` thrown by the guard, which React re-throws for the router.
+   */
+  const run = (work: () => Promise<ActionOutcome>) => {
+    setFailure(null);
+    startTransition(async () => {
+      try {
+        const outcome = await work();
+        if (!outcome.ok) setFailure(outcome.message);
+      } catch (error) {
+        setFailure(error instanceof Error ? error.message : "The write did not go through.");
+      }
+    });
+  };
+
+  /**
+   * What an admin can do, wired to Postgres. **The object #14 replaced.**
+   *
+   * Each member is one write and nothing else: no local patching, no
+   * optimistic row, and no fifth member — there is no verifying a profile.
    */
   const actions: QueueActions = {
-    /* Deliberately does NOT bump `updatedAt`. Drift means "the practitioner
-       edited their profile since we checked it", and an admin changing the
-       status is not that — bumping it here would put a profile you just
-       approved straight back in the queue as drifted. The accepted false
-       positives are the practitioner-invisible ones the spec names; this would
-       be one this screen manufactured for itself. */
-    setStatus: (profileId, status: AdminStatus) =>
-      patch(profileId, (profile) => ({ ...profile, status })),
+    setStatus: (profileId, status, note) => run(() => setStatusAction(profileId, status, note)),
 
-    setVerified: (profileId, credentialId, verified) =>
-      /* `new Date()` here rather than in the render body: nothing re-renders
-         while an admin reads a profile, so a timestamp captured at render
-         records when the profile was opened. A session that opens one at 23:50
-         and checks it at 00:05 would date the attestation yesterday. */
-      patch(profileId, (profile) =>
-        stampVerification(profile, credentialId, verified, {
-          by: reviewer,
-          at: new Date().toISOString(),
-        }),
-      ),
+    /* `profileId` goes unused: `set_credential_verified()` takes the credential
+       and returns the row, so the profile whose pages need purging is read back
+       from Postgres rather than taken from the browser. */
+    setVerified: (_profileId, credentialId, verified) =>
+      run(() => setVerifiedAction(credentialId, verified)),
 
-    setNote: (profileId, note) => patch(profileId, (profile) => ({ ...profile, reviewNote: note })),
+    setNote: (profileId, note) => run(() => setNoteAction(profileId, note)),
 
     /* `null → A` claims a profile. `A → B` raises 23514 in `practitioners_guard`
        — admins included — so there is deliberately no way to reassign one, here
        or anywhere. A mis-assignment is recovered by unassigning first, which
        withdraws the profile while its ownership is in question. */
-    assignOwner: (profileId) =>
-      patch(profileId, (profile) =>
-        profile.owner ? profile : { ...profile, owner: profile.contactEmail },
-      ),
+    assignOwner: (profileId, accountId) => run(() => assignOwnerAction(profileId, accountId)),
   };
 
   const { open, cleared } = partitionQueue(queue, { filter, order });
@@ -259,199 +257,357 @@ export function ReviewQueue({
 
       {/* The profile ----------------------------------------------------- */}
       {selected ? (
-        <article className="max-w-3xl">
-          {/* Pager. Arrow keys do the same thing; the buttons are here because
-              a keyboard shortcut nobody can see is a shortcut nobody uses. */}
-          <div className="flex items-center justify-between border-b border-stroke pb-4">
-            <button
-              type="button"
-              onClick={() => step(-1)}
-              disabled={position <= 0}
-              className="text-sm font-medium underline underline-offset-4 disabled:no-underline disabled:opacity-40"
-            >
-              ← Previous
-            </button>
-            <p className="text-sm text-t-muted">
-              {position + 1} of {ordered.length}
-              <span className="ml-2 hidden sm:inline">· ← → move</span>
-            </p>
-            <button
-              type="button"
-              onClick={() => step(1)}
-              disabled={position >= ordered.length - 1}
-              className="text-sm font-medium underline underline-offset-4 disabled:no-underline disabled:opacity-40"
-            >
-              Next →
-            </button>
-          </div>
-
-          {/* The person, given the room, in full-strength text. This is the
-              evidence the visibility decision below is made on. */}
-          <header className="mt-10">
-            <h2 className="display-3">{selected.name}</h2>
-            <p className="mt-2 text-lg">{selected.headline}</p>
-            <p className="mt-0.5 text-t-muted">{selected.location}</p>
-
-            <p className="mt-6 max-w-prose">{selected.bio}</p>
-
-            {/* Services and focus, kept apart and labelled. They are two
-                different claims — what you can buy, and what somebody knows —
-                and running them together as one pile of chips would hide the
-                one an admin is most likely to find telling. Five focus areas
-                beside three services is a signal; the same eight in one row is
-                decoration. */}
-            {selected.services.length > 0 ? (
-              <p className="mt-5 flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-t-faint uppercase">Offers</span>
-                {selected.services.map((item) => (
-                  <span
-                    key={item}
-                    className="rounded-full border border-stroke-strong px-2.5 py-0.5 text-t-bright"
-                  >
-                    {item}
-                  </span>
-                ))}
-              </p>
-            ) : null}
-
-            {selected.focus.length > 0 ? (
-              <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-t-faint uppercase">Knows</span>
-                {selected.focus.map((item) => (
-                  <span
-                    key={item}
-                    className="rounded-full border border-stroke px-2.5 py-0.5 text-t-muted"
-                  >
-                    {item}
-                  </span>
-                ))}
-              </p>
-            ) : null}
-
-            <p className="mt-5 text-sm text-t-muted">
-              {selected.contactEmail} · never published
-              {selected.owner ? "" : " · unclaimed"}
-            </p>
-          </header>
-
-          {/* Admission control. Directly under the person because that is what
-              it is decided on, and before the credentials because it comes
-              first — reject and there is nothing left to check. */}
-          <section className="mt-10 border-t border-stroke pt-6">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-              <h3 className="text-lg font-medium">Visible?</h3>
-              <StatusPill status={selected.status} />
-
-              <div className="ml-auto flex flex-wrap gap-2">
-                {/* Three buttons for four statuses. `withdrawn` is the
-                    practitioner's own lever — how somebody leaves without being
-                    erased — and Bluehex taking a profile down is `pending` or
-                    `rejected`. `AdminStatus` will not carry the fourth. */}
-                {selected.status !== "approved" ? (
-                  <Action onClick={() => actions.setStatus(selected.id, "approved")}>
-                    Approve
-                  </Action>
-                ) : null}
-                {selected.status !== "rejected" ? (
-                  <Action onClick={() => actions.setStatus(selected.id, "rejected")} quiet>
-                    Reject
-                  </Action>
-                ) : null}
-                {selected.status !== "pending" ? (
-                  <Action onClick={() => actions.setStatus(selected.id, "pending")} quiet>
-                    Back to pending
-                  </Action>
-                ) : null}
-              </div>
-            </div>
-
-            <p className="mt-3 max-w-prose text-sm text-t-muted">
-              Whether anybody else can see this profile, and nothing else. Independent of the
-              badge below: most published profiles carry no badge, and that is the normal
-              case rather than an unfinished one.
-            </p>
-
-            {!selected.owner ? (
-              <div className="mt-5">
-                <Action onClick={() => actions.assignOwner(selected.id)} quiet>
-                  Assign owner
-                </Action>
-                <p className="mt-2 max-w-prose text-sm text-t-muted">
-                  Hands over a profile that may already carry the badge, and cannot be
-                  undone — a profile never changes owners twice.
-                </p>
-              </div>
-            ) : null}
-          </section>
-
-          {/* Credentials — a working surface, and the one panel on the page.
-              Both a white fill and a border, because either alone is a 3% step
-              against the page and disappears. */}
-          <section className="mt-10 rounded-card border border-stroke bg-surface p-6 md:p-8">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-              <h3 className="text-lg font-medium">Credentials</h3>
-              <p className="text-sm text-t-muted">{badgeLine(selected)}</p>
-            </div>
-
-            <p className="mt-2 max-w-prose text-sm text-t-muted">
-              Checked one at a time, against the certificate behind each one. There is no
-              verifying a profile — the badge is what the rows below add up to.
-            </p>
-
-            {selected.credentials.length === 0 ? (
-              <p className="mt-6 text-sm text-t-muted">None claimed.</p>
-            ) : (
-              <ul className="mt-6 flex flex-col divide-y divide-stroke">
-                {selected.credentials.map((credential) => (
-                  <li key={credential.id} className="py-5 first:pt-0 last:pb-0">
-                    <CredentialRow
-                      credential={credential}
-                      status={selected.status}
-                      onCheck={() => actions.setVerified(selected.id, credential.id, true)}
-                      onUndo={() => actions.setVerified(selected.id, credential.id, false)}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <details className="mt-8">
-            <summary className="cursor-pointer text-sm text-t-muted">
-              Note to the practitioner{selected.reviewNote ? " · written" : ""}
-            </summary>
-            {/* The summary above says what this is but names nothing, and a
-                placeholder is only a last-resort accessible name — without the
-                label the field announces as "Why this was rejected, or what is
-                missing…", which is the prompt rather than the field. */}
-            <textarea
-              rows={3}
-              aria-label="Note to the practitioner"
-              value={selected.reviewNote ?? ""}
-              onChange={(event) => actions.setNote(selected.id, event.target.value)}
-              placeholder="Why this was rejected, or what is missing…"
-              className="mt-3 w-full resize-y rounded-tight border border-stroke bg-surface px-3.5 py-2.5 text-sm outline-ink outline-offset-2 focus:outline-2"
-            />
-            <p className="mt-2 text-sm text-t-muted">They can read this; nobody else can.</p>
-          </details>
-
-          <div className="mt-10 flex flex-wrap items-center gap-4 border-t border-stroke pt-6">
-            {outstanding(selected).length === 0 ? (
-              <p className="text-sm font-medium">Nothing left on this profile.</p>
-            ) : (
-              <p className="text-sm text-t-muted">
-                Still open:{" "}
-                {outstanding(selected)
-                  .map((reason) => reason.label)
-                  .join(" · ")
-                  .toLowerCase()}
-              </p>
-            )}
-            <p className="ml-auto text-sm text-t-muted">Signed in as {reviewer}</p>
-          </div>
-        </article>
+        <ProfilePanel
+          /* Keyed on the profile, so moving to the next one remounts this and
+             throws away the note draft and the account id with it. A draft that
+             followed the reviewer to somebody else's profile is one keystroke
+             away from being written about the wrong person. */
+          key={selected.id}
+          profile={selected}
+          actions={actions}
+          reviewer={reviewer}
+          pending={pending}
+          failure={failure}
+          position={position}
+          total={ordered.length}
+          onStep={step}
+        />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One profile, and everything that is done to it.
+ *
+ * Split out of `ReviewQueue` when the writes became real, for one reason that
+ * is not tidiness: it holds a draft — the note being typed, the account id
+ * being pasted — and a draft belongs to a profile. Keying it on `profile.id`
+ * makes React throw both away when the reviewer moves on, which is cheaper and
+ * more reliable than remembering to clear them and is the difference between a
+ * half-typed rejection reason being discarded and it being written about
+ * somebody else.
+ */
+function ProfilePanel({
+  profile,
+  actions,
+  reviewer,
+  pending,
+  failure,
+  position,
+  total,
+  onStep,
+}: {
+  profile: QueueProfile;
+  actions: QueueActions;
+  reviewer: string;
+  pending: boolean;
+  failure: string | null;
+  position: number;
+  total: number;
+  onStep: (delta: number) => void;
+}) {
+  const [note, setNote] = useState(profile.reviewNote ?? "");
+  const [noteOpen, setNoteOpen] = useState(Boolean(profile.reviewNote));
+  /* Set when Reject was pressed with nothing written. It opens the note, moves
+     the cursor into it and says why — rather than disabling the button, which
+     would leave a reviewer looking at a control that does nothing and no
+     explanation of what it wants. */
+  const [needsReason, setNeedsReason] = useState(false);
+  const [accountId, setAccountId] = useState("");
+  const noteField = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (needsReason) noteField.current?.focus();
+  }, [needsReason]);
+
+  const savedNote = profile.reviewNote ?? "";
+  const noteChanged = note.trim() !== savedNote.trim();
+
+  /**
+   * Rejecting takes a reason, and the schema is what insists.
+   *
+   * `practitioner_review_notes.note` is `not null`, so `reject_practitioner()`
+   * cannot be called without one. Sending an empty string would satisfy the
+   * constraint and show the practitioner a note saying nothing, dated today —
+   * the form asks instead.
+   */
+  const reject = () => {
+    const reason = note.trim();
+    if (!reason) {
+      setNoteOpen(true);
+      setNeedsReason(true);
+      return;
+    }
+    setNeedsReason(false);
+    actions.setStatus(profile.id, "rejected", reason);
+  };
+
+  return (
+    <article className="max-w-3xl">
+      {/* Pager. Arrow keys do the same thing; the buttons are here because
+          a keyboard shortcut nobody can see is a shortcut nobody uses. */}
+      <div className="flex items-center justify-between border-b border-stroke pb-4">
+        <button
+          type="button"
+          onClick={() => onStep(-1)}
+          disabled={position <= 0}
+          className="text-sm font-medium underline underline-offset-4 disabled:no-underline disabled:opacity-40"
+        >
+          ← Previous
+        </button>
+        <p className="text-sm text-t-muted">
+          {position + 1} of {total}
+          <span className="ml-2 hidden sm:inline">· ← → move</span>
+        </p>
+        <button
+          type="button"
+          onClick={() => onStep(1)}
+          disabled={position >= total - 1}
+          className="text-sm font-medium underline underline-offset-4 disabled:no-underline disabled:opacity-40"
+        >
+          Next →
+        </button>
+      </div>
+
+      {/* What Postgres said, when it said no. `role="alert"` because it appears
+          in response to an action the reviewer took and is the only evidence
+          the write did not happen — the row on screen is unchanged either way,
+          which is precisely why the screen keeps no optimistic copy. */}
+      {failure ? (
+        <p
+          role="alert"
+          className="mt-6 rounded-tight border border-stroke-strong bg-surface px-4 py-3 text-sm"
+        >
+          <strong className="font-medium">Not written.</strong> {failure}
+        </p>
+      ) : null}
+
+      {/* The person, given the room, in full-strength text. This is the
+          evidence the visibility decision below is made on. */}
+      <header className="mt-10">
+        <h2 className="display-3">{profile.name}</h2>
+        {/* Each of these renders only when the practitioner wrote one. An
+            empty element in its place would read as a field the screen failed
+            to fill rather than as one nobody filled in, and on a spam check
+            what is missing is as much of the evidence as what is there. */}
+        {profile.headline ? <p className="mt-2 text-lg">{profile.headline}</p> : null}
+        {profile.location ? <p className="mt-0.5 text-t-muted">{profile.location}</p> : null}
+        {profile.bio ? <p className="mt-6 max-w-prose">{profile.bio}</p> : null}
+
+        {/* Services and focus, kept apart and labelled. They are two
+            different claims — what you can buy, and what somebody knows —
+            and running them together as one pile of chips would hide the
+            one an admin is most likely to find telling. Five focus areas
+            beside three services is a signal; the same eight in one row is
+            decoration. */}
+        {profile.services.length > 0 ? (
+          <p className="mt-5 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-t-faint uppercase">Offers</span>
+            {profile.services.map((item) => (
+              <span
+                key={item}
+                className="rounded-full border border-stroke-strong px-2.5 py-0.5 text-t-bright"
+              >
+                {item}
+              </span>
+            ))}
+          </p>
+        ) : null}
+
+        {profile.focus.length > 0 ? (
+          <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-t-faint uppercase">Knows</span>
+            {profile.focus.map((item) => (
+              <span key={item} className="rounded-full border border-stroke px-2.5 py-0.5 text-t-muted">
+                {item}
+              </span>
+            ))}
+          </p>
+        ) : null}
+
+        <p className="mt-5 text-sm text-t-muted">
+          {profile.contactEmail} · never published
+          {profile.owner ? "" : " · unclaimed"}
+        </p>
+      </header>
+
+      {/* Admission control. Directly under the person because that is what
+          it is decided on, and before the credentials because it comes
+          first — reject and there is nothing left to check. */}
+      <section className="mt-10 border-t border-stroke pt-6">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <h3 className="text-lg font-medium">Visible?</h3>
+          <StatusPill status={profile.status} />
+
+          <div className="ml-auto flex flex-wrap gap-2">
+            {/* Three buttons for four statuses. `withdrawn` is the
+                practitioner's own lever — how somebody leaves without being
+                erased — and Bluehex taking a profile down is `pending` or
+                `rejected`. `AdminStatus` will not carry the fourth. */}
+            {profile.status !== "approved" ? (
+              <Action
+                onClick={() => actions.setStatus(profile.id, "approved")}
+                disabled={pending}
+              >
+                Approve
+              </Action>
+            ) : null}
+            {profile.status !== "rejected" ? (
+              <Action onClick={reject} disabled={pending} quiet>
+                Reject
+              </Action>
+            ) : null}
+            {profile.status !== "pending" ? (
+              <Action
+                onClick={() => actions.setStatus(profile.id, "pending")}
+                disabled={pending}
+                quiet
+              >
+                Back to pending
+              </Action>
+            ) : null}
+          </div>
+        </div>
+
+        <p className="mt-3 max-w-prose text-sm text-t-muted">
+          Whether anybody else can see this profile, and nothing else. Independent of the
+          badge below: most published profiles carry no badge, and that is the normal
+          case rather than an unfinished one.
+        </p>
+
+        {!profile.owner ? (
+          <div className="mt-5">
+            {/* The account is named by id, which is a gap rather than a
+                design: the rule is that a claim matches the claimer's verified
+                address against the contact address above, and nothing
+                reachable from PostgREST resolves an address to an account —
+                `auth` is not an exposed schema. So the match is a human check
+                and the id is pasted, which is at least the same manual
+                judgement the badge itself rests on. */}
+            <label htmlFor="assign-owner" className="text-xs text-t-faint uppercase">
+              Account id
+            </label>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <input
+                id="assign-owner"
+                value={accountId}
+                onChange={(event) => setAccountId(event.target.value)}
+                placeholder="00000000-0000-0000-0000-000000000000"
+                spellCheck={false}
+                className="h-9 w-full max-w-sm rounded-tight border border-stroke bg-surface px-3.5 font-mono text-sm outline-ink outline-offset-2 focus:outline-2"
+              />
+              <Action
+                onClick={() => actions.assignOwner(profile.id, accountId)}
+                disabled={pending || accountId.trim() === ""}
+                quiet
+              >
+                Assign owner
+              </Action>
+            </div>
+            <p className="mt-2 max-w-prose text-sm text-t-muted">
+              Check the account&rsquo;s verified address is {profile.contactEmail} first —
+              that address is the lock on an unclaimed profile, and nothing here checks it
+              for you. Hands over a profile that may already carry the badge, clears every
+              check on it, and cannot be undone: a profile never changes owners twice.
+            </p>
+          </div>
+        ) : null}
+      </section>
+
+      {/* Credentials — a working surface, and the one panel on the page.
+          Both a white fill and a border, because either alone is a 3% step
+          against the page and disappears. */}
+      <section className="mt-10 rounded-card border border-stroke bg-surface p-6 md:p-8">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+          <h3 className="text-lg font-medium">Credentials</h3>
+          <p className="text-sm text-t-muted">{badgeLine(profile)}</p>
+        </div>
+
+        <p className="mt-2 max-w-prose text-sm text-t-muted">
+          Checked one at a time, against the certificate behind each one. There is no
+          verifying a profile — the badge is what the rows below add up to.
+        </p>
+
+        {profile.credentials.length === 0 ? (
+          <p className="mt-6 text-sm text-t-muted">None claimed.</p>
+        ) : (
+          <ul className="mt-6 flex flex-col divide-y divide-stroke">
+            {profile.credentials.map((credential) => (
+              <li key={credential.id} className="py-5 first:pt-0 last:pb-0">
+                <CredentialRow
+                  credential={credential}
+                  status={profile.status}
+                  pending={pending}
+                  onCheck={() => actions.setVerified(profile.id, credential.id, true)}
+                  onUndo={() => actions.setVerified(profile.id, credential.id, false)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* The note is written and then saved, rather than saved as it is typed.
+          It was a controlled field over the fixture, where every keystroke was
+          free; against Postgres each one would be a write, and each write a
+          row stamped with a new `written_at` the practitioner can read. */}
+      <details className="mt-8" open={noteOpen}>
+        <summary
+          onClick={(event) => {
+            event.preventDefault();
+            setNoteOpen((open) => !open);
+          }}
+          className="cursor-pointer text-sm text-t-muted"
+        >
+          Note to the practitioner{savedNote ? " · written" : ""}
+        </summary>
+        {/* The summary above says what this is but names nothing, and a
+            placeholder is only a last-resort accessible name — without the
+            label the field announces as "Why this was rejected, or what is
+            missing…", which is the prompt rather than the field. */}
+        <textarea
+          ref={noteField}
+          rows={3}
+          aria-label="Note to the practitioner"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Why this was rejected, or what is missing…"
+          className="mt-3 w-full resize-y rounded-tight border border-stroke bg-surface px-3.5 py-2.5 text-sm outline-ink outline-offset-2 focus:outline-2"
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-4">
+          <Action
+            onClick={() => actions.setNote(profile.id, note)}
+            disabled={pending || !noteChanged}
+            quiet
+          >
+            {note.trim() === "" && savedNote ? "Delete note" : "Save note"}
+          </Action>
+          <p className="text-sm text-t-muted">
+            {needsReason
+              ? "A rejection needs a reason. Write one, then reject."
+              : "They can read this; nobody else can."}
+          </p>
+        </div>
+      </details>
+
+      <div className="mt-10 flex flex-wrap items-center gap-4 border-t border-stroke pt-6">
+        {outstanding(profile).length === 0 ? (
+          <p className="text-sm font-medium">Nothing left on this profile.</p>
+        ) : (
+          <p className="text-sm text-t-muted">
+            Still open:{" "}
+            {outstanding(profile)
+              .map((reason) => reason.label)
+              .join(" · ")
+              .toLowerCase()}
+          </p>
+        )}
+        <p className="ml-auto text-sm text-t-muted">
+          {pending ? "Writing… · " : ""}Signed in as {reviewer}
+        </p>
+      </div>
+    </article>
   );
 }
 
@@ -588,11 +744,13 @@ function QueueRow({
 function CredentialRow({
   credential,
   status,
+  pending,
   onCheck,
   onUndo,
 }: {
   credential: QueueCredential;
   status: QueueProfile["status"];
+  pending: boolean;
   onCheck: () => void;
   onUndo: () => void;
 }) {
@@ -624,9 +782,18 @@ function CredentialRow({
         {credential.verified ? (
           /* `verified_by` and `verified_at` in full strength rather than as
              muted bookkeeping. They are the substance of the attestation: the
-             badge means this named human looked on this day. */
+             badge means this named human looked on this day.
+
+             The name is missing when the row records no account — an admin
+             whose account was deleted, or a privileged path with no
+             `auth.uid()` to write. The sentence drops the clause rather than
+             printing an empty one: the day is still known, and "Checked by  on
+             …" would read as a rendering fault rather than as a fact about the
+             row. */
           <p className="mt-2 text-sm">
-            Checked by {credential.verifiedBy} on {credential.verifiedAt?.slice(0, 10)}.
+            {credential.verifiedBy
+              ? `Checked by ${credential.verifiedBy} on ${credential.verifiedAt?.slice(0, 10)}.`
+              : `Checked on ${credential.verifiedAt?.slice(0, 10)}, with no admin recorded.`}
           </p>
         ) : null}
 
@@ -687,19 +854,22 @@ function CredentialRow({
              named human. It stays as it is until that is answered, because the
              answer is a column. */
           <div className="flex flex-col items-end gap-2">
-            <Action onClick={onCheck} quiet>
+            <Action onClick={onCheck} disabled={pending} quiet>
               Check again
             </Action>
             <button
               type="button"
               onClick={onUndo}
-              className="text-sm text-t-muted underline underline-offset-4"
+              disabled={pending}
+              className="text-sm text-t-muted underline underline-offset-4 disabled:no-underline disabled:opacity-40"
             >
               Undo check
             </button>
           </div>
         ) : (
-          <Action onClick={onCheck}>Verify</Action>
+          <Action onClick={onCheck} disabled={pending}>
+            Verify
+          </Action>
         )}
       </div>
     </div>
@@ -745,20 +915,29 @@ function Toggle({
   );
 }
 
+/* `disabled` is held while a write is in flight, and it is the only reason a
+   control here is ever disabled — the queue's filters deliberately stay live at
+   zero, because a control that greys out hides the answer somebody came for.
+   This is the other case: the button is not unavailable, it has already been
+   pressed, and a second press would be a second write against a row the screen
+   has not seen the result of yet. */
 function Action({
   children,
   onClick,
   quiet,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   quiet?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-9 w-fit items-center rounded-full px-4 text-sm font-medium transition-colors ${
+      disabled={disabled}
+      className={`inline-flex h-9 w-fit items-center rounded-full px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         quiet
           ? "border border-stroke-strong bg-surface hover:bg-ink hover:text-t-invert"
           : "bg-ink text-t-invert hover:bg-ink-tint"
