@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ContactForm } from "./contact-form";
 import { ArrowRight, ArrowUpRight } from "@/components/icons";
 import { Button, SectionLabel } from "@/components/ui";
-import { practitioners } from "@/lib/practitioners";
+import { getProfile } from "@/lib/directory";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -28,12 +28,14 @@ export default async function ContactPage({ searchParams }: PageProps<"/contact"
         mailto subject and the mail body. That is unvalidated, attacker-supplied
         text rendered as if Bluehex wrote it, so `?about=<anything>` produced a
         page that appeared to endorse it. Resolving against the known set means
-        anything that does not match simply shows no banner. */
+        anything that does not match simply shows no banner.
+
+     Resolved against Postgres since #53, through the same `anon` read the
+     profile page makes — so an id that is not approved, or not a uuid at all,
+     resolves to nothing and the banner simply does not render. */
   const requested = (await searchParams).about;
   const about =
-    typeof requested === "string"
-      ? practitioners.find((person) => person.id === requested)?.name
-      : undefined;
+    typeof requested === "string" ? ((await getProfile(requested))?.name ?? undefined) : undefined;
 
   return (
     <>

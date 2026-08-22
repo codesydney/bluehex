@@ -2,7 +2,7 @@ import {
   maxServices,
   type CatalogueEntry,
   type Credential,
-  type Practitioner,
+  type Profile,
   type Service,
 } from "@/lib/practitioners";
 
@@ -412,9 +412,9 @@ export function pickableEntries(catalogue: CatalogueEntry[]): CatalogueEntry[] {
 }
 
 /**
- * The id the preview's `Practitioner` carries.
+ * The id the preview's `Profile` carries.
  *
- * A draft has no row and therefore no id, and `Practitioner.id` is not
+ * A draft has no row and therefore no id, and `Profile.id` is not
  * optional. The preview never links anywhere — `profilePath()` is not called on
  * it — so a sentinel is honest where a fabricated uuid would look resolvable.
  */
@@ -424,7 +424,7 @@ const PREVIEW_ID = "preview";
  * The draft as the public record — the mapping the preview draws.
  *
  * **This is the mechanism, not a decoration.** The return type is
- * `Practitioner`, which is the shape `anon` is granted and nothing else: it has
+ * `Profile`, which is the shape `anon` is granted and nothing else: it has
  * no `contactEmail`, no `contactPhone` and no `contactNote`, so typing an
  * address into the Contact step *cannot* move the preview. That guarantee is
  * structural rather than remembered, and `profile-draft.test.ts` asserts it.
@@ -434,7 +434,7 @@ const PREVIEW_ID = "preview";
  *   - An evidence URL reaches `Credential.evidenceUrl` only when its opt-in is
  *     on, mirroring the generated `evidence_url_public` column that `anon` is
  *     granted in place of `evidence_url`.
- *   - Custom services do not exist here, because `Practitioner.services` is the
+ *   - Custom services do not exist here, because `Profile.services` is the
  *     closed set the roster filters on. The editor collects that set only; see
  *     the note in `profile-editor.tsx`.
  *
@@ -447,7 +447,7 @@ export function previewPractitioner(
   draft: ProfileDraft,
   controlled: BluehexControlled,
   catalogue: CatalogueEntry[],
-): Practitioner {
+): Profile {
   const credentials: Credential[] = [];
 
   for (const credential of draft.credentials) {

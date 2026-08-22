@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hasVerifiedBadge, maxServices } from "@/lib/practitioners";
+import { credentialSource, hasVerifiedBadge, maxServices } from "@/lib/practitioners";
 import {
   badgeState,
   catalogueProgress,
@@ -73,7 +73,10 @@ describe("the catalogue the editor picks from", () => {
   });
 
   it("groups certifications apart from courses, in track order", () => {
-    const sources = catalogue.map((entry) => entry.source);
+    /* `credentialSource` is what the `<optgroup>` labels are, and what the
+       public surfaces print — asserting on it rather than on `kind` is what
+       keeps the picker and the profile page describing an entry the same way. */
+    const sources = catalogue.map(credentialSource);
 
     expect(new Set(sources)).toEqual(new Set(["Anthropic Academy", "Claude Certification"]));
     /* Every Academy entry before every certification, so `<optgroup>` can be
@@ -81,6 +84,19 @@ describe("the catalogue the editor picks from", () => {
     expect(sources.lastIndexOf("Anthropic Academy")).toBeLessThan(
       sources.indexOf("Claude Certification"),
     );
+  });
+
+  it("carries the two axes #103 split apart, rather than one string", () => {
+    const certifications = catalogue.filter((entry) => entry.kind === "certification");
+
+    expect(certifications).toHaveLength(4);
+    /* The disagreement is the split working: the exam is delivered by Pearson
+       VUE and its page lives on a partner Skilljar tenant. A single `source`
+       column could not hold both facts. */
+    expect(certifications.every((entry) => entry.platform === "Pearson VUE")).toBe(true);
+    expect(
+      certifications.every((entry) => entry.courseUrl?.startsWith("https://anthropic-partners.")),
+    ).toBe(true);
   });
 
   it("offers nothing retired", () => {

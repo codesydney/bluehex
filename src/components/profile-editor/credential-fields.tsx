@@ -25,12 +25,12 @@
  */
 
 import { pickableEntries, type DraftCredential } from "@/lib/profile-draft";
-import type { CatalogueEntry } from "@/lib/practitioners";
+import { credentialSource, type CatalogueEntry } from "@/lib/practitioners";
 import { errorFor, type FieldError } from "@/lib/profile-validation";
 import { Field, TextInput, inputClasses, type ControlProps } from "./fields";
 
 /**
- * Which credential this is — one select over the catalogue, grouped by source.
+ * Which credential this is — one select over the catalogue, grouped by weight.
  *
  * **One control, not two.** The alternative was a source select feeding a
  * credential select, and it loses on every count that matters. A practitioner
@@ -71,13 +71,17 @@ function CatalogueSelect({
 }) {
   /* Groups derived from the sorted list rather than from a separate list of
      sources, so there is one ordering fact instead of two that can disagree.
+     The group's own name is `credentialSource`, which is the same string the
+     public surfaces print under a credential — the picker and the profile page
+     cannot describe the same entry two different ways.
      `sortOrder` decides the order inside a group and, through the first entry
      it yields, between them. */
   const groups = new Map<string, CatalogueEntry[]>();
   for (const item of pickableEntries(catalogue)) {
-    const group = groups.get(item.source);
+    const source = credentialSource(item);
+    const group = groups.get(source);
     if (group) group.push(item);
-    else groups.set(item.source, [item]);
+    else groups.set(source, [item]);
   }
 
   return (

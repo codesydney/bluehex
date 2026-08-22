@@ -30,7 +30,7 @@
  */
 
 import { entryByLabel } from "../catalogue";
-import type { Credential, Practitioner } from "@/lib/practitioners";
+import type { Credential, Profile } from "@/lib/practitioners";
 
 /**
  * One held credential. The label is looked up rather than typed, because a
@@ -51,7 +51,7 @@ function held(
    — the surface would serve `/p/mara-ellison-l1` and never show the URL this
    drawing exists to look at. */
 
-export const launchPopulation: Practitioner[] = [
+export const launchPopulation: Profile[] = [
   {
     id: "2f1a3c9d-4b7e-4c21-9a86-1d0f5e83b7c4",
     name: "Mara Ellison",

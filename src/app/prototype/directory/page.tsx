@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ProfileDetail } from "@/app/p/_lib/profile-detail";
 import { PractitionerDirectory } from "@/components/practitioner-directory";
+import { vocabularyServices } from "@/lib/practitioners";
 import { catalogue } from "../catalogue";
 import { launchPopulation } from "./fixtures";
 
@@ -66,7 +67,13 @@ export default function DirectoryPrototypePage() {
         </p>
       </div>
 
-      <PractitionerDirectory practitioners={launchPopulation} />
+      {/* The chips come from `service_catalogue` on the real page, and this one
+          has no query behind it — so it hands over the hardcoded vocabulary the
+          table was seeded from. Same six labels, same order. */}
+      <PractitionerDirectory
+        practitioners={launchPopulation}
+        serviceCatalogue={vocabularyServices}
+      />
 
       {/* The page behind that link, drawn here because it cannot be reached:
           `/p/<handle>` resolves against the real practitioners and there are

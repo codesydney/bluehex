@@ -1,4 +1,4 @@
-import type { CatalogueEntry, CredentialSource } from "@/lib/practitioners";
+import type { CatalogueEntry, CredentialKind } from "@/lib/practitioners";
 import type { BluehexControlled, ProfileDraft } from "@/lib/profile-draft";
 import seeded from "../../supabase/seed/credential-catalogue.json";
 
@@ -30,36 +30,27 @@ import seeded from "../../supabase/seed/credential-catalogue.json";
  * under a header forbidding anyone to copy them anywhere, on a page whose whole
  * job is credibility.
  *
- * Two things it does not have, both of which arrive with the query:
+ * One thing it does not have, and it arrives with the query: **ids**. The column
+ * is a `uuid` the database generates and the JSON carries none, so the ids below
+ * are derived from the index and are uuid-shaped on purpose — a short stand-in
+ * hides anything that truncates one.
  *
- *   - **Ids.** The column is a `uuid` the database generates, and the JSON
- *     carries none. The ids below are derived from the index and are
- *     uuid-shaped on purpose: a short stand-in hides anything that truncates
- *     one.
- *   - **`kind` and `platform` kept apart.** `CatalogueEntry` in
- *     `@/lib/practitioners` still carries the single `source` that #103 split,
- *     because the directory and the profile page render it — reconciling that
- *     type with the column pair belongs with the query in #53, not here. The
- *     mapping below is lossy in exactly one direction: a certification's
- *     `platform` (Pearson VUE) is not representable, and its `kind` becomes
- *     "Claude Certification". That is what the two `<optgroup>`s want anyway,
- *     since what they show is weight.
+ * It used to be missing `kind` and `platform` too, flattening them into the
+ * single `source` that `@/lib/practitioners` still carried. #53 reconciled that
+ * type with the column pair, so the mapping below is straight through and no
+ * longer lossy about a certification's platform.
  */
-const sourceFor: Record<string, CredentialSource> = {
-  certification: "Claude Certification",
-  course: "Anthropic Academy",
-};
 
 /**
  * `sort_order` restarts at 0 per platform in the seed — it is what a grouped
  * picker renders against, and the unique constraint does not span it. A single
  * list needs one key, so the group's own offset is folded in here and the
- * picker sorts on one number rather than sorting twice. Academy first, as the
+ * picker sorts on one number rather than sorting twice. Courses first, as the
  * seed writes them: it is the track somebody works through.
  */
-const groupOffset: Record<CredentialSource, number> = {
-  "Anthropic Academy": 0,
-  "Claude Certification": 1000,
+const groupOffset: Record<CredentialKind, number> = {
+  course: 0,
+  certification: 1000,
 };
 
 const entries: CatalogueEntry[] = seeded.map((entry, index) => {
@@ -67,19 +58,29 @@ const entries: CatalogueEntry[] = seeded.map((entry, index) => {
      'course'))` already refuses anything else at the database, so a fallback
      would be defending against a state the schema forbids by inventing an
      answer — and the answer it invented would file a certification under the
-     Academy, which is the one distinction the `<optgroup>`s exist to show. */
-  const source = sourceFor[entry.kind];
-  if (!source) throw new Error(`Unknown credential kind ${entry.kind}`);
+     Academy, which is the one distinction the `<optgroup>`s exist to show.
+
+     The public mapper in `@/lib/directory-mapping` deliberately does the
+     opposite and reads an unknown kind as a course. The difference is who is
+     reading: a wrong kind here is a bug in a file somebody just edited, and a
+     wrong kind there is a row the database already accepted on a page whose
+     visitors should not get a 500 over it. */
+  if (entry.kind !== "certification" && entry.kind !== "course") {
+    throw new Error(`Unknown credential kind ${entry.kind}`);
+  }
+  const kind: CredentialKind = entry.kind;
 
   return {
     /* Deterministic, so a reload does not repoint a credential. */
     id: `c0000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-    source,
+    kind,
+    platform: entry.platform,
     label: entry.label,
+    courseUrl: entry.courseUrl,
     /* `active` takes its default for all 24 rows in the seed: retirement is a
        flag flip, never a delete. Nothing in the record is retired yet. */
     active: true,
-    sortOrder: groupOffset[source] + entry.sortOrder,
+    sortOrder: groupOffset[kind] + entry.sortOrder,
   };
 });
 

@@ -9,7 +9,7 @@
  * granted to `bluehex_admin` and to nobody else.
  *
  * **The contents below are invented and the real list has not been compiled.**
- * That is its own scope item. What is not invented is the shape: `source`,
+ * That is its own scope item. What is not invented is the shape: `kind`, `platform`,
  * `label`, `active` and `sort_order`, with the id as the only reference. Read
  * these as plausible placeholders for names Anthropic owns, and do not copy any
  * of them into a migration.
@@ -29,14 +29,32 @@
 import type { CatalogueEntry } from "@/lib/practitioners";
 
 /* Ids are uuid-shaped for the same reason the fixture profiles' are: the real
-   column is a uuid and a short stand-in hides anything that truncates one. */
+   column is a uuid and a short stand-in hides anything that truncates one.
+
+   The call sites below still name the old single `source`, and this function
+   translates it into the `kind` / `platform` pair #103 split it into. That is
+   deliberate rather than lazy: every label here is invented and the header
+   forbids copying any of it anywhere, so restating twenty-four rows in the new
+   shape would be twenty-four more invented facts to read past. Weight maps
+   exactly — a Certification is examined by Pearson VUE, a course is published by
+   the Academy — and `courseUrl` is null because a made-up entry has no page. */
+type PrototypeSource = "Anthropic Academy" | "Claude Certification";
+
 function entry(
   id: string,
-  source: CatalogueEntry["source"],
+  source: PrototypeSource,
   label: string,
   sortOrder: number,
 ): CatalogueEntry {
-  return { id, source, label, active: true, sortOrder };
+  return {
+    id,
+    kind: source === "Claude Certification" ? "certification" : "course",
+    platform: source === "Claude Certification" ? "Pearson VUE" : "Anthropic Academy",
+    label,
+    courseUrl: null,
+    active: true,
+    sortOrder,
+  };
 }
 
 export const catalogue: CatalogueEntry[] = [
@@ -123,16 +141,18 @@ export const catalogue: CatalogueEntry[] = [
      retired entry looks like on a profile is undecided in the spec, and nothing
      here draws it differently — this shows the filtering only. */
   {
-    id: "c1000000-0000-4000-8000-000000000014",
-    source: "Anthropic Academy",
-    label: "Prompt engineering (2025 edition)",
+    ...entry(
+      "c1000000-0000-4000-8000-000000000014",
+      "Anthropic Academy",
+      "Prompt engineering (2025 edition)",
+      200,
+    ),
     active: false,
-    sortOrder: 200,
   },
 
   /* The Certifications. Higher weight, examined rather than completed, and four
-     of them. `source` is the two-value axis that stayed a check constraint,
-     because weight is what it describes and that has not grown. */
+     of them. Weight is `kind`, which stayed a check constraint because that is
+     what it describes and that has not grown. */
   entry(
     "c2000000-0000-4000-8000-000000000001",
     "Claude Certification",
