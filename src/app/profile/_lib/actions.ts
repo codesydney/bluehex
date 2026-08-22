@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAccount } from "@/lib/auth/session";
-import type { ProfileWrite } from "@/lib/profile-draft";
+import { toWritePayload, type ProfileDraft, type ProfileWrite } from "@/lib/profile-draft";
 import type { SaveResult } from "@/lib/profile-save";
+import { validateDraft } from "@/lib/profile-validation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { ProfileRow } from "./profile-mapping";
 import {
@@ -11,6 +12,7 @@ import {
   planServices,
   type SavedCredential,
   type SavedService,
+  type ServiceCatalogueEntry,
 } from "./profile-plan";
 
 /**
@@ -37,6 +39,22 @@ import {
  *
  * There is no service role key anywhere in this path, and adding one would be a
  * decision rather than a step.
+ *
+ * **It takes a `ProfileDraft` and maps it here, rather than taking the mapped
+ * `ProfileWrite` from the browser.** #125 found what the earlier signature
+ * cost: naming the columns defends against an *extra* one and says nothing
+ * about the values in the ones it names, and Postgres refuses very little of
+ * what is left — `name` and `contact_email` are `not null` and both accept
+ * `''`, which is how a crafted payload emptied an approved profile and left it
+ * published with no address to reach the practitioner at. `validateDraft` is
+ * the answer and it is defined over the draft, so the draft is what has to
+ * arrive. Mapping on this side is the same function the form used to call, and
+ * moving it here means the `"" → null` and `"" → drop this row` rules are the
+ * server's rather than something the client is trusted to have done.
+ *
+ * The database should say this too — `check (length(btrim(contact_email)) > 0)`
+ * is the durable half, and a form is not a constraint. That is a migration and
+ * it is #127.
  *
  * ## Creating a profile is two requests, and the order is forced
  *
@@ -104,12 +122,27 @@ type Refusal = Extract<SaveResult, { ok: false }>;
  */
 function refusal(error: { code?: string; message: string; hint?: string | null }): Refusal {
   if (error.code === "23505") {
-    return {
-      ok: false,
-      message:
-        "One credential is listed twice. Each Claude credential goes on your profile once — " +
-        "remove the duplicate and save again. Nothing was changed.",
-    };
+    /* On the constraint name rather than on the code, because three of them are
+       reachable from this one action and they mean different things to the
+       person reading. Falling through names the constraint, which is not a
+       sentence but is better than the wrong sentence. */
+    if (error.message.includes("practitioner_credentials_")) {
+      return {
+        ok: false,
+        message:
+          "One credential is listed twice. Each Claude credential goes on your profile once — " +
+          "remove the duplicate and save again. Nothing was changed.",
+      };
+    }
+
+    if (error.message.includes("practitioners_user_id_key")) {
+      return {
+        ok: false,
+        message:
+          "You already have a profile. This page was opened before it existed — reload it and " +
+          "your profile will be there to edit. Nothing was changed.",
+      };
+    }
   }
 
   return {
@@ -140,8 +173,17 @@ function purge(profile: { handle: string; status: ProfileRow["status"] }) {
   }
 }
 
-export async function saveProfileAction(payload: ProfileWrite): Promise<SaveResult> {
+export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult> {
   const viewer = await requireAccount("/profile");
+
+  /* Before anything is written, and before the client is trusted to have run
+     the same check. The first message rather than all of them: the form shows
+     every error against its own field and takes somebody to it, so this is the
+     backstop for a payload that did not come from the form. */
+  const problems = validateDraft(draft);
+  if (problems.length > 0) return { ok: false, message: problems[0].message };
+
+  const payload = toWritePayload(draft);
   const supabase = await createServerSupabaseClient();
 
   const { data: profiles, error: read } = await supabase.rpc("my_profile");
@@ -210,7 +252,19 @@ export async function saveProfileAction(payload: ProfileWrite): Promise<SaveResu
     purge(profile);
     return {
       ok: false,
-      message: `Your details were saved. Your credentials and services were not: ${children.message}`,
+      /* **Which half landed is read off what actually ran**, not assumed. There
+         is no transaction across PostgREST — the deletes are their own
+         statements and commit before the inserts are attempted — so a save that
+         fails part way through has already changed the rows it got to. Saying
+         "your credentials were not saved" over a credential that has just been
+         deleted is the one lie this form cannot afford, and it was what this
+         message said before #125. Making it atomic — one `security definer`
+         RPC, one transaction — is #128; this is the honest report until then. */
+      message: children.applied
+        ? "Your details were saved, and your credentials and services were changed only in " +
+          `part before this failed: ${children.message} Reload the page to see what Bluehex ` +
+          "now holds before you edit them again."
+        : `Your details were saved. Your credentials and services were not: ${children.message}`,
     };
   }
 
@@ -232,19 +286,23 @@ export async function saveProfileAction(payload: ProfileWrite): Promise<SaveResu
  * from one row to another. Ordering the piles is cheaper than teaching either
  * constraint about intent.
  */
+type ChildOutcome = { ok: true } | { ok: false; message: string; applied: boolean };
+
 async function saveChildren(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   practitionerId: string,
   payload: ProfileWrite,
-): Promise<SaveResult> {
+): Promise<ChildOutcome> {
   const [saved, savedServices, catalogue] = await Promise.all([
     supabase.rpc("my_credentials"),
     supabase.from("practitioner_services").select("id,catalogue_id,label").eq("practitioner_id", practitionerId),
     supabase.from("service_catalogue").select("id,label"),
   ]);
 
+  /* Nothing has been written when a lookup fails, which is the one place in
+     this function `applied: false` is a fact rather than a claim. */
   const lookupFailure = saved.error ?? savedServices.error ?? catalogue.error;
-  if (lookupFailure) return refusal(lookupFailure);
+  if (lookupFailure) return { ...refusal(lookupFailure), applied: false };
 
   /* `my_credentials()` returns every credential the caller owns, which for one
      account is one profile's worth — `practitioners.user_id` is unique. Filtered
@@ -257,15 +315,26 @@ async function saveChildren(
   const services = planServices(
     (savedServices.data ?? []) as SavedService[],
     payload.services,
-    new Map((catalogue.data ?? []).map((entry) => [entry.label, entry.id])),
+    (catalogue.data ?? []) as ServiceCatalogueEntry[],
   );
+
+  /* Set by the first statement that commits, and read by the caller to decide
+     what to tell the practitioner. It is deliberately not a count of what
+     landed: this function knows that *something* did, and anything finer would
+     be a second description of the same rows for somebody to keep in step. */
+  let applied = false;
+  const failed = (error: { code?: string; message: string; hint?: string | null }): ChildOutcome => ({
+    ...refusal(error),
+    applied,
+  });
 
   if (credentials.remove.length > 0) {
     const { error } = await supabase
       .from("practitioner_credentials")
       .delete()
       .in("id", credentials.remove);
-    if (error) return refusal(error);
+    if (error) return failed(error);
+    applied = true;
   }
 
   if (services.remove.length > 0) {
@@ -273,26 +342,30 @@ async function saveChildren(
       .from("practitioner_services")
       .delete()
       .in("id", services.remove);
-    if (error) return refusal(error);
+    if (error) return failed(error);
+    applied = true;
   }
 
   for (const { id, row } of credentials.update) {
     const { error } = await supabase.from("practitioner_credentials").update(row).eq("id", id);
-    if (error) return refusal(error);
+    if (error) return failed(error);
+    applied = true;
   }
 
   if (credentials.insert.length > 0) {
     const { error } = await supabase
       .from("practitioner_credentials")
       .insert(credentials.insert.map((row) => ({ ...row, practitioner_id: practitionerId })));
-    if (error) return refusal(error);
+    if (error) return failed(error);
+    applied = true;
   }
 
   if (services.insert.length > 0) {
     const { error } = await supabase
       .from("practitioner_services")
       .insert(services.insert.map((id) => ({ practitioner_id: practitionerId, catalogue_id: id })));
-    if (error) return refusal(error);
+    if (error) return failed(error);
+    applied = true;
   }
 
   return { ok: true };

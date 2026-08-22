@@ -93,9 +93,20 @@ export async function readOwnProfile(accountEmail: string | null): Promise<OwnPr
   const failure = contact.error ?? credentials.error ?? services.error ?? note.error;
   if (failure) throw new Error(`Reading your profile failed: ${failure.message}`);
 
+  /* An absent contact row is the same failure as a failed read and is treated
+     the same way, which is the point: `contact_id` is `not null` and
+     `contacts_read_own` follows the pointer, so this is unreachable — but the
+     type admits it, and the branch that quietly rendered `contactEmail: ""`
+     instead would have had the next save write that blank over the real
+     address. A read that half-worked is the one input a whole-record save
+     cannot be given. */
+  if (!contact.data) {
+    throw new Error("Reading your profile failed: it has no contact row.");
+  }
+
   return toOwnProfile({
     profile,
-    contact: contact.data as ContactRow | null,
+    contact: contact.data as ContactRow,
     credentials: credentials.data as unknown as CredentialRow[],
     services: (services.data ?? []) as ServiceRow[],
     reviewNote: note.data?.note ?? null,

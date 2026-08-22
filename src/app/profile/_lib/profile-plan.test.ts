@@ -116,11 +116,11 @@ describe("planCredentials", () => {
 });
 
 describe("planServices", () => {
-  const catalogue = new Map([
-    ["Code review", "s1"],
-    ["Team training", "s2"],
-    ["Implementation", "s3"],
-  ]);
+  const catalogue = [
+    { id: "s1", label: "Code review" },
+    { id: "s2", label: "Team training" },
+    { id: "s3", label: "Implementation" },
+  ];
 
   function service(over: Partial<SavedService> = {}): SavedService {
     return { id: "row1", catalogue_id: "s1", label: null, ...over };
@@ -164,5 +164,43 @@ describe("planServices", () => {
     const plan = planServices([], ["Fractional CTO"] as unknown as Service[], catalogue);
 
     expect(plan.insert).toEqual([]);
+  });
+
+  /* The case the first version of this file missed, because its only free-text
+     fixture was "Fractional CTO" — a label outside the vocabulary, which is the
+     half that already worked. A labelled row saying a vocabulary word renders as
+     that chip, so matching on catalogue ids left the chip looking unsatisfied
+     and inserted a second row beside it: one visible service, two of the three
+     slots under `practitioner_services_cap` gone, and the third refused by a
+     trigger over a row the practitioner could not see. */
+  it("does not add a catalogue row beside a free-text row saying the same thing", () => {
+    const rows = [service({ id: "row2", catalogue_id: null, label: "Code review" })];
+    const plan = planServices(rows, ["Code review"] as Service[], catalogue);
+
+    expect(plan).toEqual({ insert: [], remove: [] });
+  });
+
+  /* The other half of the same rule: this function only deletes what the form
+     could have shown. A catalogue label renamed out from under the union in
+     `@/lib/practitioners` is dropped from the draft by the read, and matching on
+     absence alone would then delete it from every profile that offered it, one
+     save at a time and silently. `tests/db/catalogues.test.ts` would fail the
+     rename in CI; failing closed here costs one condition and does not depend on
+     another suite running. */
+  it("keeps a catalogue row whose label has drifted out of the vocabulary", () => {
+    const renamed = [{ id: "s1", label: "Code review, renamed" }, ...catalogue.slice(1)];
+    const plan = planServices([service()], [], renamed);
+
+    expect(plan.remove).toEqual([]);
+  });
+
+  /* And a catalogue reference the catalogue does not name at all — a row
+     pointing at an entry this read did not return. Kept for the same reason:
+     nothing on the form showed it, so its absence from the payload says
+     nothing about what the practitioner meant. */
+  it("keeps a catalogue row the catalogue does not name", () => {
+    const plan = planServices([service({ catalogue_id: "unknown" })], [], catalogue);
+
+    expect(plan.remove).toEqual([]);
   });
 });

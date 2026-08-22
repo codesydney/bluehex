@@ -1,4 +1,4 @@
-import type { Service } from "@/lib/practitioners";
+import { isService, type Service } from "@/lib/practitioners";
 import type { ProfileWrite } from "@/lib/profile-draft";
 
 /**
@@ -102,12 +102,18 @@ function changed(saved: SavedCredential, wanted: CredentialWrite): boolean {
   );
 }
 
-/** A saved service row, from `practitioner_services`. */
+/** A saved service row, from `practitioner_services`. Exactly one of the two
+    columns is set — `practitioner_services_one_kind` — so the row's label is
+    either the catalogue entry's or its own. */
 export type SavedService = {
   id: string;
   catalogue_id: string | null;
   label: string | null;
 };
+
+/** `service_catalogue`, as the write reads it. Both directions are needed: a
+    saved row resolves id to label, and a chip resolves label to id. */
+export type ServiceCatalogueEntry = { id: string; label: string };
 
 export type ServicePlan = {
   /** `service_catalogue` ids. Every service the form offers is a catalogue
@@ -120,35 +126,65 @@ export type ServicePlan = {
 };
 
 /**
- * Services reconcile by catalogue id, and there is nothing to update: a row
- * carries a reference and no other writable content, so an edit is a different
- * row.
+ * Services reconcile by label, and there is nothing to update: a row carries a
+ * reference and no other writable content, so an edit is a different row.
  *
- * **A free-text row is left alone rather than removed**, and that is the whole
- * of what keeps this save non-destructive about content it cannot see. The
- * chips render the closed vocabulary; a labelled row was written by an admin
- * during curated intake and has no control on this form, so treating its
- * absence from the payload as a deletion would delete it on the first save of
- * an unrelated field. It costs the practitioner nothing, because it also counts
- * against `practitioner_services_cap` — which is the one visible consequence,
- * and it is the trigger's message rather than a silent narrowing.
+ * **By label rather than by catalogue id, which is the correction #125 made.**
+ * The read renders a row's label whether it came from the catalogue or from the
+ * row's own `label` column, so a free-text row saying "Code review" *is* the
+ * Code review chip on screen. Matched on ids, that chip looked unsatisfied and
+ * every save inserted a second row beside it — one visible service occupying
+ * two of the three slots `practitioner_services_cap` allows, and the third
+ * refused by a trigger over a row the practitioner could not see.
+ *
+ * **Two kinds of row are never removed, and both are the same rule: this
+ * function only deletes what the form could have shown.**
+ *
+ *   - **A free-text row**, as before. It was written by an admin during curated
+ *     intake and has no control on this form, so reading its absence from the
+ *     payload as a deletion would delete it on the first save of an unrelated
+ *     field.
+ *   - **A catalogue row whose label is not in the closed vocabulary.** That is
+ *     a label an admin renamed out from under the union in
+ *     `@/lib/practitioners`: the read drops it from the draft, because no chip
+ *     can render it, and matching on absence alone would then delete it from
+ *     every profile offering it, one save at a time, silently.
+ *     `tests/db/catalogues.test.ts` holds the table to that list so a rename
+ *     fails CI — but a test in another suite is not a mechanism, and failing
+ *     closed here costs one condition.
  */
 export function planServices(
   saved: SavedService[],
   wanted: Service[],
-  catalogue: Map<string, string>,
+  catalogue: ServiceCatalogueEntry[],
 ): ServicePlan {
-  const wantedIds = new Set(
-    wanted.map((label) => catalogue.get(label)).filter((id): id is string => id !== undefined),
-  );
-  const savedIds = new Set(
-    saved.map((row) => row.catalogue_id).filter((id): id is string => id !== null),
+  const labelById = new Map(catalogue.map((entry) => [entry.id, entry.label]));
+  const idByLabel = new Map(catalogue.map((entry) => [entry.label, entry.id]));
+
+  /* What a saved row shows on the form, or `null` where it shows nothing — a
+     catalogue reference the catalogue does not name. Not the same as a row
+     whose label is merely outside the vocabulary, which resolves fine and is
+     then held back by `isService` below. */
+  const shownLabel = (row: SavedService): string | null =>
+    row.catalogue_id === null ? row.label : (labelById.get(row.catalogue_id) ?? null);
+
+  const wantedLabels = new Set<string>(wanted);
+  const covered = new Set(
+    saved.map(shownLabel).filter((label): label is string => label !== null),
   );
 
   return {
-    insert: [...wantedIds].filter((id) => !savedIds.has(id)),
+    insert: wanted
+      .filter((label) => !covered.has(label))
+      .map((label) => idByLabel.get(label))
+      .filter((id): id is string => id !== undefined),
     remove: saved
-      .filter((row) => row.catalogue_id !== null && !wantedIds.has(row.catalogue_id))
+      .filter((row) => {
+        if (row.catalogue_id === null) return false;
+
+        const label = shownLabel(row);
+        return label !== null && isService(label) && !wantedLabels.has(label);
+      })
       .map((row) => row.id),
   };
 }

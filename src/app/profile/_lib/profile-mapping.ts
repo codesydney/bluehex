@@ -1,4 +1,4 @@
-import { services as vocabulary, type Service } from "@/lib/practitioners";
+import { isService, type Service } from "@/lib/practitioners";
 import { emptyDraft, type BluehexControlled, type ProfileDraft } from "@/lib/profile-draft";
 
 /**
@@ -110,7 +110,7 @@ export function toOwnProfile({
   reviewNote,
 }: {
   profile: ProfileRow;
-  contact: ContactRow | null;
+  contact: ContactRow;
   credentials: CredentialRow[];
   services: ServiceRow[];
   reviewNote: string | null;
@@ -137,12 +137,11 @@ export function toOwnProfile({
       githubUrl: nullToBlank(profile.github_url),
       linkedinUrl: nullToBlank(profile.linkedin_url),
       bookingUrl: nullToBlank(profile.booking_url),
-      /* Null only if the contact read failed a policy, which cannot happen for
-         a profile the caller owns: `contacts_read_own` follows the pointer.
-         Blank rather than a throw, so a form still renders. */
-      contactEmail: contact?.contact_email ?? "",
-      contactPhone: nullToBlank(contact?.contact_phone),
-      contactNote: nullToBlank(contact?.contact_note),
+      /* Not nullable, and `readOwnProfile` throws rather than passing null: a
+         blank here is a blank the next save writes over the real address. */
+      contactEmail: contact.contact_email,
+      contactPhone: nullToBlank(contact.contact_phone),
+      contactNote: nullToBlank(contact.contact_note),
       credentials: ordered.map((row) => ({
         key: row.id,
         catalogueId: row.catalogue_id,
@@ -182,14 +181,6 @@ function toServices(rows: ServiceRow[]): Service[] {
   return [...new Set(labels)];
 }
 
-/** The closed vocabulary is `services` in `@/lib/practitioners`, which is also
-    what `20260820201450_catalogues.sql` seeded `service_catalogue` from and what
-    `tests/db/catalogues.test.ts` holds the two to. Asking the list rather than
-    the table is what makes the return type the union the form's chips are typed
-    against; a table row that has drifted from it is exactly the row this drops. */
-function isService(label: string): label is Service {
-  return (vocabulary as readonly string[]).includes(label);
-}
 
 function nullToBlank(value: string | null | undefined): string {
   return value ?? "";

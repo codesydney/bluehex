@@ -1,4 +1,4 @@
-import type { ProfileWrite } from "@/lib/profile-draft";
+import type { ProfileDraft } from "@/lib/profile-draft";
 
 /**
  * What a save reports back, and the shape of the function that performs one.
@@ -24,8 +24,15 @@ import type { ProfileWrite } from "@/lib/profile-draft";
 export type SaveResult = { ok: true } | { ok: false; message: string };
 
 /**
- * `ProfileWrite` rather than `ProfileDraft`, which is where the `"" → null` and
- * `"" → do not submit this row` mappings have already happened — see
- * `toWritePayload`. The editor never hands a form model to a writer.
+ * `ProfileDraft` rather than `ProfileWrite`, which is the correction #125 made
+ * and is worth stating because the earlier signature reads better.
+ *
+ * Handing the writer the already-mapped payload made the browser responsible
+ * for the `"" → null` and `"" → do not submit this row` rules, and left the
+ * action with nothing it could validate: `validateDraft` is defined over the
+ * draft, and by the time `""` has become `null` the difference between "not
+ * saying" and "sent an empty name" is gone. So the draft travels, and the
+ * action validates and maps it — `toWritePayload` is the same pure function,
+ * called one hop later.
  */
-export type SaveProfile = (payload: ProfileWrite) => Promise<SaveResult>;
+export type SaveProfile = (draft: ProfileDraft) => Promise<SaveResult>;

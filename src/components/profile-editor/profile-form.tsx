@@ -39,7 +39,6 @@ import {
   pickableEntries,
   previewPractitioner,
   statusCopy,
-  toWritePayload,
   type BluehexControlled,
   type ProfileDraft,
 } from "@/lib/profile-draft";
@@ -140,7 +139,7 @@ export function ProfileForm({
 
     setPending(true);
     try {
-      setResult(await save(toWritePayload(draft)));
+      setResult(await save(draft));
     } catch {
       /* A Server Action rejects on a network failure and on an expired session
          — and `requireAccount` redirects rather than returning, which arrives
