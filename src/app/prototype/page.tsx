@@ -39,8 +39,6 @@ const designs: { href: string; title: string; blurb: string }[] = [
     blurb:
       "The real directory at the population it launches with, and a profile one click away at the URL a practitioner would paste into a job application. Five alternatives were drawn against the roster and none of them beat it.",
   },
-  {
-  },
 ];
 
 export default function DesignIndex() {

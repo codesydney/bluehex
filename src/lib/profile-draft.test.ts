@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { maxServices } from "@/lib/practitioners";
+import { hasVerifiedBadge, maxServices } from "@/lib/practitioners";
 import {
   badgeState,
   catalogueProgress,
@@ -9,9 +9,10 @@ import {
   emptyDraft,
   newCredential,
   pickableEntries,
+  isCompleteCredential,
   previewPractitioner,
-  previewShowsBadge,
   servicesFull,
+  statusCopy,
   toggleService,
   toWritePayload,
   type BluehexControlled,
@@ -51,6 +52,16 @@ function draftWith(overrides: Partial<ProfileDraft> = {}): ProfileDraft {
 }
 
 const nothingChecked: BluehexControlled = { status: "pending", verified: {}, reviewNote: null };
+
+/** The badge as the preview would draw it — the path `RowPreview` itself takes. */
+function badgeInPreview(draft: ProfileDraft, controlled: BluehexControlled): boolean {
+  return hasVerifiedBadge(previewPractitioner(draft, controlled, catalogue).credentials);
+}
+
+/** A credential picked but not dated: complete enough to resolve, not to submit. */
+function dateless(key: string, catalogueId: string): DraftCredential {
+  return credential({ key, catalogueId, earnedAt: "" });
+}
 
 describe("the catalogue the editor picks from", () => {
   it("is the real record, not an invented one", () => {
@@ -146,16 +157,63 @@ describe("editing a credential's claim", () => {
       reviewNote: null,
     };
 
-    expect(previewShowsBadge(before, controlled, catalogue)).toBe(true);
+    expect(badgeInPreview(before, controlled)).toBe(true);
 
     const after = {
       ...before,
       credentials: [{ ...before.credentials[0], catalogueId: second.id }],
     };
 
-    expect(
-      previewShowsBadge(after, clearInvalidatedChecks(before, after, controlled), catalogue),
-    ).toBe(false);
+    expect(badgeInPreview(after, clearInvalidatedChecks(before, after, controlled))).toBe(false);
+  });
+});
+
+describe("a row that is not yet a credential", () => {
+  /* `catalogue_id` and `earned_at` are both `not null`. A row missing either is
+     a state of the form, and the bug this covers was that only `catalogue_id`
+     was tested — so the counters and the preview each described a set the write
+     path would not carry. */
+
+  it("is not one until it has both a credential and a date", () => {
+    expect(isCompleteCredential(credential())).toBe(true);
+    expect(isCompleteCredential(newCredential("blank"))).toBe(false);
+    expect(isCompleteCredential(dateless("d", first.id))).toBe(false);
+    expect(isCompleteCredential(credential({ catalogueId: "" }))).toBe(false);
+  });
+
+  it("does not move the figure the practitioner is shown", () => {
+    const draft = draftWith({ credentials: [credential(), dateless("d", second.id)] });
+
+    expect(catalogueProgress(draft, catalogue).held).toBe(1);
+    expect(badgeState(draft, nothingChecked).held).toBe(1);
+  });
+
+  it("does not name Bluehex as the party being waited on", () => {
+    /* With an evidence URL and no date it used to count as "waiting on
+       Bluehex", which nobody at Bluehex can move. */
+    const draft = draftWith({ credentials: [dateless("d", first.id)] });
+
+    expect(badgeState(draft, nothingChecked)).toMatchObject({
+      held: 0,
+      awaitingCheck: 0,
+      awaitingProof: 0,
+    });
+  });
+
+  it("is not drawn in the preview, because it can never be published", () => {
+    const draft = draftWith({ credentials: [credential(), dateless("d", second.id)] });
+
+    expect(previewPractitioner(draft, nothingChecked, catalogue).credentials).toHaveLength(1);
+  });
+
+  it("is counted, drawn and submitted by one predicate, so the three agree", () => {
+    const draft = draftWith({
+      credentials: [credential(), dateless("d", second.id), newCredential("blank")],
+    });
+
+    expect(badgeState(draft, nothingChecked).held).toBe(1);
+    expect(previewPractitioner(draft, nothingChecked, catalogue).credentials).toHaveLength(1);
+    expect(toWritePayload(draft).credentials).toHaveLength(1);
   });
 });
 
@@ -261,6 +319,28 @@ describe("progress against the catalogue", () => {
     const draft = draftWith({ credentials: [credential(), newCredential("blank")] });
 
     expect(catalogueProgress(draft, catalogue).held).toBe(1);
+  });
+});
+
+describe("what the practitioner is told about status", () => {
+  it("covers all four, so none of them is described as another", () => {
+    for (const status of ["pending", "approved", "rejected", "withdrawn"] as const) {
+      expect(statusCopy[status].axis).toBeTruthy();
+      expect(statusCopy[status].row).toBeTruthy();
+    }
+  });
+
+  it("does not tell a rejected or withdrawn profile it is waiting on Bluehex", () => {
+    expect(statusCopy.pending.row).toContain("waiting on Bluehex");
+    expect(statusCopy.rejected.row).not.toContain("waiting on Bluehex");
+    expect(statusCopy.withdrawn.row).not.toContain("waiting on Bluehex");
+  });
+
+  it("says only approved is in the directory", () => {
+    expect(statusCopy.approved.row).not.toContain("Not in the directory");
+    for (const status of ["pending", "rejected", "withdrawn"] as const) {
+      expect(statusCopy[status].row).toContain("Not in the directory");
+    }
   });
 });
 

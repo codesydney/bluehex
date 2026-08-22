@@ -34,9 +34,11 @@ import type { CatalogueEntry } from "@/lib/practitioners";
 import {
   badgeState,
   catalogueProgress,
+  claimedCredentials,
   newCredential,
   pickableEntries,
   previewPractitioner,
+  statusCopy,
   toWritePayload,
   type BluehexControlled,
   type ProfileDraft,
@@ -658,7 +660,10 @@ export function ProfileForm({
  */
 function Progress({ draft, catalogue }: { draft: ProfileDraft; catalogue: CatalogueEntry[] }) {
   const { held, total } = catalogueProgress(draft, catalogue);
-  const holdings = new Set(draft.credentials.map((credential) => credential.catalogueId));
+  /* Built from `claimedCredentials` rather than from the raw list, so the tick
+     in this checklist and the figure above it answer the same question. A row
+     with a credential picked and no date yet is a state of the form. */
+  const holdings = new Set(claimedCredentials(draft).map((credential) => credential.catalogueId));
 
   return (
     <div className="rounded-card bg-surface p-5">
@@ -717,12 +722,7 @@ function BluehexDecides({
   badge: ReturnType<typeof badgeState>;
   controlled: BluehexControlled;
 }) {
-  const status = {
-    pending: "Waiting for Bluehex to read it",
-    approved: "Approved — in the directory",
-    rejected: "Not approved",
-    withdrawn: "Withdrawn",
-  }[controlled.status];
+  const status = statusCopy[controlled.status].axis;
 
   return (
     <div className="rounded-card bg-surface p-6">

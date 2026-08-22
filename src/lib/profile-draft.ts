@@ -1,5 +1,4 @@
 import {
-  hasVerifiedBadge,
   maxServices,
   type CatalogueEntry,
   type Credential,
@@ -136,6 +135,39 @@ export type BluehexControlled = {
   verified: Record<string, boolean>;
   /** Admin feedback, from `practitioner_review_notes`. The owner reads, never writes. */
   reviewNote: string | null;
+};
+
+export type ProfileStatus = BluehexControlled["status"];
+
+/**
+ * What each status means, in the two places the editor says it.
+ *
+ * One map rather than two, because they are the same axis read for different
+ * purposes and two of them drift: `axis` names the state on the Review step,
+ * where the subject is the decision itself, and `row` says what it means for
+ * the directory, which is the only thing the preview is drawing. Both have to
+ * cover all four — a ternary that maps `approved` and calls everything else
+ * "waiting on Bluehex" is true of `pending` and false of the other two, and
+ * misstating a Bluehex-owned axis is misstating what this editor exists to
+ * explain.
+ */
+export const statusCopy: Record<ProfileStatus, { axis: string; row: string }> = {
+  pending: {
+    axis: "Waiting for Bluehex to read it",
+    row: "Not in the directory yet — waiting on Bluehex.",
+  },
+  approved: {
+    axis: "Approved — in the directory",
+    row: "Live in the directory.",
+  },
+  rejected: {
+    axis: "Not approved",
+    row: "Not in the directory — Bluehex did not approve it.",
+  },
+  withdrawn: {
+    axis: "Withdrawn",
+    row: "Not in the directory — this profile has been withdrawn.",
+  },
 };
 
 /**
@@ -289,16 +321,32 @@ export function clearInvalidatedChecks(
 }
 
 /**
- * The draft rows that name a credential.
+ * Whether this row is a credential at all, rather than a state of the form.
  *
- * A row that has been added and not yet picked is a state of the form, so
- * nothing submits it and nothing may count it either. Every figure derived from
- * the credential list goes through here: letting an empty row move a number is
- * how the progress panel and the checklist inside it came to disagree in the
- * prototype — same box, same click, two answers.
+ * `catalogue_id` and `earned_at` are both `not null`, so a row missing either
+ * is not a row the database would take — which is why the mapping on the way
+ * out is `"" → do not submit this row` rather than `"" → null`.
+ *
+ * **Every surface that counts, draws or submits a credential goes through
+ * here**, and that is the whole point of it being one function. Testing only
+ * `catalogue_id` was enough to make the progress figure, the "Submitting N
+ * credentials" line and the preview each describe a set the write path would
+ * not carry — a practitioner told Bluehex was about to receive three when it
+ * would receive two, on the step whose entire job is saying who owes what.
+ */
+export function isCompleteCredential(credential: DraftCredential): boolean {
+  return credential.catalogueId !== "" && credential.earnedAt !== "";
+}
+
+/**
+ * The draft rows that are credentials.
+ *
+ * Every figure derived from the credential list goes through here: letting an
+ * incomplete row move a number is how the progress panel and the checklist
+ * inside it came to disagree — same box, same click, two answers.
  */
 export function claimedCredentials(draft: ProfileDraft): DraftCredential[] {
-  return draft.credentials.filter((credential) => credential.catalogueId !== "");
+  return draft.credentials.filter(isCompleteCredential);
 }
 
 /**
@@ -370,7 +418,7 @@ export function pickableEntries(catalogue: CatalogueEntry[]): CatalogueEntry[] {
  * optional. The preview never links anywhere — `profilePath()` is not called on
  * it — so a sentinel is honest where a fabricated uuid would look resolvable.
  */
-export const PREVIEW_ID = "preview";
+const PREVIEW_ID = "preview";
 
 /**
  * The draft as the public record — the mapping the preview draws.
@@ -403,6 +451,12 @@ export function previewPractitioner(
   const credentials: Credential[] = [];
 
   for (const credential of draft.credentials) {
+    /* The same predicate the write path uses. Without it the preview draws a
+       claim that `validateDraft` blocks and `toWritePayload` drops — a state
+       unreachable in the directory, on the one component whose argument is
+       that it shows the truth rather than asserting it. */
+    if (!isCompleteCredential(credential)) continue;
+
     const entry = catalogue.find((item) => item.id === credential.catalogueId);
     if (!entry) continue;
 
@@ -433,15 +487,6 @@ export function previewPractitioner(
     bookingUrl: blankToNull(draft.bookingUrl),
     credentials,
   };
-}
-
-/** Whether the preview would show the badge. Same rule as the roster's. */
-export function previewShowsBadge(
-  draft: ProfileDraft,
-  controlled: BluehexControlled,
-  catalogue: CatalogueEntry[],
-): boolean {
-  return hasVerifiedBadge(previewPractitioner(draft, controlled, catalogue).credentials);
 }
 
 /**
@@ -515,8 +560,7 @@ export function toWritePayload(draft: ProfileDraft): ProfileWrite {
     },
     services: draft.services,
     credentials: draft.credentials
-      /* Both `not null`, so an incomplete row is not a row. */
-      .filter((credential) => credential.catalogueId !== "" && credential.earnedAt !== "")
+      .filter(isCompleteCredential)
       .map((credential) => ({
         catalogue_id: credential.catalogueId,
         earned_at: credential.earnedAt,

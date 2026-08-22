@@ -63,7 +63,13 @@ const groupOffset: Record<CredentialSource, number> = {
 };
 
 const entries: CatalogueEntry[] = seeded.map((entry, index) => {
-  const source = sourceFor[entry.kind] ?? "Anthropic Academy";
+  /* Throws rather than falling back. `check (kind in ('certification',
+     'course'))` already refuses anything else at the database, so a fallback
+     would be defending against a state the schema forbids by inventing an
+     answer — and the answer it invented would file a certification under the
+     Academy, which is the one distinction the `<optgroup>`s exist to show. */
+  const source = sourceFor[entry.kind];
+  if (!source) throw new Error(`Unknown credential kind ${entry.kind}`);
 
   return {
     /* Deterministic, so a reload does not repoint a credential. */

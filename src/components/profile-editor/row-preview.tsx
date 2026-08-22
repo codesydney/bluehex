@@ -27,7 +27,7 @@
 import { CredentialMark, Tick, earnedLabel } from "@/components/credential-mark";
 import { Badge } from "@/components/ui";
 import { hasVerifiedBadge, type Practitioner } from "@/lib/practitioners";
-import type { BluehexControlled } from "@/lib/profile-draft";
+import { statusCopy, type BluehexControlled } from "@/lib/profile-draft";
 import { earnedDateProblem } from "@/lib/profile-validation";
 
 export function RowPreview({
@@ -121,9 +121,7 @@ export function RowPreview({
       </div>
 
       <p className="mt-5 border-t border-stroke pt-4 text-xs text-t-muted">
-        {controlled.status === "approved"
-          ? "Live in the directory."
-          : "Not in the directory yet — waiting on Bluehex."}
+        {statusCopy[controlled.status].row}
       </p>
     </div>
   );

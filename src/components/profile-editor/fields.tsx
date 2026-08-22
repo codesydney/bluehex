@@ -194,6 +194,7 @@ export function ServicesPicker({
   error?: string;
 }) {
   const countId = useId();
+  const errorId = `${countId}-error`;
   /* The cap and the picking rule are `@/lib/profile-draft`'s, so what the
      disabled state shows and what a click would do cannot disagree. */
   const full = servicesFull(value);
@@ -204,11 +205,19 @@ export function ServicesPicker({
       {/* Named, because this control skips `Field` — without it a screen reader
           announces "Code review, toggle button, not pressed" with nothing
           saying what is being toggled. Described by the count, so the cap is
-          heard rather than only seen. */}
+          heard rather than only seen, and by the error when there is one:
+          `role="alert"` announces the message once as it appears, and without
+          this a reader arriving at the control afterwards — which is what
+          happens, since a failed check sends focus to the summary and they
+          navigate from there — would hear the count and nothing else.
+
+          No `aria-invalid`: it is not a global attribute and `group` is not
+          among the roles that support it, so it would be dropped from the
+          accessibility tree while looking like it works. */}
       <div
         role="group"
         aria-label="Services you offer"
-        aria-describedby={countId}
+        aria-describedby={error ? `${countId} ${errorId}` : countId}
         className="flex flex-wrap gap-1.5"
       >
         {services.map((service) => {
@@ -241,7 +250,7 @@ export function ServicesPicker({
           : "Pick the ones somebody could actually hire you for. Leaving it empty is fine."}
       </p>
 
-      {error ? <FieldError>{error}</FieldError> : null}
+      {error ? <FieldError id={errorId}>{error}</FieldError> : null}
     </div>
   );
 }
