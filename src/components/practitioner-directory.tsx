@@ -7,11 +7,11 @@ import { Close, Search, Sparkle } from "@/components/icons";
 import { Badge, Card } from "@/components/ui";
 import {
   countryName,
+  credentialSource,
   hasVerifiedBadge,
   profilePath,
-  services as serviceOptions,
-  type Practitioner,
-  type Service,
+  type Profile,
+  type ServiceOption,
 } from "@/lib/practitioners";
 
 /**
@@ -65,7 +65,7 @@ import {
  * typing "RAG" should still find people, and free text with no chip behind it
  * cannot disagree with a filter that does not exist.
  */
-function searchIndex(person: Practitioner) {
+function searchIndex(person: Profile) {
   return [
     person.name,
     person.headline ?? "",
@@ -76,7 +76,8 @@ function searchIndex(person: Practitioner) {
     ...person.services,
     ...person.credentials.flatMap((credential) => [
       credential.entry.label,
-      credential.entry.source,
+      credentialSource(credential.entry),
+      credential.entry.platform,
     ]),
   ]
     .join(" ")
@@ -85,7 +86,7 @@ function searchIndex(person: Practitioner) {
 
 /* A query matches when every word in it appears somewhere in the profile, so
    "sydney agents" narrows rather than widens the way a plain substring would. */
-function matchesQuery(person: Practitioner, query: string) {
+function matchesQuery(person: Profile, query: string) {
   const haystack = searchIndex(person);
   return query
     .toLowerCase()
@@ -94,7 +95,22 @@ function matchesQuery(person: Practitioner, query: string) {
     .every((term) => haystack.includes(term));
 }
 
-export function PractitionerDirectory({ practitioners }: { practitioners: Practitioner[] }) {
+export function PractitionerDirectory({
+  practitioners,
+  serviceCatalogue,
+}: {
+  practitioners: Profile[];
+  /**
+   * The closed vocabulary the filter chips are drawn from — `service_catalogue`,
+   * read by the Server Component above. It is a prop rather than an import
+   * because it is a query result now: a service Bluehex promotes starts
+   * filtering without a deploy, which is the whole point of it being a table.
+   *
+   * The prototype passes `vocabularyServices`, the hardcoded list, because it
+   * draws this roster against invented people with no rows behind them.
+   */
+  serviceCatalogue: ServiceOption[];
+}) {
   const [query, setQuery] = useState("");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [countryFilters, setCountryFilters] = useState<string[]>([]);
@@ -105,13 +121,24 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
      closed set — a chip that always returns nothing is worse than no chip. But
      the order comes from the closed set instead of `sort()`, because unlike the
      focus areas this replaced there is a canonical order, and alphabetical
-     would put "Architecture and advisory" first for no reason. */
+     would put "Architecture and advisory" first for no reason.
+
+     Two consequences of the chips being `service_catalogue` rather than the
+     labels on the rows. A **custom** service renders in a practitioner's row and
+     never appears here, because it is not in the catalogue to be matched — which
+     is the mechanism behind "a vocabulary anyone can extend stops being
+     navigable", not a filter somebody forgot to add. And a **retired** entry is
+     already gone by the time this runs: `toServiceOptions` drops `active =
+     false`, so a service Bluehex stopped naming stops being a chip while every
+     profile still carrying it keeps rendering the label. */
   const offered = useMemo(
     () =>
-      serviceOptions.filter((service) =>
-        practitioners.some((person) => person.services.includes(service)),
-      ),
-    [practitioners],
+      [...serviceCatalogue]
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .filter((service) =>
+          practitioners.some((person) => person.services.includes(service.label)),
+        ),
+    [practitioners, serviceCatalogue],
   );
 
   /* The Verification group gates on its source data like the other two, rather
@@ -147,7 +174,7 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
         }
         if (
           serviceFilters.length &&
-          !serviceFilters.some((item) => person.services.includes(item as Service))
+          !serviceFilters.some((item) => person.services.includes(item))
         ) {
           return false;
         }
@@ -252,11 +279,11 @@ export function PractitionerDirectory({ practitioners }: { practitioners: Practi
           <FilterGroup label="Services">
             {offered.map((service) => (
               <FilterChip
-                key={service}
-                pressed={serviceFilters.includes(service)}
-                onClick={() => toggle(setServiceFilters)(service)}
+                key={service.id}
+                pressed={serviceFilters.includes(service.label)}
+                onClick={() => toggle(setServiceFilters)(service.label)}
               >
-                {service}
+                {service.label}
               </FilterChip>
             ))}
           </FilterGroup>
@@ -391,7 +418,7 @@ function FilterChip({
   );
 }
 
-function PractitionerRow({ person }: { person: Practitioner }) {
+function PractitionerRow({ person }: { person: Profile }) {
   return (
     <>
       {/* Practitioner. No badge in this column, deliberately — see the note at

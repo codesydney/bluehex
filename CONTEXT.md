@@ -14,8 +14,8 @@ transcript; do not implement from it.
 wants to be findable. The human, not the record.
 
 **Profile** — the published record *about* a practitioner. One practitioner has at
-most one profile. `src/lib/practitioners.ts` names its type `Practitioner`, which
-conflates the two; the record is a Profile.
+most one profile. `src/lib/practitioners.ts` named its type `Practitioner` and so
+conflated the two; #53 renamed it `Profile`, which is what it always described.
 
 **Owner** — the account a profile belongs to. A profile with an owner can be edited
 by that person and by nobody else except Bluehex.

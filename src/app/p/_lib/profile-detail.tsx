@@ -35,10 +35,11 @@ import { useId, useState } from "react";
 import { CredentialMark, earnedLabel } from "@/components/credential-mark";
 import { Badge } from "@/components/ui";
 import {
+  credentialSource,
   hasVerifiedBadge,
   profilePath,
   type CatalogueEntry,
-  type Practitioner,
+  type Profile,
 } from "@/lib/practitioners";
 import { site } from "@/lib/site";
 
@@ -59,7 +60,7 @@ export function ProfileDetail({
   person,
   catalogue = [],
 }: {
-  person: Practitioner;
+  person: Profile;
   /**
    * Every credential that exists, so the page can show what this person has
    * not earned as well as what they have. `anon` reads the catalogue, which is
@@ -223,7 +224,7 @@ export function ProfileDetail({
                 <div className="min-w-0">
                   <p className="break-words">{credential.entry.label}</p>
                   <p className="mt-0.5 text-sm text-t-faint">
-                    {credential.entry.source} · {earnedLabel(credential)}
+                    {credentialSource(credential.entry)} · {earnedLabel(credential)}
                   </p>
                   {credential.evidenceUrl ? (
                     <a
@@ -271,7 +272,7 @@ export function ProfileDetail({
               {unearned.map((entry) => (
                 <li key={entry.id} className="text-sm text-t-muted">
                   {entry.label}
-                  <span className="ml-2 text-xs text-t-faint">{entry.source}</span>
+                  <span className="ml-2 text-xs text-t-faint">{credentialSource(entry)}</span>
                 </li>
               ))}
             </ul>

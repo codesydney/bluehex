@@ -1,5 +1,5 @@
 /**
- * The published practitioner directory.
+ * The published practitioner directory, as types rather than as data.
  *
  * The premise: anyone in the Code.Sydney community can build a public profile
  * that collects their Claude credentials — Anthropic Academy certificates and
@@ -8,10 +8,20 @@
  * credentials is a normal profile, and what somebody is working through is
  * their own prose in `bio` rather than a row claiming it.
  *
- * REAL PEOPLE ONLY. Nothing here is placeholder copy — a profile goes in when
- * the person has agreed to be published and the credentials have been checked.
- * The home page renders an invitation for the empty directory rather than
- * inventing entries.
+ * **This module holds no rows any more, and that is the change #53 made.** It
+ * used to export `practitioners` and `credentialCatalogue` as empty arrays that
+ * a page rendered directly; both are gone, and the pages read Postgres through
+ * `@/lib/directory` instead. What is left here is the public *shape* — the view
+ * model the query maps onto, plus the two derivations and the two string
+ * helpers that go with it.
+ *
+ * REAL PEOPLE ONLY. The rule survives the array it used to guard, and it moved
+ * to where the rows now live: a profile reaches the hosted project when the
+ * person has agreed to be published, and nothing invented is ever inserted
+ * there. `supabase/seed.sql` carries an invented population on purpose and is
+ * the one place that is allowed to — it runs on a developer's machine and on a
+ * CI runner and never against hosted. The home page still renders an invitation
+ * for the empty slots rather than inventing entries to fill them.
  *
  * These types are the *public* view of a profile, and they deliberately mirror
  * the columns `anon` is granted in `docs/spec/profile-and-credentials.md` —
@@ -20,15 +30,20 @@
  * invite a component to reach for it. Notably absent: `status`, `user_id`, and
  * the raw `evidence_url` (only the practitioner's published one survives).
  *
- * Fields are camelCase here and snake_case in Postgres; the mapping happens
- * where the query does, which is #53.
- *
- * CONTEXT.md notes that naming this type `Practitioner` conflates the human
- * with the record — strictly it is a Profile. Left alone for now because the
- * rename reaches the component, its file and its props; it belongs with #53.
+ * Fields are camelCase here and snake_case in Postgres. The mapping happens in
+ * `@/lib/directory-mapping`, which is pure and tested; `@/lib/directory` is the
+ * half that talks to the network.
  */
 
-export type CredentialSource = "Claude Certification" | "Anthropic Academy";
+/**
+ * The weight axis of a catalogue entry: is this a course somebody sat, or an
+ * exam somebody passed.
+ *
+ * Lowercase because it is a closed internal category, following `status`'s
+ * precedent. #103 split it out of the single `source` column, which carried the
+ * weight and the awarding body in one string and let the two disagree.
+ */
+export type CredentialKind = "certification" | "course";
 
 /**
  * One credential that exists in the world, listed by Bluehex — a row of
@@ -37,15 +52,24 @@ export type CredentialSource = "Claude Certification" | "Anthropic Academy";
  * anyone asserting anything.
  *
  * The catalogue is the only source of credential names anywhere in the model.
- * `source` and `label` live here rather than on the practitioner's row, so
- * `source = 'Anthropic Academy'` with `label = 'Claude Certification'` is not a
- * representable state, and there is no free text for a practitioner to type an
- * AWS certification into.
+ * `kind`, `platform` and `label` live here rather than on the practitioner's
+ * row, so there is no free text for a practitioner to type an AWS certification
+ * into.
  */
 export type CatalogueEntry = {
   id: string;
-  source: CredentialSource;
+  kind: CredentialKind;
+  /**
+   * Who awards it — `Anthropic Academy` or `Pearson VUE`. A separate fact from
+   * `kind` and from `courseUrl`: the certifications are examined by Pearson VUE
+   * and described on a partner Skilljar tenant, which is the clearest evidence
+   * the axes are genuinely independent.
+   */
+  platform: string;
   label: string;
+  /** Where the entry is published. Null is legal — an entry Bluehex knows of
+      before its page exists is still a real entry. */
+  courseUrl: string | null;
   /**
    * Retired entries are still readable and still render, because somebody who
    * earned a withdrawn course still earned it. `active` filters the *picker*,
@@ -55,6 +79,23 @@ export type CatalogueEntry = {
   /** The Academy track has an order; alphabetical would scramble it. */
   sortOrder: number;
 };
+
+/**
+ * The one line a public surface prints under a credential's label.
+ *
+ * It reproduces what the single `source` column used to render, from the two
+ * columns that replaced it — a certification says so, and a course names the
+ * platform it sat on. That asymmetry is deliberate rather than an oversight:
+ * for a certification the weight is the fact a reader is looking for, and
+ * "Pearson VUE" is trivia about the exam centre; for a course the platform *is*
+ * the weight, because "course" on its own says nothing.
+ *
+ * One copy, because two surfaces print it and a second copy is how the
+ * credential marks drifted the first time.
+ */
+export function credentialSource(entry: CatalogueEntry): string {
+  return entry.kind === "certification" ? "Claude Certification" : entry.platform;
+}
 
 export type Credential = {
   /**
@@ -84,23 +125,24 @@ export type Credential = {
    * `evidence_public` is true. A verified credential with no link here is
    * normal, not missing data: publishing a Skilljar page exposes the holder's
    * full legal name, so it is their call.
+   *
+   * The raw `evidence_url` has no field here and no grant to `anon`, so it
+   * cannot reach a browser by being carried into a prop by accident.
    */
   evidenceUrl: string | null;
 };
 
 /**
- * What a visitor can buy. A closed set, held in DDL as a check constraint
- * rather than in a table, because unlike the credential catalogue this is
- * Bluehex's own vocabulary — it changes when the positioning does, which is a
- * decision a migration should announce.
+ * Bluehex's own first guess at what a visitor can buy.
  *
  * Short on purpose: every extra option splits the same people into smaller
  * buckets until no chip has anyone behind it. No "Other", which reliably
  * becomes the largest bucket and means nothing.
  *
- * Mirrored here as a union so the type says what the `<@` check says. A profile
- * may hold at most three, which the database enforces with `cardinality` —
- * a cap enforced only in a form is not a cap.
+ * **This is no longer where the directory's chips come from.** `service_catalogue`
+ * is, and the roster reads it — see `ServiceOption`. The array survives as the
+ * editor's vocabulary and as the list `20260820201450_catalogues.sql` seeded the
+ * table from, which is what `tests/db/catalogues.test.ts` holds the two to.
  */
 export const services = [
   "One-to-one tutoring",
@@ -113,11 +155,50 @@ export const services = [
 
 export type Service = (typeof services)[number];
 
-/** `cardinality(services) <= 3` on the column. Written once, so the form that
-    shows the cap and the constraint that enforces it cannot drift apart. */
+/** `practitioner_services_cap` enforces this on the table. Written once, so the
+    form that shows the cap and the trigger that enforces it cannot drift apart. */
 export const maxServices = 3;
 
-export type Practitioner = {
+/**
+ * One row of `service_catalogue` — a service Bluehex named, and therefore one
+ * the roster can filter on.
+ *
+ * A *custom* service has no entry here by definition, which is the whole of
+ * "a custom service never becomes a filter chip": it arrives as a bare label on
+ * `Profile.services` and matches no option below.
+ */
+export type ServiceOption = {
+  id: string;
+  label: string;
+  /** The canonical order. Alphabetical would lead with "Architecture and
+      advisory" for no reason, which is what `sort()` used to do. */
+  sortOrder: number;
+};
+
+/**
+ * The closed vocabulary as chip options, for a surface with no query behind it.
+ *
+ * The prototype passes this: it draws the real roster against invented people,
+ * so it has no `service_catalogue` rows to hand it and would otherwise render a
+ * filter group with nothing in it. Ids are the labels because there is no row
+ * to take a uuid from, and nothing resolves them — the chips match on `label`.
+ */
+export const vocabularyServices: ServiceOption[] = services.map((label, index) => ({
+  id: label,
+  label,
+  sortOrder: index,
+}));
+
+/**
+ * A published profile, as `anon` may read it.
+ *
+ * Named `Profile` rather than `Practitioner`: `CONTEXT.md` reserves
+ * "practitioner" for the human and "profile" for the published record about
+ * them, and the old name conflated the two. One practitioner has at most one
+ * profile, so nothing else changes — but the type describes a row, and the row
+ * is the profile.
+ */
+export type Profile = {
   id: string;
   name: string;
   /** What they do, in a line. Called `headline` in the schema, not `role`. */
@@ -139,13 +220,16 @@ export type Practitioner = {
    */
   focus: string[];
   /**
-   * What they can be *hired for* — the directory's filter axis. At most three,
-   * from the closed set above. Empty is legal and normal: a practitioner who
-   * has not said what they sell appears in the directory and matches no service
-   * filter, and requiring it would turn publishing a profile into declaring a
-   * commercial offering.
+   * What they can be *hired for* — the directory's filter axis. At most three.
+   * Labels rather than ids, because two kinds of row arrive here: a catalogue
+   * service resolves its label through `service_catalogue`, and a custom one
+   * carries its own. Both render; only the first can become a chip.
+   *
+   * Empty is legal and normal: a practitioner who has not said what they sell
+   * appears in the directory and matches no service filter, and requiring it
+   * would turn publishing a profile into declaring a commercial offering.
    */
-  services: Service[];
+  services: string[];
   /**
    * A sentence, not a calendar. "Evenings and weekends", "booked until March".
    * Read once, after a visitor is already interested, which is why it is free
@@ -174,16 +258,15 @@ export type Practitioner = {
 /**
  * Whether the profile shows the Verified badge.
  *
- * Derived, never stored — consistent with `certified`, which is not stored
- * either and is simply "holds a credential whose catalogue entry carries
- * `source = 'Claude Certification'`".
+ * Derived, never stored — consistent with `isCertified` below, which is not
+ * stored either.
  *
  * The rule: at least one credential, and every one of them verified. It used to
  * filter out the unearned first, so that a permanently unverifiable row could
  * not deny the badge forever to the people the directory exists to include.
- * There is nothing left to filter — every credential row is earned, and
- * therefore checkable — so the carve-out went with the premise rather than
- * being kept as a defensive `.filter`.
+ * There is nothing left to filter — `earned_at` is `not null`, so every
+ * credential row is earned and therefore checkable — so the carve-out went with
+ * the premise rather than being kept as a defensive `.filter`.
  *
  * An earned credential with no evidence URL now carries that weight instead,
  * and behaves differently on purpose: it *is* in the rollup and holds the badge
@@ -194,6 +277,27 @@ export type Practitioner = {
  */
 export function hasVerifiedBadge(credentials: Credential[]) {
   return credentials.length > 0 && credentials.every((credential) => credential.verified);
+}
+
+/**
+ * `certified` — the practitioner's own assertion that they hold a Claude
+ * Certification.
+ *
+ * Derived from the rows rather than stored, which is what stops it disagreeing
+ * with them: it is "holds a credential whose catalogue entry has
+ * `kind = 'certification'`", and every credential row is earned. There is no
+ * `certified` column and adding one would put a boolean beside the rows it
+ * summarises, free to drift.
+ *
+ * **It is not the badge and must never be drawn as one.** `certified` is
+ * self-asserted and governs nothing; `hasVerifiedBadge` is Bluehex's check.
+ * Nothing public renders this yet — the profile page prints the weight per
+ * credential through `credentialSource` instead, which says the same thing
+ * without summarising a person into a boolean. It lives here so the derivation
+ * has one home for whatever asks next.
+ */
+export function isCertified(credentials: Credential[]) {
+  return credentials.some((credential) => credential.entry.kind === "certification");
 }
 
 /* There is deliberately no progress helper here, and the omission is the
@@ -219,16 +323,16 @@ export function hasVerifiedBadge(credentials: Credential[]) {
  * changed, which is the exact failure this scheme exists to prevent.
  *
  * Nothing yet guarantees those six characters are unique, and `findByHandle`
- * returns the first row that matches them \u2014 so a collision serves the wrong
+ * returns the first row that matches them — so a collision serves the wrong
  * profile rather than a 404. The enforcement has to be in the schema, and is
  * open on the review of #63.
  *
  * The slug is dropped rather than left empty when a name has no ASCII residue
- * \u2014 every character of "\u674e\u96f7" is stripped by the transliteration \u2014 because
+ * — every character of "李雷" is stripped by the transliteration — because
  * `/p/-9f3c1a` leads with a bare hyphen where the readable half is meant to be.
  * `/p/9f3c1a` resolves identically and does not look broken.
  */
-export function profilePath(person: Pick<Practitioner, "id" | "name">) {
+export function profilePath(person: Pick<Profile, "id" | "name">) {
   const slug = person.name
     .toLowerCase()
     .normalize("NFD")
@@ -251,10 +355,6 @@ const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
  * `"au"` straight back, so the `catch` never fires and a lowercase code renders
  * as a filter chip labelled `au`. Only a structurally invalid code such as
  * `"usa"` throws, which is the narrow case the `catch` actually covers.
- *
- * A `check (country_code ~ '^[A-Z]{2}$')` on the column when #53 writes the
- * table is worth pairing with this, so normalising here is not the only thing
- * between the database and a chip labelled `au`.
  */
 export function countryName(code: string) {
   try {
@@ -263,18 +363,3 @@ export function countryName(code: string) {
     return code;
   }
 }
-
-export const practitioners: Practitioner[] = [];
-
-/**
- * Every credential that exists. Bluehex's own reference data, not anybody's
- * record — and empty for the same reason `practitioners` is: the real list has
- * not been compiled, and inventing course names Anthropic owns would put
- * plausible fiction on a page whose entire job is credibility.
- *
- * It is here rather than absent because the profile page takes it as a prop and
- * an empty catalogue degrades correctly: nothing to reveal, so the Earned /
- * Not earned / All control does not render at all. When the query lands this is
- * the seam it replaces.
- */
-export const credentialCatalogue: CatalogueEntry[] = [];

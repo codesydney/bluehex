@@ -12,7 +12,7 @@
  * while flipping the publish opt-in leaves it alone.
  *
  * The guarantee is structural rather than remembered. This component takes a
- * `Practitioner` — the shape `anon` is granted and nothing else — so there is
+ * `Profile` — the shape `anon` is granted and nothing else — so there is
  * no `contactEmail` on the object to draw even by accident. The mapping is
  * `previewPractitioner`, and `profile-draft.test.ts` asserts that contact edits
  * leave its output identical.
@@ -26,7 +26,7 @@
 
 import { CredentialMark, Tick, earnedLabel } from "@/components/credential-mark";
 import { Badge } from "@/components/ui";
-import { hasVerifiedBadge, type Practitioner } from "@/lib/practitioners";
+import { hasVerifiedBadge, type Profile } from "@/lib/practitioners";
 import { statusCopy, type BluehexControlled } from "@/lib/profile-draft";
 import { earnedDateProblem } from "@/lib/profile-validation";
 
@@ -34,7 +34,7 @@ export function RowPreview({
   person,
   controlled,
 }: {
-  person: Practitioner;
+  person: Profile;
   controlled: BluehexControlled;
 }) {
   return (
