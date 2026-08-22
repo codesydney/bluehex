@@ -302,7 +302,7 @@ Files written before this rule are still hard-wrapped. Reflow a paragraph when y
   directory data and its types; `supabase.ts` is the database client.
   `database.types.ts` is **generated** — regenerate it with `pnpm db:types` after a
   migration rather than editing it.
-- `supabase/` — `config.toml` for the local stack, `migrations/` for the schema, and `seed/` for reference data that is real but has no permanent home yet, loaded locally by `seed.sql`. All committed.
+- `supabase/` — `config.toml` for the local stack, `migrations/` for the schema, and `seed/` for reference data that is real but has no permanent home yet, loaded locally by `seed.sql`. All committed. `seed.sql` carries a second kind of thing since #110: an invented population of practitioners, credentials and services, so that `pnpm db:reset` leaves a directory with something in it. Real reference data and outright fixtures sit in the same file for the same reason — it never runs against the hosted project — and the "real people only" rule above governs the directory the public sees, not a developer's machine.
 
 `practitioners.ts` ships an empty array on purpose. **Real people only** — no placeholder
 profiles. The directory renders an invitation card for the empty slots instead.
