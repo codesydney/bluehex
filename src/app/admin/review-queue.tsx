@@ -120,15 +120,20 @@ export function ReviewQueue({ queue, reviewer }: { queue: QueueProfile[]; review
    * Actions return `{ ok }` rather than throwing, so a refusal a reviewer can
    * act on — `23514` and its hint, a privilege they do not hold — survives to
    * the browser instead of being flattened into a production build's generic
-   * message. The `catch` is for the other kind: a network failure, or a
-   * `redirect` thrown by the guard, which React re-throws for the router.
+   * message. The `catch` is for the other kind, which is anything that stopped
+   * the action reaching its own return: the network, or the server.
+   *
+   * The `?` is not defensive noise. An action whose guard redirects an expired
+   * session resolves with nothing while the router navigates away, and reading
+   * `.ok` off that would raise a type error and paint "Not written" over a page
+   * on its way to the sign-in form.
    */
   const run = (work: () => Promise<ActionOutcome>) => {
     setFailure(null);
     startTransition(async () => {
       try {
         const outcome = await work();
-        if (!outcome.ok) setFailure(outcome.message);
+        if (outcome?.ok === false) setFailure(outcome.message);
       } catch (error) {
         setFailure(error instanceof Error ? error.message : "The write did not go through.");
       }
