@@ -33,6 +33,13 @@
   --color-t-invert: #ffffff;
   --color-t-invert-muted: #acacac;
 
+  /* Feedback. One colour, used only where something is wrong: a form error, and
+     nothing else. Dark enough on `--color-page` and on `--color-surface` to
+     clear 4.5:1 at the 12px these messages are set in — and never the only
+     signal, since every message that uses it is text beside the field it is
+     about. */
+  --color-danger: #a02724;
+
   /* strokes */
   --color-stroke: #e0dddb;
   --color-stroke-strong: #161616;

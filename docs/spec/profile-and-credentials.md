@@ -721,6 +721,30 @@ choose resolves it without Bluehex making a privacy call on someone else's name.
 **Flipping it must not clear verification.** It changes the claim's visibility, not the
 claim, so it stays out of the attested set.
 
+## The editor: how the writable set is collected
+
+**Decided 2026-08-15, revised 2026-08-16, built in #71.** The decisions below were settled by drawing three shapes as a prototype and are recorded here because the prototype was deleted when the editor replaced it. They are presentation with no schema consequence — but each of them exists to make a rule in this document visible, so a later change that quietly reverses one is a change to what a practitioner is told rather than to how a form looks.
+
+**A stepped form, with the live preview alongside it throughout.** Two of the three shapes combined, because neither was right alone. The steps are for the first-timer: publishing a profile means handing credentials to a stranger to be checked, and one long form asks for all of that at once with no account of what is about to happen to it. Pacing it buys a *What happens next* step, which is the only place in the flow where `status` and `verified` can be explained at the moment they become true. The preview is what stops the pacing from hiding the whole — a wizard's usual failure is that you never see the thing you are making until you have finished making it — and the step nav is free rather than a track, so nothing traps you.
+
+**What was given up:** the single long form was the better shape for *editing*, since coming back to fix a typo wants the field and not a journey. If that turns out to be awkward it should become a flat form reusing the same field components, with the stepped version kept for first submission. Worth deciding when there is a real profile to edit.
+
+**The preview is the mechanism, not decoration, and this is the part to protect.** On the Contact step you type an email address and the preview does not move, which is the rule that contact details are never published, demonstrated rather than asserted. Same for an evidence link with its opt-in off, and same for `credentials_guard()`: repick a verified credential and its ✓ leaves the preview, while flipping the publish opt-in leaves it alone. Both halves of that last pair matter, because the exemption is the one a practitioner most needs to hear — "this costs you your badge" is a reason to leave the opt-in off, which is the opposite of what the opt-in is for. In #71 the guarantee is structural rather than remembered: the preview is fed by a mapping whose return type is the public `Practitioner` shape, which has no contact field on it to draw even by accident.
+
+**Nothing on the form sets `verified` or `status`, and the form says so rather than omitting them.** Both render read-only. This is the only place a practitioner ever learns who decides, and a form that merely left them out would leave people assuming the fields were coming later.
+
+**The credential picker is one `<select>` over the whole catalogue, with an `<optgroup>` per kind — not two chained selects.** A practitioner knows what they hold; they do not necessarily know which of Bluehex's buckets it files under, so asking for the source first asks a question about our data model before the one they came to answer. Two selects also re-create the pairing the catalogue exists to delete: a stale pair is representable in between, and the second control has to reset whenever the first moves. Two dozen entries across two groups is comfortably one select. Revisit when the catalogue is long enough that scrolling it is the complaint — a filter box over one list is the next step, not a second select. Two things the picker does that a text input could not, and both are constraints rather than manners: retired entries are not offered (`active`), and an entry already on the profile is disabled rather than refused after the fact (`unique (practitioner_id, catalogue_id)`).
+
+**The published links sit on the first step and the contact details on their own, which is the model's own test drawn.** Grouping them by "ways of reaching me" would have put them together and broken the demonstration the Contact step exists for: a published link on that same panel contradicts the caption above it. Splitting them puts the distinction on screen instead — a route to a *page* is public, a route to a *person* is not — and each step says which it is holding.
+
+**The cap is shown before it binds.** The services picker keeps a live count and disables the options that would exceed three rather than silently refusing a click. A cap a form does not show is one somebody meets as an error after they have already decided what they wanted. `practitioner_services_cap` enforces it again, per the services section: a rule enforced only in a form is not a rule.
+
+**Progress belongs to the editor, and the label rule above applies to it.** "2 of 24" with the whole catalogue folded away beneath it — folded, because expanded, two dozen rows of mostly "not earned" is the discouraging reading the public page is being spared, delivered to the one person it is meant to encourage.
+
+**The editor does not trip the profile-identity gate.** That gate is on "the first per-profile route", and an editor is "my profile" keyed on `auth.uid()` with no identifier in the URL. A *public* profile page would force the slug decision; the editor does not.
+
+**Empty is not null, and the form is the first line rather than the only one.** `""` maps to null for every optional column and to "do not submit this row" for a credential, since `catalogue_id` and `earned_at` are `not null`. Both mappings are stated at the end of the Credentials and Contact sections above; the reason they are repeated here is that the failing version type-checks, and a form that sends `''` to an `https_url` column produces a 400 naming the domain, which is not a message anyone should read.
+
 ## Program design
 
 Seven tables, and the prerequisites they sit on. Those prerequisites are **repeated here

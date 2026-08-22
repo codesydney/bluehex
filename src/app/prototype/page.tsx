@@ -3,7 +3,11 @@ import Link from "next/link";
 import { ArrowUpRight } from "@/components/icons";
 
 /**
- * Index for the design mocks. Served in production, linked from nowhere.
+ * Index for the design mocks that are still drawings. Served in production,
+ * linked from nowhere.
+ *
+ * A mock leaves this list when the surface it drew is built: the profile editor
+ * went with #71 and is behind sign-in at `/profile`.
  *
  * These used to 404 outside development. The guard was removed deliberately so
  * the designs can be handed to someone as a URL rather than as a screenshot or a
@@ -35,12 +39,6 @@ const designs: { href: string; title: string; blurb: string }[] = [
     blurb:
       "The real directory at the population it launches with, and a profile one click away at the URL a practitioner would paste into a job application. Five alternatives were drawn against the roster and none of them beat it.",
   },
-  {
-    href: "/prototype/profile",
-    title: "Your profile",
-    blurb:
-      "What a practitioner fills in. A stepped form with the directory row you are building alongside it, so nothing about what is public has to be taken on trust.",
-  },
 ];
 
 export default function DesignIndex() {
@@ -48,9 +46,10 @@ export default function DesignIndex() {
     <section className="container-x pt-32 pb-32 md:pt-40">
       <h1 className="display-2">Designs</h1>
       <p className="mt-5 max-w-2xl text-t-muted">
-        Working mocks of the surfaces still being designed. Nothing here saves and
-        nothing here is real: the people are invented, their badges attest to nothing,
-        and no button reaches a database. The real directory is on the home page.
+        Working mocks of surfaces that do not exist yet, alongside the directory as it
+        ships today. Nothing here saves and nothing here is real: the people are
+        invented, their badges attest to nothing, and no button reaches a database. The
+        real directory is on the home page.
       </p>
 
       <ul className="mt-12 flex max-w-3xl flex-col gap-4">

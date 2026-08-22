@@ -197,14 +197,13 @@ export function hasVerifiedBadge(credentials: Credential[]) {
 }
 
 /* There is deliberately no progress helper here, and the omission is the
-   presentation decision rather than an oversight. "2 of 23" reads as
-   encouragement on your own editor and as 9% to an employer, so the spec's
-   recommendation is that the editor shows progress against the whole catalogue
-   and the public surfaces show what somebody holds. Nothing public derives it,
-   so a helper here would need a catalogue this module does not have and would
-   exist only to be reached for. It lives with the editor, in
-   `src/app/prototype/profile/draft.ts`, until there is a real editor to move it
-   to. */
+   presentation decision rather than an oversight. "2 of 24" reads as
+   encouragement on your own editor and as eight percent to an employer, so the
+   editor shows progress against the whole catalogue and the public surfaces
+   show what somebody holds. Nothing public derives it, so a helper here would
+   need a catalogue this module does not have and would exist only to be
+   reached for. It lives with the editor, in `catalogueProgress` in
+   `@/lib/profile-draft`. */
 
 /**
  * Where a profile lives.
