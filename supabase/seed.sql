@@ -33,6 +33,16 @@
 --     *edit* across. An edited row reaches an already-seeded stack through
 --     `pnpm db:reset` and by no other route; a correction to a live catalogue is an
 --     admin `UPDATE`, per `docs/spec/profile-and-credentials.md`.
+--
+--     The accounts below narrow this, and it is worth knowing before it bites. They
+--     are the only rows here whose natural key is enforced by something other than
+--     their literal id: `auth.users` carries a unique index on `email`. So on a stack
+--     where somebody has already signed in as one of these three addresses — GoTrue
+--     will have made the account with a uuid of its own — the account insert is
+--     skipped and everything downstream referencing the literal id fails on a foreign
+--     key, naming `admins_user_id_fkey` rather than the collision that caused it. A
+--     hand-run stays harmless on a stack seeded from this file; `pnpm db:reset` is
+--     unaffected either way, because it starts from an empty `auth.users`.
 --   * Seed data is fake data, and this is the one place that is fine. It runs on a
 --     developer's machine and on a CI runner, and never against the hosted project —
 --     that last clause is the line, not the machine. The "real people only" rule in
@@ -289,9 +299,11 @@ on conflict do nothing;
 
 -- practitioner_contacts is the parent: `practitioners.contact_id` is `not null`,
 -- so every contact row is written before the profile that points at it. `created_by`
--- is left null — there is no account to attribute authorship to, and null fails
--- closed, since `created_by = auth.uid()` is then null rather than true for every
--- caller. Contact details are never published: see
+-- is left null, and now that accounts exist that is a choice rather than a shortage:
+-- these eight are curated intake, which is precisely the case where nobody submitted
+-- the row. It also fails closed, since `created_by = auth.uid()` is then null rather
+-- than true for every caller — which is the better of the two reasons and the one
+-- that would survive somebody deciding a curated contact should name its admin. Contact details are never published: see
 -- `docs/adr/0002-links-are-published-addresses-are-not.md`.
 insert into public.practitioner_contacts (id, contact_email, contact_phone, contact_note) values
   ('11111111-0000-4000-8000-000000000001', 'mara.ellison@example.invalid', '+61 400 000 001', 'Prefers email.'),
@@ -312,12 +324,21 @@ on conflict do nothing;
 -- because the two are one act and a profile that was never approved was never
 -- approved by anybody.
 --
+-- `owner_assigned_at` and `owner_assigned_by` are written by hand for the same reason
+-- and would be missed for the same reason: `practitioners_guard` stamps them when
+-- ownership is assigned, and it is a `before update` trigger, so an insert that sets
+-- `user_id` directly leaves both null. That is a state the product cannot reach —
+-- `user_id` is absent from the `authenticated` update grant, so a claim is always an
+-- admin's act and always leaves their name — and `/admin` reads these columns to show
+-- how a profile came to be owned. Both name the admin, and both sit after the
+-- account's own `created_at` and before the approval they precede.
+--
 -- Fixed timestamps rather than `now() - interval …`, so two resets a week apart
 -- produce the same rows.
 insert into public.practitioners
   (id, handle, contact_id, user_id, name, headline, location, country_code, bio, focus,
    availability, website_url, github_url, linkedin_url, booking_url, status, approved_at,
-   approved_by)
+   approved_by, owner_assigned_at, owner_assigned_by)
 values
   -- 01 — the badge, in full. Two credentials, both verified, so the derived
   -- profile-level rollup is true. Three services, which is the cap: worth having
@@ -328,7 +349,8 @@ values
    'Builds evaluation harnesses for tool-using agents. Ten years in distributed systems before that, which mostly taught me how to make failures legible.',
    '{Agents,Evals,MCP}', 'Evenings and weekends, and about one day a fortnight.',
    'https://example.invalid/mara', 'https://github.example.invalid/mara-ellison', null, null,
-   'approved', '2026-07-02 04:15:00+00', '55555555-0000-4000-8000-000000000001'),
+   'approved', '2026-07-02 04:15:00+00', '55555555-0000-4000-8000-000000000001',
+   '2026-06-22 03:10:00+00', '55555555-0000-4000-8000-000000000001'),
 
   -- 02 — one unverified credential is enough to withhold the badge. This is the
   -- profile that proves the rollup is "every credential verified" rather than
@@ -338,7 +360,8 @@ values
    'Retrieval pipelines and the unglamorous data work underneath them.',
    '{RAG,Data}', 'Booked until March.',
    null, null, 'https://www.linkedin.example.invalid/in/toby-nakamura', 'https://example.invalid/book/toby',
-   'approved', '2026-07-09 22:40:00+00', '55555555-0000-4000-8000-000000000001'),
+   'approved', '2026-07-09 22:40:00+00', '55555555-0000-4000-8000-000000000001',
+   null, null),
 
   -- 03 — nothing at all: no credentials, no services, no links, no availability.
   -- Approved and findable, carrying no badge and never falsely able to. What he is
@@ -351,7 +374,8 @@ values
    'Writing Go for payments by day, working through the Academy track on weekends. Two courses down, aiming at the Certification next year.',
    '{Agents,MCP}', null,
    null, null, null, null,
-   'approved', '2026-07-11 01:05:00+00', '55555555-0000-4000-8000-000000000001'),
+   'approved', '2026-07-11 01:05:00+00', '55555555-0000-4000-8000-000000000001',
+   null, null),
 
   -- 04 — the only holder of a Claude Certification, and the only profile where
   -- `certified` is true. It is derived rather than stored — "holds a credential
@@ -362,7 +386,8 @@ values
    'Ten years of integration work. Most of what I do now is helping teams decide what not to hand to a model.',
    '{Architecture,Evals}', 'Two days a week, from September.',
    'https://example.invalid/priya', null, null, 'https://example.invalid/book/priya',
-   'approved', '2026-07-15 09:30:00+00', '55555555-0000-4000-8000-000000000001'),
+   'approved', '2026-07-15 09:30:00+00', '55555555-0000-4000-8000-000000000001',
+   null, null),
 
   -- 05 — three credentials, none verified. Credentials are the practitioner's own
   -- claim; the badge is Bluehex's check of them, and this profile is what the
@@ -372,7 +397,8 @@ values
    'Small teams, short engagements, mostly getting a first agent into production without it becoming somebody''s second job.',
    '{Agents,Tooling}', 'Available now.',
    'https://example.invalid/hollis', 'https://github.example.invalid/hollis-fenn', null, null,
-   'approved', '2026-07-20 11:00:00+00', '55555555-0000-4000-8000-000000000001'),
+   'approved', '2026-07-20 11:00:00+00', '55555555-0000-4000-8000-000000000001',
+   null, null),
 
   -- 06 — in the queue. `pending` is invisible to `anon`, and so are its credentials
   -- and services: the child follows its parent through `profile_is_approved()`. It
@@ -382,7 +408,8 @@ values
    'Pipelines, warehouses, and lately the question of what a model should be allowed to read.',
    '{Data,RAG}', 'Weeknights.',
    null, 'https://github.example.invalid/ines-okonkwo', null, null,
-   'pending', null, null),
+   'pending', null, null,
+   '2026-07-26 06:40:00+00', '55555555-0000-4000-8000-000000000001'),
 
   -- 07 — rejected, and carrying the review note that says why. The note is a row
   -- rather than a column because a column cannot be scoped to the person it is
@@ -392,7 +419,8 @@ values
    'I write prompts.',
    '{Prompting}', null,
    null, null, null, null,
-   'rejected', null, null),
+   'rejected', null, null,
+   null, null),
 
   -- 08 — withdrawn while holding a verified credential. `status` and `verified` are
   -- independent axes rather than a sequence, and this is the pairing that says so:
@@ -402,7 +430,8 @@ values
    'Took a staff job and stopped taking outside work. Leaving the profile up in case that changes.',
    '{Agents}', null,
    null, null, null, null,
-   'withdrawn', null, null)
+   'withdrawn', null, null,
+   null, null)
 on conflict do nothing;
 
 -- One current note per rejected profile, not a history. `written_by` names the
@@ -417,12 +446,15 @@ on conflict do nothing;
 -- written as a literal, and a label that no longer exists resolves to null and is
 -- refused by `not null` — loudly, at reset, naming this file.
 --
--- `verified_at` is left to `credentials_guard`, which stamps it on insert whenever
--- `verified` is true. `verified_by` is written here and names the seeded admin. The
--- guard takes it as given for a privileged caller — `coalesce(new.verified_by,
--- auth.uid())` — and `auth.uid()` is null in a seed, so leaving it out is what would
--- produce the state the product never produces: a check standing with nobody's name
--- against it. An admin going through `set_credential_verified()` always leaves one.
+-- `verified_at` and `verified_by` are both written here, and both are `coalesce`d by
+-- `credentials_guard` for a privileged caller rather than forced, so both are this
+-- file's to set. Leaving either out looks harmless and is not. `auth.uid()` is null in
+-- a seed, so an absent `verified_by` produces a state the product never produces: a
+-- check standing with nobody's name against it. And an absent `verified_at` defaults
+-- to `now()`, which dates every check to whenever the stack was last reset — breaking
+-- the fixed-timestamp rule above, and making five separate checks share one second.
+-- Every date here falls after the admin account exists and before the approval it
+-- informed, because a check that post-dates the decision it fed is not a real state.
 --
 -- The seed runs as `postgres`, which `credentials_guard` counts as privileged, so
 -- `verified` is honoured on the way in. A practitioner writing the same row gets it
@@ -430,7 +462,7 @@ on conflict do nothing;
 -- reason it is a trigger and not just a grant.
 insert into public.practitioner_credentials
   (id, practitioner_id, catalogue_id, earned_at, evidence_url, evidence_public, verified,
-   verified_by)
+   verified_at, verified_by)
 values
   -- Mara: both verified, and one of each `evidence_public`. The public one is the
   -- only route by which `evidence_url_public` is ever non-null for `anon`.
@@ -438,58 +470,58 @@ values
    (select id from public.credential_catalogue
      where kind = 'course' and platform = 'Anthropic Academy'
        and label = 'Building with the Claude API'),
-   '2026-01-22', 'https://example.invalid/certificates/mara-ellison-api', true, true, '55555555-0000-4000-8000-000000000001'),
+   '2026-01-22', 'https://example.invalid/certificates/mara-ellison-api', true, true, '2026-06-25 05:20:00+00', '55555555-0000-4000-8000-000000000001'),
   ('33333333-0000-4000-8000-000000000102', '22222222-0000-4000-8000-000000000001',
    (select id from public.credential_catalogue
      where kind = 'course' and platform = 'Anthropic Academy'
        and label = 'Introduction to Model Context Protocol'),
-   '2026-03-04', 'https://example.invalid/certificates/mara-ellison-mcp', false, true, '55555555-0000-4000-8000-000000000001'),
+   '2026-03-04', 'https://example.invalid/certificates/mara-ellison-mcp', false, true, '2026-06-25 05:22:00+00', '55555555-0000-4000-8000-000000000001'),
 
   -- Toby: one checked, one not. The second is what withholds his badge.
   ('33333333-0000-4000-8000-000000000201', '22222222-0000-4000-8000-000000000002',
    (select id from public.credential_catalogue
      where kind = 'course' and platform = 'Anthropic Academy' and label = 'Claude 101'),
-   '2025-11-30', null, false, true, '55555555-0000-4000-8000-000000000001'),
+   '2025-11-30', null, false, true, '2026-07-08 23:15:00+00', '55555555-0000-4000-8000-000000000001'),
   ('33333333-0000-4000-8000-000000000202', '22222222-0000-4000-8000-000000000002',
    (select id from public.credential_catalogue
      where kind = 'course' and platform = 'Anthropic Academy' and label = 'Claude Code 101'),
-   '2026-05-02', 'https://example.invalid/certificates/toby-nakamura-cc101', true, false, null),
+   '2026-05-02', 'https://example.invalid/certificates/toby-nakamura-cc101', true, false, null, null),
 
   -- Priya: the certification, verified.
   ('33333333-0000-4000-8000-000000000401', '22222222-0000-4000-8000-000000000004',
    (select id from public.credential_catalogue
      where kind = 'certification' and platform = 'Pearson VUE'
        and label = 'Claude Certified Developer - Foundations (CCDV-F)'),
-   '2026-06-11', 'https://example.invalid/certificates/priya-raghavan-ccdv-f', true, true, '55555555-0000-4000-8000-000000000001'),
+   '2026-06-11', 'https://example.invalid/certificates/priya-raghavan-ccdv-f', true, true, '2026-07-14 08:05:00+00', '55555555-0000-4000-8000-000000000001'),
 
   -- Hollis: three claims, none checked.
   ('33333333-0000-4000-8000-000000000501', '22222222-0000-4000-8000-000000000005',
    (select id from public.credential_catalogue
      where kind = 'course' and platform = 'Anthropic Academy' and label = 'Claude 101'),
-   '2026-02-14', null, false, false, null),
+   '2026-02-14', null, false, false, null, null),
   ('33333333-0000-4000-8000-000000000502', '22222222-0000-4000-8000-000000000005',
    (select id from public.credential_catalogue
      where kind = 'course' and platform = 'Anthropic Academy' and label = 'Claude Code 101'),
-   '2026-02-27', null, false, false, null),
+   '2026-02-27', null, false, false, null, null),
   ('33333333-0000-4000-8000-000000000503', '22222222-0000-4000-8000-000000000005',
    (select id from public.credential_catalogue
      where kind = 'course' and platform = 'Anthropic Academy'
        and label = 'Introduction to agent skills'),
-   '2026-04-19', null, false, false, null),
+   '2026-04-19', null, false, false, null, null),
 
   -- Ines: on a `pending` profile, so `anon` sees neither the profile nor this.
   ('33333333-0000-4000-8000-000000000601', '22222222-0000-4000-8000-000000000006',
    (select id from public.credential_catalogue
      where kind = 'course' and platform = 'Anthropic Academy'
        and label = 'AI Fluency: Framework & Foundations'),
-   '2026-06-30', null, false, false, null),
+   '2026-06-30', null, false, false, null, null),
 
   -- Sabine: verified, on a withdrawn profile.
   ('33333333-0000-4000-8000-000000000801', '22222222-0000-4000-8000-000000000008',
    (select id from public.credential_catalogue
      where kind = 'certification' and platform = 'Pearson VUE'
        and label = 'Claude Certified Associate - Foundations (CCAO-F)'),
-   '2026-04-02', null, false, true, '55555555-0000-4000-8000-000000000001')
+   '2026-04-02', null, false, true, '2026-06-05 21:40:00+00', '55555555-0000-4000-8000-000000000001')
 on conflict do nothing;
 
 -- What each of them offers. Both kinds appear, because they render differently: a
