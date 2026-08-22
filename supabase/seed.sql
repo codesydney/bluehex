@@ -172,7 +172,9 @@ on conflict (kind, platform, label) do nothing;
 -- point of a seeded profile is that a NOTES file, a bookmarked URL or a test can
 -- name one. The four families are keyed by table so a stray uuid in a log says
 -- which one it came from — `1…` contacts, `2…` profiles, `3…` credentials,
--- `4…` services — and the last two digits line a child row up with its profile.
+-- `4…` services. Within a child family the hundreds digit names the profile and the
+-- last two number the row inside it, so `33333333-…-0101` and `33333333-…-0102` are
+-- both Mara's, whose profile is `22222222-…-0001`.
 --
 -- **Catalogue rows are referenced by their natural key, never by id**, because
 -- `credential_catalogue` and `service_catalogue` both take `gen_random_uuid()`

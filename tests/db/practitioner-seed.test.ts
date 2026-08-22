@@ -25,10 +25,16 @@ import { sql } from "./harness/stack";
  * about, exactly as the catalogue's is.
  *
  * Read through `anon` wherever `anon` can see it, because that is the directory's
- * own read path and it is what a developer looking at the page will get. `status`
- * is the one fact `anon` holds no grant on, so the status spread is read through
- * `sql()` — a claim about what the seed contains, not about who may read it, and
- * the policies that decide the latter are asserted in `practitioners.test.ts`.
+ * own read path and it is what a developer looking at the page will get. The rest
+ * goes through `sql()`, for two reasons that are worth telling apart. Some facts
+ * `anon` holds no grant on — `status`, the review note, a withdrawn profile's
+ * credential — and there is no caller who could read them here, since every seeded
+ * profile is unclaimed. And a row that is meant to be hidden has to be shown to
+ * exist before its absence proves anything: an empty result is equally consistent
+ * with the policy working and with the fixture having lost the row. Both are claims
+ * about what the seed contains rather than about who may read it, and the policies
+ * that decide the latter are asserted in `practitioners.test.ts`, `credentials.test.ts`
+ * and `services.test.ts`.
  *
  * A failure here means the seed lost a branch, or the stack under test was booted
  * without running `supabase/seed.sql` — never that the schema is wrong.
@@ -92,6 +98,45 @@ describe("the seeded population", () => {
     );
 
     expect(claimed).toEqual([]);
+  });
+
+  it("gives the rejected profile the review note that says why", async () => {
+    /* Through `sql()` again, and this time there is no caller who could do it at all:
+       `anon` holds no grant on `practitioner_review_notes` by any route, and the
+       `authenticated` route is `review_notes_read_own`, which needs an owner — every
+       seeded profile is unclaimed.
+
+       Worth its own assertion because the note is the reason a `rejected` fixture is
+       worth having. A rejected profile is invisible in the directory, so the only
+       surface it renders on is a review queue, and the note is what that queue shows.
+       Without this the row could be deleted and nothing in the repository would
+       notice: the reset would still succeed and the suite would still pass. */
+    const notes = await sql<{ practitioner_id: string; note: string }>(
+      `select practitioner_id::text, note
+         from public.practitioner_review_notes
+        where practitioner_id = any($1::uuid[])`,
+      [SEEDED],
+    );
+
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.practitioner_id).toBe(RAFAEL);
+    expect(notes[0]!.note).not.toBe("");
+  });
+
+  it("leaves a verified credential on the withdrawn profile", async () => {
+    /* `status` and `verified` are independent axes rather than a sequence: a badge can
+       be withdrawn without unpublishing the profile, and a profile can leave the
+       directory with its check intact. This pairing is the seed's only demonstration
+       of that, and it is invisible to `anon` by construction — which is exactly why it
+       needs an assertion of its own rather than being covered by the hiding tests
+       below, where its disappearance would read as success. */
+    const held = await sql<{ verified: boolean }>(
+      "select verified from public.practitioner_credentials where practitioner_id = $1",
+      [SABINE],
+    );
+
+    expect(held).toHaveLength(1);
+    expect(held[0]!.verified).toBe(true);
   });
 
   it("publishes the approved profiles to anon and hides the rest", async () => {
@@ -245,27 +290,54 @@ describe("the service branches a profile can be in", () => {
     expect(offered.data).toHaveLength(3);
   });
 
+  /**
+   * What the seed actually put on one profile, read as `postgres`.
+   *
+   * The two tests below assert that `anon` sees nothing, and an empty result is the
+   * one answer that is equally consistent with the policy working and with the
+   * fixture having lost its rows. Confirming the rows exist first is what makes the
+   * emptiness evidence about the policy — and it is per profile rather than across
+   * the set, because one surviving hidden row anywhere would otherwise satisfy the
+   * `.in(…)` query for all three.
+   */
+  async function seededChildren(profileId: string) {
+    const [row] = await sql<{ credentials: string; services: string }>(
+      `select (select count(*) from public.practitioner_credentials c
+                where c.practitioner_id = $1) as credentials,
+              (select count(*) from public.practitioner_services s
+                where s.practitioner_id = $1) as services`,
+      [profileId],
+    );
+    return { credentials: Number(row!.credentials), services: Number(row!.services) };
+  }
+
   it("hides the services of every unpublished profile", async () => {
+    /* The `pending` and `rejected` fixtures each carry one for exactly this reason. */
+    expect((await seededChildren(INES)).services).toBeGreaterThan(0);
+    expect((await seededChildren(RAFAEL)).services).toBeGreaterThan(0);
+
     const hidden = await anon.client
       .from("practitioner_services")
       .select("id, practitioner_id")
       .in("practitioner_id", UNPUBLISHED);
 
     expectAllowed(hidden);
-    /* The child follows its parent. Asserted against a seed where the unpublished
-       profiles genuinely hold services and credentials, so the emptiness is the
-       policy working rather than there being nothing to hide — the `pending` and
-       `rejected` fixtures each carry one for exactly this reason. */
+    /* The child follows its parent, through `profile_is_approved()`. */
     expect(hidden.data).toEqual([]);
   });
 
   it("hides the credentials of every unpublished profile", async () => {
+    expect((await seededChildren(INES)).credentials).toBeGreaterThan(0);
+    expect((await seededChildren(SABINE)).credentials).toBeGreaterThan(0);
+
     const hidden = await anon.client
       .from("practitioner_credentials")
       .select("id, practitioner_id")
       .in("practitioner_id", UNPUBLISHED);
 
     expectAllowed(hidden);
+    /* Sabine's is verified, so this is also the assertion that a badge on a profile
+       outside the directory is not a route to reading the profile. */
     expect(hidden.data).toEqual([]);
   });
 });
