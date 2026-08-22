@@ -28,8 +28,8 @@ import { sql } from "./harness/stack";
  * own read path and it is what a developer looking at the page will get. The rest
  * goes through `sql()`, for two reasons that are worth telling apart. Some facts
  * `anon` holds no grant on — `status`, the review note, a withdrawn profile's
- * credential — and there is no caller who could read them here, since every seeded
- * profile is unclaimed. And a row that is meant to be hidden has to be shown to
+ * credential — and the profiles carrying them are the unclaimed ones, so there is
+ * no owner who could read them here either. And a row that is meant to be hidden has to be shown to
  * exist before its absence proves anything: an empty result is equally consistent
  * with the policy working and with the fixture having lost the row. Both are claims
  * about what the seed contains rather than about who may read it, and the policies
@@ -50,6 +50,12 @@ const HOLLIS = "22222222-0000-4000-8000-000000000005"; // approved, no credentia
 const INES = "22222222-0000-4000-8000-000000000006"; // pending
 const RAFAEL = "22222222-0000-4000-8000-000000000007"; // rejected
 const SABINE = "22222222-0000-4000-8000-000000000008"; // withdrawn, holds a verified credential
+
+/* The `5…` family: the accounts. Two of them own a profile above; the first owns
+   nothing and exists to be an admin. */
+const ADMIN_ACCOUNT = "55555555-0000-4000-8000-000000000001";
+const MARA_ACCOUNT = "55555555-0000-4000-8000-000000000002";
+const INES_ACCOUNT = "55555555-0000-4000-8000-000000000003";
 
 /**
  * The literal handles, in the same order (#119).
@@ -130,25 +136,190 @@ describe("the seeded population", () => {
     expect(new Set(all.map((row) => row.handle)).size).toBe(8);
   });
 
-  it("leaves every seeded profile unclaimed, because the seed creates no accounts", async () => {
-    /* Not a detail to tidy away later: a seeded `auth.users` row would be a
-       credential pair committed to the repository, and there is no sign-in flow to
-       use it with (#14). Unclaimed is a supported state — it is what curated intake
-       produces — so the fixtures are honest rather than incomplete. Stated here so
-       that the day somebody seeds an account, they do it deliberately. */
-    const claimed = await sql<{ id: string }>(
-      "select id::text from public.practitioners where id = any($1::uuid[]) and user_id is not null",
+  it("claims two profiles and leaves six unclaimed, because both are real states", async () => {
+    /* This assertion used to read the other way, and its comment said it was stated
+       "so that the day somebody seeds an account, they do it deliberately". That day
+       came: sign-in shipped, and magic link means a seeded account is an address
+       rather than a credential pair. What replaced it is not "claimed is correct" —
+       it is that *both* states are present. Claiming all eight would delete the
+       surface the *Assign owner* panel exists for, and claiming none would leave the
+       owner-side policies unexercised by a reset. The pairing is the fixture.
+
+       Mara is claimed and `approved`, which is an owner looking at a finished
+       profile; Ines is claimed and `pending`, which is an owner looking at one still
+       in review. */
+    const owners = await sql<{ id: string; user_id: string | null }>(
+      "select id::text, user_id::text from public.practitioners where id = any($1::uuid[])",
+      [SEEDED],
+    );
+    const owner = (id: string) => owners.find((row) => row.id === id)?.user_id ?? null;
+
+    expect(owner(MARA)).toBe(MARA_ACCOUNT);
+    expect(owner(INES)).toBe(INES_ACCOUNT);
+    expect(owners.filter((row) => row.user_id === null)).toHaveLength(6);
+  });
+
+  it("gives every seeded account the rows GoTrue needs, so the stack can be signed in to", async () => {
+    /* The whole value of a seeded account is that `pnpm db:reset` leaves a stack
+       somebody can sign in to. Two things break that silently, and neither is
+       visible in a row that looks right:
+
+         * a `auth.users` row with no matching `auth.identities` row — GoTrue looks
+           the account up through the identity, not the user; and
+         * a null in any of the eight token columns, which GoTrue scans into a Go
+           `string`.
+
+       Both surface as `500 Database error finding user` from `/auth/v1/otp`, which
+       names neither. Nothing else in the repository would catch either, because the
+       reset succeeds and every other assertion in this file still passes. That is
+       what this test is for: it fails at `pnpm test:db` naming the column, instead
+       of a person losing an afternoon to an opaque 500. */
+    const accounts = await sql<{
+      id: string;
+      email: string;
+      identities: string;
+      null_tokens: string;
+    }>(
+      `select u.id::text,
+              u.email,
+              (select count(*) from auth.identities i
+                where i.user_id = u.id and i.provider = 'email')::text as identities,
+              (num_nulls(u.confirmation_token, u.recovery_token, u.email_change,
+                         u.email_change_token_new, u.email_change_token_current,
+                         u.phone_change, u.phone_change_token,
+                         u.reauthentication_token))::text as null_tokens
+         from auth.users u
+        where u.id = any($1::uuid[])
+        order by u.email`,
+      [[ADMIN_ACCOUNT, MARA_ACCOUNT, INES_ACCOUNT]],
+    );
+
+    expect(accounts).toHaveLength(3);
+    for (const account of accounts) {
+      expect(account.identities, `${account.email} has no email identity`).toBe("1");
+      expect(account.null_tokens, `${account.email} has a null token column`).toBe("0");
+      expect(account.email.endsWith(".invalid")).toBe(true);
+    }
+  });
+
+  it("makes exactly one of the seeded accounts an admin", async () => {
+    /* `public.admins` is the whole of what makes an admin: the access token hook
+       reads it and stamps `bluehex_admin` onto the role claim. Seeding the row is
+       what removes the sign-out-and-back-in ritual from every handoff — and which of
+       the three holds it matters as much as that one does, because a second admin
+       here would be a privilege nobody asked for, sitting in a file that is easy to
+       skim.
+
+       Scoped to the `5…` family rather than read across the table. `adminCaller()`
+       inserts into `public.admins` for every admin it builds, so a table-wide
+       assertion would be asserting that another file's teardown ran — true today,
+       since the project is serial and `deleteCreatedUsers()` is in the setup file,
+       and not a thing this test has any business depending on. */
+    const admins = await sql<{ user_id: string }>(
+      "select user_id::text from public.admins where user_id = any($1::uuid[])",
+      [[ADMIN_ACCOUNT, MARA_ACCOUNT, INES_ACCOUNT]],
+    );
+
+    expect(admins.map((row) => row.user_id)).toEqual([ADMIN_ACCOUNT]);
+  });
+
+  it("names the seeded admin on every provenance column it fills", async () => {
+    /* The three columns this file newly writes, asserted together because they fail
+       together and for the same reason: each is a positional value in a long `values`
+       list, and each reverts to null without anything else in the repository noticing.
+       `approved_by` and `owner_assigned_by` would simply be absent from `/admin`;
+       `verified_by` is worse, because `credentials_guard` accepts null from a
+       privileged caller and the row still reads as verified — a check with nobody's
+       name against it, which is a state the product cannot produce.
+
+       The pairings are what carry the assertion, not the presence. `approved_by` is
+       set exactly where `approved_at` is, `owner_assigned_by` exactly where `user_id`
+       is, and `verified_by` exactly where `verified` is true — so a column filled in
+       the wrong place fails as loudly as one left empty. */
+    const profiles = await sql<{
+      id: string;
+      approved_at: string | null;
+      approved_by: string | null;
+      user_id: string | null;
+      owner_assigned_at: string | null;
+      owner_assigned_by: string | null;
+    }>(
+      `select id::text, approved_at, approved_by::text,
+              user_id::text, owner_assigned_at, owner_assigned_by::text
+         from public.practitioners where id = any($1::uuid[])`,
       [SEEDED],
     );
 
-    expect(claimed).toEqual([]);
+    for (const row of profiles) {
+      expect(row.approved_by, `approved_by on ${row.id}`).toBe(
+        row.approved_at === null ? null : ADMIN_ACCOUNT,
+      );
+      expect(row.owner_assigned_by, `owner_assigned_by on ${row.id}`).toBe(
+        row.user_id === null ? null : ADMIN_ACCOUNT,
+      );
+      /* Stamped rather than left to the guard, which never fires on an insert. A null
+         here is the fixture claiming ownership arrived from nowhere. */
+      expect(row.owner_assigned_at === null, `owner_assigned_at on ${row.id}`).toBe(
+        row.user_id === null,
+      );
+    }
+
+    const notes = await sql<{ written_by: string | null }>(
+      "select written_by::text from public.practitioner_review_notes where practitioner_id = any($1::uuid[])",
+      [SEEDED],
+    );
+    expect(notes.map((row) => row.written_by)).toEqual([ADMIN_ACCOUNT]);
+
+    const credentials = await sql<{
+      id: string;
+      verified: boolean;
+      verified_at: string | null;
+      verified_by: string | null;
+    }>(
+      `select id::text, verified, verified_at, verified_by::text
+         from public.practitioner_credentials where practitioner_id = any($1::uuid[])`,
+      [SEEDED],
+    );
+
+    expect(credentials.filter((row) => row.verified)).toHaveLength(5);
+    for (const row of credentials) {
+      expect(row.verified_by, `verified_by on ${row.id}`).toBe(row.verified ? ADMIN_ACCOUNT : null);
+      expect(row.verified_at === null, `verified_at on ${row.id}`).toBe(!row.verified);
+    }
+  });
+
+  it("dates every check rather than letting the guard stamp the reset time", async () => {
+    /* `credentials_guard` defaults `verified_at` to `now()`, so an unwritten value
+       dates the check to whenever the stack was last reset. That is invisible in a
+       fresh database and wrong in every other way: it breaks the fixed-timestamp rule
+       the seed states for itself, it puts all five checks in the same second, and it
+       lets a check post-date the approval it was supposed to inform.
+
+       Asserting a date in the past would pass on a stack reset yesterday, so the
+       assertion is against the fixed literals themselves — every check falls after the
+       admin account exists and before the profile's approval. */
+    const rows = await sql<{ id: string; earned_at: string; verified_at: string }>(
+      `select c.id::text, c.earned_at::text, c.verified_at::text
+         from public.practitioner_credentials c
+        where c.practitioner_id = any($1::uuid[]) and c.verified`,
+      [SEEDED],
+    );
+
+    expect(rows).toHaveLength(5);
+    /* Distinct to the second: five rows sharing one timestamp is the signature of the
+       guard having filled them, which is the thing this is here to catch. */
+    expect(new Set(rows.map((row) => row.verified_at)).size).toBe(5);
+    for (const row of rows) {
+      expect(row.verified_at > row.earned_at, `${row.id} verified before it was earned`).toBe(true);
+      expect(row.verified_at < "2026-08-01", `${row.id} is stamped with the reset time`).toBe(true);
+    }
   });
 
   it("gives the rejected profile the review note that says why", async () => {
     /* Through `sql()` again, and this time there is no caller who could do it at all:
        `anon` holds no grant on `practitioner_review_notes` by any route, and the
-       `authenticated` route is `review_notes_read_own`, which needs an owner — every
-       seeded profile is unclaimed.
+       `authenticated` route is `review_notes_read_own`, which needs an owner — and
+       the rejected profile is one of the six that stay unclaimed.
 
        Worth its own assertion because the note is the reason a `rejected` fixture is
        worth having. A rejected profile is invisible in the directory, so the only
