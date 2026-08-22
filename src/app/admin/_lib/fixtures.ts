@@ -1,39 +1,20 @@
 /**
- * PROTOTYPE — the admin review queue's data. Throwaway, invented people.
+ * The review queue's data, and the seam where a query replaces it.
  *
- * The shape here is the whole argument. `status` and `verified` are two
- * independent axes with different authors, not two stages of one pipeline:
- *
- *   status    — admission control. Is this a real person, is it not spam.
- *               Governs whether anyone else can see the profile at all.
- *   verified  — credential attestation, PER CREDENTIAL. A human at Bluehex
- *               opened the evidence and read the name on it. Governs whether
- *               the badge shows, and nothing else.
- *
- * A profile can be approved and unverified — published but not vouched for —
- * and the spec calls that "the normal case, not an edge case". So the queue
- * cannot be a single list with an Approve button, which is exactly the design
- * everyone reaches for first.
- *
- * There is a third kind of work that is easy to miss and comes free from the
- * schema: `updated_at > verified_at` means "edited since we checked it", which
- * gives Bluehex a re-check queue over every verified profile that has changed.
- * No extra column. An admin edit bumps `updated_at` too, so there are some
- * false positives; at this volume that is cheaper than a column to suppress
- * them.
- *
- * A credential names a row in `credential_catalogue` and carries no text of its
- * own, so every label on this screen came from a list Bluehex wrote. There is
- * nothing for a practitioner to type into a credential, which is why nothing in
- * this file types one either.
+ * **Fixtures. Invented people, real credential names.** Nothing here is read
+ * from or written to the database: #72 built the route, the components and the
+ * rules, and stopped at `readQueue()`. #14 replaces the body of that one
+ * function with a Supabase query and deletes this file; nothing above it knows
+ * the difference, which is the only reason it is worth having a seam rather
+ * than a comment.
  *
  * ## The population is adversarial on purpose
  *
  * It was five benign people, and that made the surface impossible to judge:
  * every certificate matched, every address was `example.invalid`, and nobody
  * was trying anything. A queue is not tested by profiles that are obviously
- * fine — it is tested by the ones where a human has to decide. The additions
- * are each a *different kind* of hard, and two of them are hard while being
+ * fine — it is tested by the ones where a human has to decide. Four of the nine
+ * are a *different kind* of hard, and two of those are hard while being
  * completely innocent, which is the point:
  *
  *   q6  evidence on a file share, throwaway address, generated copy — spam
@@ -41,164 +22,87 @@
  *   q8  a legal name on the certificate that is not the profile's name — fine
  *   q9  an earned credential with no evidence at all — uncheckable, not fake
  *
- * If a design makes q8 look like q6, it is wrong, and that is the single most
- * useful thing this population can tell you.
+ * **If a design makes q8 look like q6, it is wrong**, and that is the single
+ * most useful thing this population can tell you. It is also why they moved
+ * here rather than being replaced with three tidy rows when the prototype was
+ * deleted.
  *
- * Devon Achebe (q1) is the one this round reworked. He was an in-progress-only
- * profile — one credential nobody could ever check — and that row is gone from
- * the model. What replaced him is the same person with no credentials and a bio
- * that says what he is working through, which is the shape the spec says
- * carries it now. See his comment below.
+ * ## The credential names are real, and that is a change from the prototype
  *
- * **q9 now carries weight it did not before.** In-progress credentials are gone
- * from the model, so the thing that used to demonstrate "in the queue, nothing
- * anybody can do about it" is q9 alone: earned, no evidence URL, approvable,
- * never badgeable, and not a rejection. It is the only permanently-open item
- * left, and unlike the rows it replaced it is one the *practitioner* can close.
+ * `src/app/prototype/catalogue.ts` invented twenty-four course names, and its
+ * own header forbids copying any of them into a migration. The real list has
+ * since been compiled — the twenty-four confirmed Claude credentials in
+ * `supabase/seed/credential-catalogue.json` — so the labels below are drawn
+ * from it rather than invented, and they carry the `kind` / `platform` split
+ * that #103 put on the table instead of the prototype's single `source`.
+ *
+ * Every property the fixtures exist to test survives the swap: Tomas Novak and
+ * Priya Raghavan still hold the *same* catalogue row, Marcus Bell's two
+ * credentials are still earned on the same day, and Aroha Ngata's certificate
+ * still carries a name her profile does not.
  */
 
-import { entryByLabel } from "../catalogue";
+import type { CatalogueEntry, QueueCredential, QueueProfile } from "./queue";
 
-export type QueueCredential = {
-  id: string;
-  /**
-   * `catalogue_id` — the entry this credential names. There is no `source` or
-   * `label` here: they are properties of the catalogue row, so a credential
-   * claiming `Anthropic Academy` + `Claude Certification` is not representable
-   * and nobody but Bluehex can add a name to the list.
-   */
-  catalogueId: string;
-  /** `earned_at`, and `not null`: there is no in-progress credential. */
-  earnedAt: string;
-  evidenceUrl: string | null;
-  evidencePublic: boolean;
-  verified: boolean;
-  verifiedAt: string | null;
-  verifiedBy: string | null;
-};
-
-export type QueueProfile = {
-  id: string;
-  name: string;
-  headline: string;
-  location: string;
-  bio: string;
-  focus: string[];
-  /** What they sell. Closed set, at most three — the directory's filter axis. */
-  services: string[];
-  contactEmail: string;
-  status: "pending" | "approved" | "rejected" | "withdrawn";
-  /** Null means unclaimed — curated intake, written up by Bluehex. */
-  owner: string | null;
-  updatedAt: string;
-  /** Latest verification across the profile's credentials, for drift. */
-  lastVerifiedAt: string | null;
-  reviewNote: string | null;
-  credentials: QueueCredential[];
-};
-
-/**
- * The badge rollup: at least one credential, and every one of them verified.
- *
- * It used to take the earned subset first, because an in-progress row could
- * never be checked and would have denied the badge forever. Every row is earned
- * now, so the filter went with the premise rather than being kept as a
- * defensive no-op.
- */
-export function badgeShows(credentials: QueueCredential[]) {
-  return credentials.length > 0 && credentials.every((credential) => credential.verified);
+/* Ids are uuid-shaped because the real column is a uuid and a short stand-in
+   hides anything that truncates one. */
+function entry(
+  id: string,
+  kind: CatalogueEntry["kind"],
+  platform: string,
+  label: string,
+): CatalogueEntry {
+  return { id, kind, platform, label };
 }
 
 /**
- * Credentials nobody has checked yet.
- *
- * This is what the badge is waiting on, and it is NOT the same as what an admin
- * can act on — see `checkable`. Hae-Won Park is the difference: she has an
- * earned credential with no evidence URL, so she appears here forever and there
- * is nothing anybody at Bluehex can do about it.
+ * The five catalogue rows these nine people between them claim — a slice of the
+ * catalogue, not a copy of it. The queue only ever sees the entries its
+ * credentials embed, so holding the whole list here would be inventing a second
+ * source for something `credential_catalogue` already owns.
  */
-export function unchecked(profile: QueueProfile) {
-  return profile.credentials.filter((credential) => !credential.verified);
-}
+const catalogue = {
+  claude101: entry(
+    "c1000000-0000-4000-8000-000000000001",
+    "course",
+    "Anthropic Academy",
+    "Claude 101",
+  ),
+  claudeApi: entry(
+    "c1000000-0000-4000-8000-000000000007",
+    "course",
+    "Anthropic Academy",
+    "Building with the Claude API",
+  ),
+  claudeCode: entry(
+    "c1000000-0000-4000-8000-000000000005",
+    "course",
+    "Anthropic Academy",
+    "Claude Code in Action",
+  ),
+  developer: entry(
+    "c2000000-0000-4000-8000-000000000004",
+    "certification",
+    "Pearson VUE",
+    "Claude Certified Developer - Foundations (CCDV-F)",
+  ),
+  architect: entry(
+    "c2000000-0000-4000-8000-000000000003",
+    "certification",
+    "Pearson VUE",
+    "Claude Certified Architect - Professional (CCAR-P)",
+  ),
+} satisfies Record<string, CatalogueEntry>;
 
-/**
- * Credentials an admin can actually do something about right now: with evidence
- * to open, and not yet checked.
- *
- * The `evidenceUrl` clause is the whole point of this existing separately, and
- * it is the *only* clause left — the earned check went with in-progress rows. A
- * credential with nothing behind it cannot be checked today, cannot be checked
- * tomorrow, and would otherwise sit in the queue as a task that never completes,
- * belonging to somebody who has done nothing wrong. The distinction between
- * "the badge is waiting on this" and "a human can move this forward" is what
- * keeps that item out of the queue, and it now rests on Hae-Won Park alone.
- */
-export function checkable(profile: QueueProfile) {
-  return profile.credentials.filter(
-    (credential) => credential.evidenceUrl && !credential.verified,
-  );
-}
-
-/**
- * Why this profile is in the queue, in the order the work would be done. Empty
- * means there is nothing outstanding and it drops out of the list.
- *
- * A queue that cannot empty is a table. Everything here exists so that acting
- * on a profile visibly finishes it — which also means the reasons have to be
- * things an admin can close, never facts about the profile. "Unclaimed" is a
- * fact and is deliberately absent: a curated profile nobody has claimed is a
- * normal steady state, not a job.
- */
-export function outstanding(profile: QueueProfile) {
-  /* A profile nobody can see generates no work. Rejecting Marcus Bell has to
-     clear him outright, certificates and all — checking the evidence on a
-     profile that is not published is work with no consumer, and leaving it in
-     the list would mean the most obvious spam in the queue is also the hardest
-     thing to get rid of. Withdrawn is the same, from the other direction: the
-     practitioner has left, and their verification history is kept for their
-     return rather than added to while they are gone. */
-  if (profile.status === "rejected" || profile.status === "withdrawn") return [];
-
-  const reasons: string[] = [];
-
-  if (profile.status === "pending") reasons.push("Needs a decision");
-
-  const toCheck = checkable(profile).length;
-  if (toCheck > 0) {
-    reasons.push(`${toCheck} certificate${toCheck === 1 ? "" : "s"} to check`);
-  }
-
-  if (hasDrifted(profile)) reasons.push("Edited since checked");
-
-  return reasons;
-}
-
-/**
- * Edited since the last check. Derived from two timestamps rather than stored,
- * and only meaningful once something has actually been verified.
- */
-export function hasDrifted(profile: QueueProfile) {
-  if (!profile.lastVerifiedAt) return false;
-  return profile.updatedAt > profile.lastVerifiedAt;
-}
-
-/**
- * One credential, naming a catalogue entry by its label.
- *
- * The lookup is the point rather than a convenience: a credential references a
- * row Bluehex wrote, so a fixture that typed its own labels would be drawing
- * the free text this model removed. `entryByLabel` throws on a name that is not
- * in the catalogue, which is the foreign key doing its job.
- */
 function credential(
   id: string,
-  label: string,
+  catalogueEntry: CatalogueEntry,
   earnedAt: string,
-  rest: Partial<Omit<QueueCredential, "id" | "catalogueId" | "earnedAt">> = {},
+  rest: Partial<Omit<QueueCredential, "id" | "entry" | "earnedAt">> = {},
 ): QueueCredential {
   return {
     id,
-    catalogueId: entryByLabel(label).id,
+    entry: catalogueEntry,
     earnedAt,
     evidenceUrl: null,
     evidencePublic: false,
@@ -209,7 +113,7 @@ function credential(
   };
 }
 
-export const initialQueue: QueueProfile[] = [
+const queue: QueueProfile[] = [
   {
     /* No credentials at all, and he used to have one that could never be
        checked. That row is gone from the model, so what is left is the case it
@@ -252,7 +156,7 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: null,
     reviewNote: null,
     credentials: [
-      credential("q2c1", "Prompt engineering", "2026-07-19", {
+      credential("q2c1", catalogue.claude101, "2026-07-19", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/susanna-wrobel",
         evidencePublic: true,
       }),
@@ -273,20 +177,20 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: "2026-08-12T11:05:00Z",
     reviewNote: null,
     credentials: [
-      credential("q3c1", "Claude Certified Developer", "2026-02-14", {
+      credential("q3c1", catalogue.developer, "2026-02-14", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/priya-raghavan",
         evidencePublic: true,
         verified: true,
         verifiedAt: "2026-08-10T08:30:00Z",
         verifiedBy: "david",
       }),
-      credential("q3c2", "Tool use and function calling", "2026-04-30", {
+      credential("q3c2", catalogue.claudeApi, "2026-04-30", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/priya-tools",
         verified: true,
         verifiedAt: "2026-08-12T11:05:00Z",
         verifiedBy: "david",
       }),
-      credential("q3c3", "Claude Code in practice", "2026-08-01", {
+      credential("q3c3", catalogue.claudeCode, "2026-08-01", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/priya-code",
       }),
     ],
@@ -306,7 +210,7 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: "2026-08-09T14:00:00Z",
     reviewNote: null,
     credentials: [
-      credential("q4c1", "Tool use and function calling", "2026-06-08", {
+      credential("q4c1", catalogue.claudeApi, "2026-06-08", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/kofi-mensah",
         evidencePublic: true,
         verified: true,
@@ -361,11 +265,11 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: null,
     reviewNote: null,
     credentials: [
-      credential("q6c1", "Claude Certified Agent Engineer", "2026-08-14", {
+      credential("q6c1", catalogue.architect, "2026-08-14", {
         evidenceUrl: "https://drive.google.com/file/d/1Xk9mQ/view",
         evidencePublic: true,
       }),
-      credential("q6c2", "Prompt engineering", "2026-08-14", {
+      credential("q6c2", catalogue.claude101, "2026-08-14", {
         evidenceUrl: "https://drive.google.com/file/d/1Xk9mR/view",
         evidencePublic: true,
       }),
@@ -376,7 +280,9 @@ export const initialQueue: QueueProfile[] = [
        Priya's profile, which is the only reason this is catchable at all — and
        it is catchable only by looking ACROSS profiles, which nothing in a
        profile-centric queue does by default. That is the finding this case
-       exists to produce.
+       exists to produce, and it is a known hole rather than a solved problem: a
+       cross-profile duplicate check belongs in whatever gets built next, and
+       this ticket did not build it.
 
        Note it is also the case a per-profile check passes: open the URL, and
        there is a real certificate at the other end. It just is not his.
@@ -385,8 +291,8 @@ export const initialQueue: QueueProfile[] = [
        that, because `unique (practitioner_id, catalogue_id)` looks like it
        might. It is scoped to one practitioner — two people claiming the same
        entry is the normal case, which is exactly what makes this claim legal.
-       He and Priya now hold the *same* catalogue row, so the theft is a little
-       more legible than it was against two free-text labels, and still only to
+       He and Priya hold the *same* catalogue row, so the theft is a little more
+       legible than it was against two free-text labels, and still only to
        somebody who looks across profiles. */
     id: "q7",
     name: "Tomas Novak",
@@ -402,7 +308,7 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: null,
     reviewNote: null,
     credentials: [
-      credential("q7c1", "Claude Certified Developer", "2026-02-14", {
+      credential("q7c1", catalogue.developer, "2026-02-14", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/priya-raghavan",
         evidencePublic: true,
       }),
@@ -433,7 +339,7 @@ export const initialQueue: QueueProfile[] = [
     lastVerifiedAt: null,
     reviewNote: null,
     credentials: [
-      credential("q8c1", "Claude Code in practice", "2026-07-02", {
+      credential("q8c1", catalogue.claudeCode, "2026-07-02", {
         evidenceUrl: "https://anthropic.skilljar.com/certificate/a-te-rangi-ngata",
       }),
     ],
@@ -444,13 +350,13 @@ export const initialQueue: QueueProfile[] = [
        never carry the badge until she supplies a URL. The only useful action is
        the note, which makes this the case that justifies the note existing.
 
-       **She is now the only profile in this shape, and that is why she matters
-       more than she did.** She used to be one of a pair with Devon, whose
-       credential could not be checked because it had not been earned. That row
-       no longer exists, so everything the queue does to keep a
-       permanently-open item from reading as an unfinished task rests on her
-       alone — and unlike Devon's, her item is one *she* can close by pasting a
-       link, which is the difference the spec kept the state for. */
+       **She is the only profile in this shape, and that is why she matters.**
+       She used to be one of a pair with Devon, whose credential could not be
+       checked because it had not been earned. That row no longer exists, so
+       everything the queue does to keep a permanently-open item from reading as
+       an unfinished task rests on her alone — and unlike Devon's, her item is
+       one *she* can close by pasting a link, which is the difference the spec
+       kept the state for. */
     id: "q9",
     name: "Hae-Won Park",
     headline: "Data engineer",
@@ -464,25 +370,24 @@ export const initialQueue: QueueProfile[] = [
     updatedAt: "2026-08-12T09:00:00Z",
     lastVerifiedAt: null,
     reviewNote: null,
-    credentials: [credential("q9c1", "Prompt engineering", "2026-06-27")],
+    credentials: [credential("q9c1", catalogue.claude101, "2026-06-27")],
   },
 ];
 
-export const admin = "david";
-
 /**
- * What an admin can do. Stubbed against local state in the shell — the question
- * is what the workflow should feel like, not whether the write path works.
+ * Everything an admin has to look at. **The seam.**
  *
- * Note what is absent: there is no "verify profile" action, because there is no
- * such thing. Verification is per credential, so the only verb available is
- * checking one row.
+ * Async because the query that replaces it will be, and because a page that is
+ * already `await`ing has nothing to change when it lands. What #14 puts here is
+ * a `bluehex_admin` read of `practitioners` with `practitioner_credentials` and
+ * their catalogue rows embedded — column-scoped like every other read in this
+ * schema, because `select *` is refused.
+ *
+ * The copy is deep and deliberate. The array is module state, so a caller that
+ * mutated a profile in place would change what every later request sees on a
+ * long-lived server — which is exactly the bug a fixture is most likely to
+ * teach and a query never would.
  */
-export type QueueActions = {
-  setStatus: (profileId: string, status: QueueProfile["status"]) => void;
-  setVerified: (profileId: string, credentialId: string, verified: boolean) => void;
-  setNote: (profileId: string, note: string) => void;
-  assignOwner: (profileId: string) => void;
-};
-
-export type VariantProps = { queue: QueueProfile[]; actions: QueueActions };
+export async function readQueue(): Promise<QueueProfile[]> {
+  return structuredClone(queue);
+}
