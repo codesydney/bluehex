@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readQueue } from "./fixtures";
+import { reviewQueueFixtures } from "./queue.fixtures";
 import {
   badgeShows,
   checkable,
@@ -68,7 +68,7 @@ function profile(rest: Partial<QueueProfile> = {}): QueueProfile {
   };
 }
 
-const queue = await readQueue();
+const queue = reviewQueueFixtures();
 const byName = (name: string) => {
   const found = queue.find((candidate) => candidate.name === name);
   if (!found) throw new Error(`fixture "${name}" is gone`);
@@ -136,11 +136,11 @@ describe("the adversarial population", () => {
     }
   });
 
-  it("hands out a fresh copy each read, so a mutation cannot leak between requests", async () => {
-    const first = await readQueue();
+  it("hands out a fresh copy each read, so a mutation cannot leak between tests", () => {
+    const first = reviewQueueFixtures();
     first[0]!.status = "rejected";
 
-    expect((await readQueue())[0]!.status).toBe("pending");
+    expect(reviewQueueFixtures()[0]!.status).toBe("pending");
   });
 });
 

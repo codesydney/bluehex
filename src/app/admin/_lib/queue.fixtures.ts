@@ -1,12 +1,13 @@
 /**
- * The review queue's data, and the seam where a query replaces it.
+ * The nine people the review queue's rules were written against. **Tests only.**
  *
- * **Fixtures. Invented people, real credential names.** Nothing here is read
- * from or written to the database: #72 built the route, the components and the
- * rules, and stopped at `readQueue()`. #14 replaces the body of that one
- * function with a Supabase query and deletes this file; nothing above it knows
- * the difference, which is the only reason it is worth having a seam rather
- * than a comment.
+ * **Fixtures. Invented people, real credential names.** #72 built the route, the
+ * components and the rules against these nine and stopped at `readQueue()`; #14
+ * put `@/app/admin/_lib/queue-read` behind that seam, so nothing in the running
+ * application imports this file any more. What is left is a population, and it
+ * survives the swap because it is the only thing that states what the screen has
+ * to keep distinguishable — see below. Nothing here is read from or written to
+ * the database, and nothing here is a real person.
  *
  * ## The population is adversarial on purpose
  *
@@ -375,19 +376,12 @@ const queue: QueueProfile[] = [
 ];
 
 /**
- * Everything an admin has to look at. **The seam.**
+ * The population, as a fresh copy each time.
  *
- * Async because the query that replaces it will be, and because a page that is
- * already `await`ing has nothing to change when it lands. What #14 puts here is
- * a `bluehex_admin` read of `practitioners` with `practitioner_credentials` and
- * their catalogue rows embedded — column-scoped like every other read in this
- * schema, because `select *` is refused.
- *
- * The copy is deep and deliberate. The array is module state, so a caller that
- * mutated a profile in place would change what every later request sees on a
- * long-lived server — which is exactly the bug a fixture is most likely to
- * teach and a query never would.
+ * The copy is deep and deliberate. The array is module state, so a test that
+ * mutated a profile in place would change what every later test in the same
+ * file sees — and the two suites that read this both iterate the whole list.
  */
-export async function readQueue(): Promise<QueueProfile[]> {
+export function reviewQueueFixtures(): QueueProfile[] {
   return structuredClone(queue);
 }

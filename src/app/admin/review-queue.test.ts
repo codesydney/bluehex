@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { readQueue } from "./_lib/fixtures";
+import { reviewQueueFixtures } from "./_lib/queue.fixtures";
 import { checkable, type QueueProfile } from "./_lib/queue";
 import { ReviewQueue } from "./review-queue";
 
@@ -19,7 +19,7 @@ import { ReviewQueue } from "./review-queue";
  * get individually asserted.
  */
 
-const queue = await readQueue();
+const queue = reviewQueueFixtures();
 
 function render(profiles: QueueProfile[]): string {
   return renderToStaticMarkup(
