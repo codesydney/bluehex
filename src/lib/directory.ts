@@ -51,14 +51,7 @@ import type {
 } from "@/lib/practitioners";
 import { getClient } from "@/lib/supabase/anon";
 import { supabaseEnvOrNull } from "@/lib/supabase/env";
-import {
-  toCatalogueEntry,
-  toProfile,
-  toServiceOptions,
-  type CatalogueRow,
-  type ProfileRow,
-  type ServiceCatalogueRow,
-} from "@/lib/directory-mapping";
+import { toCatalogueEntry, toProfile, toServiceOptions } from "@/lib/directory-mapping";
 
 /* The `anon` grant on `practitioners`, in full. `availability` and the four
    links are read and carried into the model; only `bookingUrl` is drawn today,
@@ -66,24 +59,30 @@ import {
    costs one field in a payload and keeps the model and the grant the same list;
    naming a subset would make the next person diff two lists to find out why. */
 const PROFILE_COLUMNS =
-  "id,name,headline,location,country_code,bio,focus,availability," +
-  "website_url,github_url,linkedin_url,booking_url";
+  "id,name,headline,location,country_code,bio,focus,availability,website_url,github_url,linkedin_url,booking_url" as const;
 
 /* `evidence_url` is deliberately not here and could not be: `anon` has no grant
    on it. `evidence_url_public` is the generated column that is null unless the
    practitioner set `evidence_public`, which is what makes the masking a
    privilege rather than a rule the query has to remember. */
 const CREDENTIAL_COLUMNS =
-  "practitioner_credentials(id,catalogue_id,earned_at,verified,evidence_url_public," +
-  "credential_catalogue(id,kind,platform,label,course_url,active,sort_order))";
+  "practitioner_credentials(id,catalogue_id,earned_at,verified,evidence_url_public,credential_catalogue(id,kind,platform,label,course_url,active,sort_order))" as const;
 
 const SERVICE_COLUMNS =
-  "practitioner_services(id,catalogue_id,label," +
-  "service_catalogue(id,label,active,sort_order))";
+  "practitioner_services(id,catalogue_id,label,service_catalogue(id,label,active,sort_order))" as const;
 
-const CATALOGUE_COLUMNS = "id,kind,platform,label,course_url,active,sort_order";
+const CATALOGUE_COLUMNS = "id,kind,platform,label,course_url,active,sort_order" as const;
 
-const PROFILE_SELECT = `${PROFILE_COLUMNS},${CREDENTIAL_COLUMNS},${SERVICE_COLUMNS}`;
+/* `as const` on all four, and the template below is const too. It is not
+   decoration: `supabase-js` parses the select string **at the type level** to
+   work out the row shape, and it can only do that from a string literal type.
+   Built with `+` the parts widen to `string`, the parser gives up, and `data`
+   arrives as `GenericStringError[] | null` — which is what forced a
+   `as unknown as ProfileRow[]` here in the first version of this file, quietly
+   turning off every check the generated types exist to make. With the literal
+   preserved, a column that does not exist, an embed that is not a relationship
+   and a name that changed under a migration are all build failures. */
+const PROFILE_SELECT = `${PROFILE_COLUMNS},${CREDENTIAL_COLUMNS},${SERVICE_COLUMNS}` as const;
 
 /** Whether Supabase is configured at all. See the header: absent is degraded,
     present but broken is an error. */
@@ -118,7 +117,7 @@ export const listProfiles = cache(async (): Promise<Profile[]> => {
 
   if (error) throw new Error(`Reading the practitioner directory failed: ${error.message}`);
 
-  return (data as unknown as ProfileRow[]).map(toProfile);
+  return data.map(toProfile);
 });
 
 /**
@@ -174,7 +173,7 @@ export const getProfile = cache(async (id: string): Promise<Profile | null> => {
 
   if (error) throw new Error(`Reading a practitioner profile failed: ${error.message}`);
 
-  return data ? toProfile(data as unknown as ProfileRow) : null;
+  return data ? toProfile(data) : null;
 });
 
 /**
@@ -197,7 +196,7 @@ export const listCredentialCatalogue = cache(async (): Promise<CatalogueEntry[]>
 
   if (error) throw new Error(`Reading the credential catalogue failed: ${error.message}`);
 
-  return (data as CatalogueRow[]).map(toCatalogueEntry);
+  return data.map(toCatalogueEntry);
 });
 
 /**
@@ -218,5 +217,5 @@ export const listServiceOptions = cache(async (): Promise<ServiceOption[]> => {
 
   if (error) throw new Error(`Reading the service catalogue failed: ${error.message}`);
 
-  return toServiceOptions(data as ServiceCatalogueRow[]);
+  return toServiceOptions(data);
 });

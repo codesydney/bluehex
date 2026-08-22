@@ -25,9 +25,20 @@ import type {
    Written by hand rather than derived from `Database` in `database.types.ts`,
    because the generated types describe the whole table and these describe one
    projection of it — the point of naming every column is that the query reads
-   fewer of them than exist, and a type saying otherwise would defeat it. They
-   are structurally checked against the generated row types in
-   `directory-mapping.test.ts`, so a column that changes shape still fails. */
+   fewer of them than exist, and a type saying otherwise would defeat it.
+
+   They are pinned from both sides, which is what stops them drifting into
+   fiction. `directory-mapping.test.ts` checks each one structurally against the
+   generated table row, so a column that changes type fails to compile. And
+   `@/lib/directory` passes `data` straight in with no cast, so they are also
+   checked against the shape `supabase-js` parses out of the select string
+   itself — a column named here and not selected there is a build failure too.
+
+   They are deliberately *wider* than what the query returns: an embedded
+   collection is `T[] | null` and an embedded row is `T | null`, where the parser
+   infers non-null from the foreign keys. That direction is safe — the narrower
+   real value is assignable — and it is what lets the mapper state what it does
+   with an absent embed rather than assuming one can never happen. */
 
 export type CatalogueRow = {
   id: string;
