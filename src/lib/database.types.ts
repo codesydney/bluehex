@@ -264,6 +264,7 @@ export type Database = {
           created_at: string
           focus: string[]
           github_url: string | null
+          handle: string
           headline: string | null
           id: string
           linkedin_url: string | null
@@ -287,6 +288,7 @@ export type Database = {
           created_at?: string
           focus?: string[]
           github_url?: string | null
+          handle?: string
           headline?: string | null
           id?: string
           linkedin_url?: string | null
@@ -310,6 +312,7 @@ export type Database = {
           created_at?: string
           focus?: string[]
           github_url?: string | null
+          handle?: string
           headline?: string | null
           id?: string
           linkedin_url?: string | null
@@ -377,6 +380,7 @@ export type Database = {
           created_at: string
           focus: string[]
           github_url: string | null
+          handle: string
           headline: string | null
           id: string
           linkedin_url: string | null
@@ -427,6 +431,7 @@ export type Database = {
         }
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      new_profile_handle: { Args: never; Returns: string }
       owns_contact: { Args: { contact: string }; Returns: boolean }
       owns_profile: { Args: { profile_id: string }; Returns: boolean }
       owns_profile_for_contact: { Args: { contact: string }; Returns: boolean }
@@ -444,6 +449,7 @@ export type Database = {
           created_at: string
           focus: string[]
           github_url: string | null
+          handle: string
           headline: string | null
           id: string
           linkedin_url: string | null

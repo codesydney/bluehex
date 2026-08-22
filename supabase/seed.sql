@@ -176,6 +176,22 @@ on conflict (kind, platform, label) do nothing;
 -- last two number the row inside it, so `33333333-…-0101` and `33333333-…-0102` are
 -- both Mara's, whose profile is `22222222-…-0001`.
 --
+-- **And handles are literal for the same reason** (#119). `practitioners.handle` has
+-- a `default public.new_profile_handle()`, so leaving it out would work — and would
+-- give a different URL on every reset, which is precisely what makes a fixture
+-- unlinkable. `seed0001` … `seed0008` track the last digit of the profile's uuid, so
+-- `/p/seed0001` is Mara and nothing has to be looked up to know it. They are
+-- deliberately not derived from the names: eight Crockford base32 characters cannot
+-- contain `i`, `l`, `o` or `u`, and the only one of these eight people whose name
+-- survives that is Mara — which is the alphabet doing its job rather than a problem
+-- to work around.
+--
+-- This is the fixture that proves #119 locally. Before it, all eight shared the
+-- handle `222222` — the first six characters of the uuid, which for these rows are
+-- all prefix — so every *View profile* link on a freshly reset directory landed on
+-- Mara Ellison. Eight distinct handles is what makes each link reach the right
+-- person, and a reset is how you see it.
+--
 -- **Catalogue rows are referenced by their natural key, never by id**, because
 -- `credential_catalogue` and `service_catalogue` both take `gen_random_uuid()`
 -- defaults and there is no literal to write. A label that no longer exists resolves
@@ -214,14 +230,14 @@ on conflict do nothing;
 -- Fixed timestamps rather than `now() - interval …`, so two resets a week apart
 -- produce the same rows.
 insert into public.practitioners
-  (id, contact_id, name, headline, location, country_code, bio, focus, availability,
+  (id, handle, contact_id, name, headline, location, country_code, bio, focus, availability,
    website_url, github_url, linkedin_url, booking_url, status, approved_at)
 values
   -- 01 — the badge, in full. Two credentials, both verified, so the derived
   -- profile-level rollup is true. Three services, which is the cap: worth having
   -- somebody at it, because a filter axis everybody maxes out is the failure the
   -- cap exists to prevent and it should be visible on the roster.
-  ('22222222-0000-4000-8000-000000000001', '11111111-0000-4000-8000-000000000001',
+  ('22222222-0000-4000-8000-000000000001', 'seed0001', '11111111-0000-4000-8000-000000000001',
    'Mara Ellison', 'Staff engineer, agent platforms', 'Sydney', 'AU',
    'Builds evaluation harnesses for tool-using agents. Ten years in distributed systems before that, which mostly taught me how to make failures legible.',
    '{Agents,Evals,MCP}', 'Evenings and weekends, and about one day a fortnight.',
@@ -231,7 +247,7 @@ values
   -- 02 — one unverified credential is enough to withhold the badge. This is the
   -- profile that proves the rollup is "every credential verified" rather than
   -- "any credential verified", and the two read identically on a profile holding one.
-  ('22222222-0000-4000-8000-000000000002', '11111111-0000-4000-8000-000000000002',
+  ('22222222-0000-4000-8000-000000000002', 'seed0002', '11111111-0000-4000-8000-000000000002',
    'Toby Nakamura', 'Independent consultant', 'Wellington', 'NZ',
    'Retrieval pipelines and the unglamorous data work underneath them.',
    '{RAG,Data}', 'Booked until March.',
@@ -244,7 +260,7 @@ values
   -- instead of an in-progress row — `earned_at` is `not null` and there is no such
   -- thing as a credential you have not earned. A roster that made this look like a
   -- broken profile would be wrong about the population the directory launches with.
-  ('22222222-0000-4000-8000-000000000003', '11111111-0000-4000-8000-000000000003',
+  ('22222222-0000-4000-8000-000000000003', 'seed0003', '11111111-0000-4000-8000-000000000003',
    'Devon Achebe', 'Backend developer, moving into AI work', 'Melbourne', 'AU',
    'Writing Go for payments by day, working through the Academy track on weekends. Two courses down, aiming at the Certification next year.',
    '{Agents,MCP}', null,
@@ -255,7 +271,7 @@ values
   -- `certified` is true. It is derived rather than stored — "holds a credential
   -- whose catalogue entry is a certification" — so a population where every
   -- credential is an Academy course can never tell the derivation from a constant.
-  ('22222222-0000-4000-8000-000000000004', '11111111-0000-4000-8000-000000000004',
+  ('22222222-0000-4000-8000-000000000004', 'seed0004', '11111111-0000-4000-8000-000000000004',
    'Priya Raghavan', 'Solutions architect', 'Singapore', 'SG',
    'Ten years of integration work. Most of what I do now is helping teams decide what not to hand to a model.',
    '{Architecture,Evals}', 'Two days a week, from September.',
@@ -265,7 +281,7 @@ values
   -- 05 — three credentials, none verified. Credentials are the practitioner's own
   -- claim; the badge is Bluehex's check of them, and this profile is what the
   -- difference looks like on screen.
-  ('22222222-0000-4000-8000-000000000005', '11111111-0000-4000-8000-000000000005',
+  ('22222222-0000-4000-8000-000000000005', 'seed0005', '11111111-0000-4000-8000-000000000005',
    'Hollis Fenn', 'Freelance developer', 'Brisbane', 'AU',
    'Small teams, short engagements, mostly getting a first agent into production without it becoming somebody''s second job.',
    '{Agents,Tooling}', 'Available now.',
@@ -275,7 +291,7 @@ values
   -- 06 — in the queue. `pending` is invisible to `anon`, and so are its credentials
   -- and services: the child follows its parent through `profile_is_approved()`. It
   -- holds both so that the hiding is a real assertion rather than a vacuous one.
-  ('22222222-0000-4000-8000-000000000006', '11111111-0000-4000-8000-000000000006',
+  ('22222222-0000-4000-8000-000000000006', 'seed0006', '11111111-0000-4000-8000-000000000006',
    'Ines Okonkwo', 'Data engineer', 'Perth', 'AU',
    'Pipelines, warehouses, and lately the question of what a model should be allowed to read.',
    '{Data,RAG}', 'Weeknights.',
@@ -285,7 +301,7 @@ values
   -- 07 — rejected, and carrying the review note that says why. The note is a row
   -- rather than a column because a column cannot be scoped to the person it is
   -- about; it is inserted below, after the profile it references exists.
-  ('22222222-0000-4000-8000-000000000007', '11111111-0000-4000-8000-000000000007',
+  ('22222222-0000-4000-8000-000000000007', 'seed0007', '11111111-0000-4000-8000-000000000007',
    'Rafael Duarte', 'Prompt consultant', 'Auckland', 'NZ',
    'I write prompts.',
    '{Prompting}', null,
@@ -295,7 +311,7 @@ values
   -- 08 — withdrawn while holding a verified credential. `status` and `verified` are
   -- independent axes rather than a sequence, and this is the pairing that says so:
   -- the check still stands, the profile is simply not in the directory.
-  ('22222222-0000-4000-8000-000000000008', '11111111-0000-4000-8000-000000000008',
+  ('22222222-0000-4000-8000-000000000008', 'seed0008', '11111111-0000-4000-8000-000000000008',
    'Sabine Aleryd', 'Platform engineer', 'Stockholm', 'SE',
    'Took a staff job and stopped taking outside work. Leaving the profile up in case that changes.',
    '{Agents}', null,

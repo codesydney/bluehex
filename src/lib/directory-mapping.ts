@@ -69,6 +69,7 @@ export type ServiceRow = {
 
 export type ProfileRow = {
   id: string;
+  handle: string;
   name: string;
   headline: string | null;
   location: string | null;
@@ -191,6 +192,7 @@ export function toServiceLabels(rows: ServiceRow[] | null): string[] {
 export function toProfile(row: ProfileRow): Profile {
   return {
     id: row.id,
+    handle: row.handle,
     name: row.name,
     headline: row.headline,
     location: row.location,

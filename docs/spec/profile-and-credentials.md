@@ -337,6 +337,8 @@ the invariant.
 
 ### No slugs, and no profile identity problem
 
+> **The gate below has been crossed, and #119 settled what was behind it.** #118 opened the public per-profile route; #119 made the identifier a `not null unique` `handle` column and removed the slug outright. The settled decision is *The identifier is `handle`* further down this file, and it is the binding one. What follows is the record of why the question was deferred rather than answered early, which is still worth reading — the deferral was correct, and the reasoning is what stopped a slug scheme being invented before anything needed one.
+
 **Decided by inspection.** `src/app/` has two routes, the home page and contact, and
 nothing in `practitioner-directory.tsx` links a card anywhere. Profiles render inline on
 the directory; there is no profile URL, so there is nothing for a slug to name and
@@ -344,6 +346,8 @@ nothing for a name change to break. #9's identity question has no subject.
 
 **Gate:** the first per-profile route. A profile page needs a stable identifier that is
 not the display name, and that decision should be made when the page is, not before.
+
+**Gate resolved in #119**, and the answer went further than "not the display name": the identifier is not derived from any other column at all. The intermediate scheme — six characters of the row's uuid, with a name slug in front of them — satisfied this gate's literal wording and still failed, because nothing enforced that two profiles could not take the same six characters. A stable identifier has to be a *unique* one, which is a promise only the schema can make.
 
 ## What the badge attests to, and why edits are not locked
 
@@ -741,7 +745,7 @@ claim, so it stays out of the attested set.
 
 **Progress belongs to the editor, and the label rule above applies to it.** "2 of 24" with the whole catalogue folded away beneath it — folded, because expanded, two dozen rows of mostly "not earned" is the discouraging reading the public page is being spared, delivered to the one person it is meant to encourage.
 
-**The editor does not trip the profile-identity gate.** That gate is on "the first per-profile route", and an editor is "my profile" keyed on `auth.uid()` with no identifier in the URL. A *public* profile page would force the slug decision; the editor does not.
+**The editor does not trip the profile-identity gate.** That gate is on "the first per-profile route", and an editor is "my profile" keyed on `auth.uid()` with no identifier in the URL. A *public* profile page would force the slug decision; the editor does not. **That page arrived in #118 and the decision was taken in #119** — there is no slug, and the identifier is the `handle` column; this paragraph is kept for why the editor was allowed to land ahead of it.
 
 **Empty is not null, and the form is the first line rather than the only one.** `""` maps to null for every optional column and to "do not submit this row" for a credential, since `catalogue_id` and `earned_at` are `not null`. Both mappings are stated at the end of the Credentials and Contact sections above; the reason they are repeated here is that the failing version type-checks, and a form that sends `''` to an `https_url` column produces a 400 naming the domain, which is not a message anyone should read.
 
@@ -767,11 +771,19 @@ Three findings from those rounds survive, because they are not about layout:
 
 **`/p/<handle>` is justified by having a URL, not by depth.** A full page adds three fields over the roster row — the bio, the earned dates, and the credential sources — and on depth alone that is not worth a route, since expanding the row in place delivers all three for free. What carried it was measurement: a path is a request you can see, so you learn which profiles get looked at without writing an event that somebody has to keep writing; a URL has a **referrer**, so you can learn that an employer arrived from a candidate's job application, which is evidence the badge works in the market; and a page is **indexable**, so somebody searching for a Claude consultant in Sydney can land on one. Expand-in-place structurally cannot ever answer the sharing question, which turns its "does not have to decide" advantage into "never learns". The analytics argument needs a real **path segment** — most tools strip or lump query parameters, so `?profile=x` does not deliver it.
 
-**The identifier is `/p/mara-ellison-2f1a3c`: the trailing short id resolves and the slug is decoration.** A rename changes the URL without breaking the old one, and a non-canonical slug is redirected to the canonical path rather than served alongside it. Two shapes are ruled out: the bare name slug, which breaks on every rename and collides on duplicate names — the display name is already ruled out as an identifier — and the bare uuid, which is correct and permanent and which nobody puts on a CV. **The short id must come from the row's uuid and never from hashing the name**, because hashing the name moves the id whenever the name changes, which is the exact failure the scheme exists to prevent. There was briefly a second scheme that hashed the name; it disagreed with production the moment both existed and was deleted rather than reconciled. There is exactly one generator, `profilePath`, and exactly one resolver.
+**The identifier is `handle`: a `not null unique` column, and `/p/<handle>` is the whole URL.** Settled in #119, superseding the scheme described below it. `id` stays the uuid foreign keys reference; `handle` is the public identifier, and conflating the two is what produced the defect that forced the decision.
 
-**Six characters are not yet unique, and nothing enforces it.** The resolver returns the first row whose uuid starts with them, so a collision serves the wrong profile rather than a 404. Real uuids collide rarely; the local seed collides always, because `supabase/seed.sql` keys its eight profiles `22222222-0000-…-000N` for legibility and all eight therefore share `222222`. The enforcement belongs in the schema and is open on the review of #63. Until it lands, the resolver orders its candidates so that the wrong answer is at least the same wrong answer every time.
+**What it replaced, and why it had to go.** The identifier was `/p/mara-ellison-2f1a3c`: the trailing six characters of the row's uuid resolved and the name slug was decoration, with a canonical redirect when the slug went stale. Nothing enforced that two profiles could not share those six characters, and the resolver returned the *first* match — so a collision did not error, it served the wrong practitioner's profile, with their credentials and their badge on it. On the one product whose value is that the badge means something, that is the worst available failure: it fails open and looks fine. Six hex characters is 24 bits, which is even odds around 4,800 profiles and about 3% at a thousand — unlikely at the scale Bluehex is aiming at, not zero, and undetected when it happens. The eight rows in `supabase/seed.sql` collided 100% of the time, because their literal uuids are all prefix, and that is what surfaced it.
 
-**A name in the URL adds no exposure a scraper does not already have** — the name is in an `<h1>` on a public page linked from a public directory and indexed on purpose, and obscure URLs only protect content linked from nowhere. Where it does matter is *withdrawal*: an indexed name-slug URL keeps the name in search caches and third-party link databases after the person has left, which is the longest-lived trace a withdrawn profile leaves. Because the lookup ignores the slug, `/p/2f1a3c` and `/p/mara-ellison-2f1a3c` are already the same page, so choosing the opaque form is a second argument to `profilePath` rather than a flag it already has. Recommended default: the name slug, since the link is worth less without it and publishing a profile is already a decision to be found, with an opt-out for anyone who wants the opaque URL — the same shape as `evidence_public`, a privacy trade the practitioner makes rather than one the schema makes for them.
+**Generated by the database, not by the application.** `handle` carries `default public.new_profile_handle()`, so every insert gets one whether it came from the app, a migration, `supabase/seed.sql` or a `psql` prompt — the database owns the handle exactly as it owns the uniqueness, and there is no second generator to disagree with the first. The value is **eight characters of Crockford base32, lowercase**: 40 bits from an alphabet that excludes `i`, `l`, `o` and `u`, so a handle read aloud or copied off a screen is unambiguous. Postgres `encode()` supports `base64`, `hex` and `escape` and not `base32`, so the packing of five random bytes into eight five-bit groups is written out; the implementation is in `20260822040624_profile_handle.sql` and is sampled for bias and truncation in `tests/db/profile-handles.test.ts`. `practitioners_handle_format` states the shape as a check constraint, which is what constrains a *literal* — the seed's eight, an admin's correction — rather than the generator, which cannot produce anything else.
+
+**Not practitioner-writable, by both mechanisms.** `handle` is absent from every `insert` and `update` grant `authenticated` holds, and `practitioners_guard` pins it to `OLD` for every non-privileged caller. That is the same pairing `verified` and `status` use and for the same reason: a policy has no `OLD`, so "this row is yours to update, but this column must not change" is unsayable in row level security, and the trigger is what still holds if a later migration re-grants the column by accident. A mutable handle breaks every published link. `bluehex_admin` can correct one, which is the only write path there is.
+
+**Practitioner-chosen handles are out of scope, deliberately.** It is the nicest UX and the GitHub-shaped answer, and it is user-controlled text on a product selling trust: `/p/anthropic-official` is a real impersonation route, and defending it means a reserved-word list somebody maintains and eventually gets wrong. Bluehex owns the namespace, the same shape as `credential_catalogue`. The format constraint is what holds it shut today; vanity handles, if ever wanted, are an admin-only capability and a later decision.
+
+**Dropping the slug is the forward-compatible direction, which is why it was safe to take now.** The handle is the key in both schemes, so a readable prefix can be added later as pure decoration with every existing `/p/<handle>` still resolving; removing slugs later would break every published URL. What it costs, recorded so it is a decision rather than an oversight: a bare URL tells a hiring manager nothing before they click, and gives search engines no name signal. The withdrawal argument runs the other way and is worth keeping — an indexed name-slug URL keeps the name in search caches and third-party link databases after the person has left, which is the longest-lived trace a withdrawn profile leaves, and an opaque handle leaves none. The privacy opt-out this section used to recommend is therefore moot rather than dropped: everybody gets the opaque form.
+
+**The cost of deciding rose permanently at profile number one.** The point of `/p/<handle>` is that it is a URL a practitioner pastes into a job application; change the scheme after anyone has done that and it breaks links people are relying on. The hosted project had zero practitioner rows when this landed, which is why the column could be `not null unique` in one migration with no backfill — and why that shortcut should not be read as generally available.
 
 ### How the public surfaces are rendered and cached
 
@@ -881,6 +893,20 @@ create domain public.https_url as text
 
 create table public.practitioners (
   id uuid primary key default gen_random_uuid(),
+
+  -- the public identifier, and the whole of `/p/<handle>` (#119). Separate from
+  -- `id`, which stays the uuid foreign keys reference. Eight characters of
+  -- Crockford base32, generated by the database so that every insert gets one
+  -- whatever wrote it; `not null unique` is what makes a collision an error
+  -- rather than the wrong person's profile served under somebody else's URL.
+  -- Added in one migration with no backfill because the hosted project had zero
+  -- rows; a populated table needs add-backfill-constrain instead. See the
+  -- identifier decision above, and `new_profile_handle()` in
+  -- `20260822040624_profile_handle.sql` for the bit packing.
+  handle text not null unique default public.new_profile_handle()
+    constraint practitioners_handle_format
+    check (handle ~ '^[0123456789abcdefghjkmnpqrstvwxyz]{8}$'),
+
   -- nullable, and `set null` rather than `cascade`: deleting an account
   -- withdraws the profile (see Deletion), it does not destroy it
   user_id uuid unique references auth.users (id) on delete set null,
@@ -1209,11 +1235,16 @@ Nobody but `bluehex_admin` can write it. The owner reads it and cannot reply —
 
 ```sql
 -- practitioners --------------------------------------------------------------
-grant select (id, name, headline, location, country_code, bio, focus,
+-- `handle` is readable and never writable. It is named in both `select` lists —
+-- `anon` needs it or the directory cannot build a link, and the failure reads as
+-- a broken policy rather than a missing grant — and is absent from `insert` and
+-- `update` exactly as `verified` and `status` are. `practitioners_guard` states
+-- the same rule where a grant cannot: see Triggers.
+grant select (id, handle, name, headline, location, country_code, bio, focus,
               availability,
               website_url, github_url, linkedin_url, booking_url)
   on public.practitioners to anon;
-grant select (id, name, headline, location, country_code, bio, focus,
+grant select (id, handle, name, headline, location, country_code, bio, focus,
               availability,
               website_url, github_url, linkedin_url, booking_url,
               status, created_at, updated_at)
@@ -1482,7 +1513,9 @@ Three guards, one clearing rule shared by three triggers, one timestamp bump sha
 
 Written out rather than described, because the three mistakes these are here to prevent are all invisible in prose: a `before insert or update` trigger that reads `OLD`, an `update of` clause read as though it fired on change, and an ownership rule read as a permission when it is a state machine.
 
-1. **`practitioners_guard`** — `before update`. Pins `status`, the provenance columns and `user_id` to their old values for non-admin callers, and bumps `updated_at`. Its allow-list must include `supabase_auth_admin`, or the `set null` from an account deletion is pinned back and leaves a dangling reference — see Deletion.
+1. **`practitioners_guard`** — `before update`. Pins `status`, the provenance columns, `user_id` and `handle` to their old values for non-admin callers, and bumps `updated_at`. Its allow-list must include `supabase_auth_admin`, or the `set null` from an account deletion is pinned back and leaves a dangling reference — see Deletion.
+
+   `handle` joined the list in #119, and the reason is the same one that put `status` on it: the column is absent from the `authenticated` grants, and the trigger is what still states the rule the day a migration re-grants it by accident. Note what neither mechanism covers — **there is no `before insert` guard on this table**, so on the way *in* the grant list is the only thing withholding `handle`, exactly as it is the only thing withholding `status`. That is a property of the design rather than an oversight in it, and it is stated here so a future insert guard is a decision rather than a discovery.
 
    **It also enforces the ownership state machine**, which is the part that is not a permission question. `user_id` has three legal transitions and one illegal one, and the illegal one is the only place in this design that raises rather than pinning silently:
 

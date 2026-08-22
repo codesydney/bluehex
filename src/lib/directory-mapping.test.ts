@@ -220,6 +220,7 @@ describe("the filter vocabulary", () => {
 describe("a profile row becomes the public record", () => {
   const row: ProfileRow = {
     id: "22222222-0000-4000-8000-000000000001",
+    handle: "seed0001",
     name: "Mara Ellison",
     headline: "Staff engineer, agent platforms",
     location: "Sydney",
@@ -260,6 +261,7 @@ describe("a profile row becomes the public record", () => {
       "credentials",
       "focus",
       "githubUrl",
+      "handle",
       "headline",
       "id",
       "linkedinUrl",

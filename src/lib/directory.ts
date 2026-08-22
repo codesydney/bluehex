@@ -44,10 +44,11 @@
  */
 
 import { cache } from "react";
-import type {
-  CatalogueEntry,
-  Profile,
-  ServiceOption,
+import {
+  isProfileHandle,
+  type CatalogueEntry,
+  type Profile,
+  type ServiceOption,
 } from "@/lib/practitioners";
 import { getClient } from "@/lib/supabase/anon";
 import { supabaseEnvOrNull } from "@/lib/supabase/env";
@@ -59,7 +60,7 @@ import { toCatalogueEntry, toProfile, toServiceOptions } from "@/lib/directory-m
    costs one field in a payload and keeps the model and the grant the same list;
    naming a subset would make the next person diff two lists to find out why. */
 const PROFILE_COLUMNS =
-  "id,name,headline,location,country_code,bio,focus,availability,website_url,github_url,linkedin_url,booking_url" as const;
+  "id,handle,name,headline,location,country_code,bio,focus,availability,website_url,github_url,linkedin_url,booking_url" as const;
 
 /* `evidence_url` is deliberately not here and could not be: `anon` has no grant
    on it. `evidence_url_public` is the generated column that is null unless the
@@ -120,34 +121,6 @@ export const listProfiles = cache(async (): Promise<Profile[]> => {
   return data.map(toProfile);
 });
 
-/**
- * The ids of every published profile, and nothing else.
- *
- * `/p/<handle>` resolves on the first six characters of a uuid, so a handle
- * cannot be turned into a `where` clause — Postgres has no prefix match on
- * `uuid` and casting one per row to compare it would be a sequential scan
- * wearing a filter. Reading the ids and matching in memory is honest about that,
- * and it is one narrow column.
- *
- * It doubles as the existence check. A profile that left `approved` is not in
- * this list, because RLS is what builds it, so a withdrawn handle 404s rather
- * than resolving to a row the next query would refuse.
- */
-export const listProfileIds = cache(async (): Promise<string[]> => {
-  if (!configured()) return [];
-
-  /* Ordered, so a collision on the six-character short id resolves to the same
-     profile every time. It still resolves to the *wrong* one — see
-     `src/app/p/_lib/handles.ts` — but a cached page that served a different
-     person on each regeneration would be worse than one that is consistently
-     wrong, and harder to recognise as the collision it is. */
-  const { data, error } = await getClient().from("practitioners").select("id").order("id");
-
-  if (error) throw new Error(`Reading practitioner ids failed: ${error.message}`);
-
-  return data.map((row) => row.id);
-});
-
 /* A row id arrives from a URL on the contact page, so it is untrusted text.
    Postgres answers `22P02 invalid input syntax for type uuid` on anything that
    is not one, which `getProfile` would raise as an error — a 500 on a page whose
@@ -175,6 +148,39 @@ export const getProfile = cache(async (id: string): Promise<Profile | null> => {
 
   return data ? toProfile(data) : null;
 });
+
+/**
+ * One published profile by its public handle, or null.
+ *
+ * **One query, because the handle is a column now** (#119). It used to be the
+ * first six characters of the row's uuid, which Postgres has no prefix match
+ * for, so the resolution was two round trips — every published id, then the row
+ * whose id matched in memory — and `.find()` returned the *first* match, so a
+ * collision silently served the wrong practitioner's profile rather than
+ * erroring. `unique` is what removed both the second query and that failure.
+ *
+ * Null covers three states the caller does not need to tell apart: no such row,
+ * a row row level security will not show this visitor, and a handle that is not
+ * in the format. All three mean the same thing to a page — there is nothing
+ * here. The second is what makes a withdrawn profile 404 rather than resolving:
+ * nothing filters on `status`, because `anon` cannot read it and the policy is
+ * the filter.
+ */
+export const getProfileByHandle = cache(
+  async (handle: string): Promise<Profile | null> => {
+    if (!configured() || !isProfileHandle(handle)) return null;
+
+    const { data, error } = await getClient()
+      .from("practitioners")
+      .select(PROFILE_SELECT)
+      .eq("handle", handle)
+      .maybeSingle();
+
+    if (error) throw new Error(`Reading a practitioner profile failed: ${error.message}`);
+
+    return data ? toProfile(data) : null;
+  },
+);
 
 /**
  * Every credential that exists — Bluehex's reference data, not anybody's record.

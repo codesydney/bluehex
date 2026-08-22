@@ -412,11 +412,18 @@ export function pickableEntries(catalogue: CatalogueEntry[]): CatalogueEntry[] {
 }
 
 /**
- * The id the preview's `Profile` carries.
+ * The id and handle the preview's `Profile` carries.
  *
- * A draft has no row and therefore no id, and `Profile.id` is not
- * optional. The preview never links anywhere — `profilePath()` is not called on
- * it — so a sentinel is honest where a fabricated uuid would look resolvable.
+ * A draft has no row, so it has neither, and `Profile.id` and `Profile.handle`
+ * are both non-optional. The preview never links anywhere — `profilePath()` is
+ * not called on it — so a sentinel is honest where a fabricated uuid or a
+ * plausible handle would look resolvable.
+ *
+ * `"preview"` is deliberately *not* a valid handle: `practitioners_handle_format`
+ * wants eight Crockford base32 characters and this is seven, one of which is `i`.
+ * Both halves of #119's rule read it as nothing — `isProfileHandle` rejects it,
+ * and it could not be a row's value — so if it ever does reach a link, the result
+ * is a 404 rather than somebody else's profile.
  */
 const PREVIEW_ID = "preview";
 
@@ -473,6 +480,7 @@ export function previewPractitioner(
 
   return {
     id: PREVIEW_ID,
+    handle: PREVIEW_ID,
     name: draft.name,
     headline: blankToNull(draft.headline),
     location: blankToNull(draft.location),

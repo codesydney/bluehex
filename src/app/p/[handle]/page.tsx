@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { listCredentialCatalogue } from "@/lib/directory";
-import { profilePath } from "@/lib/practitioners";
-import { findByHandle } from "../_lib/handles";
+import { notFound } from "next/navigation";
+import { getProfileByHandle, listCredentialCatalogue } from "@/lib/directory";
 import { ProfileDetail } from "../_lib/profile-detail";
 
 /**
@@ -13,10 +11,20 @@ import { ProfileDetail } from "../_lib/profile-detail";
  * here from production code (`profilePath` in `@/lib/practitioners`), and the
  * whole point of a profile having a URL is that the URL is real and shareable.
  *
- * Only the trailing short id resolves; the slug is decoration. A request whose
- * slug no longer matches is redirected to the canonical path rather than served
- * in both places, which is what keeps a link alive across a rename without
- * splitting the profile across two URLs.
+ * **One path per profile, and no redirect** (#119). The URL used to be
+ * `/p/<name-slug>-<short id>`, where only the trailing id resolved and a stale
+ * slug was redirected to the canonical form — machinery that existed to keep a
+ * link alive across a rename. The slug is gone, so the rename problem is gone
+ * with it and so is the redirect: `handle` is a `not null unique` column that
+ * nothing derives from the name, so there is no second spelling of this page for
+ * anything to be canonical against.
+ *
+ * `findByHandle` went at the same time and for the same reason. It lived in
+ * `_lib/handles.ts` and did real work — strip the slug, read every published id,
+ * match six characters in memory, `.find()` the first hit — all of which was
+ * forced by an identifier Postgres could not filter on. With a column there is
+ * one `.eq("handle", …)`, which belongs in `@/lib/directory` beside every other
+ * read; a wrapper here would only be a second name for it.
  *
  * Every arrival renders this — clicked from the directory, pasted from a CV, or
  * found in search. An earlier version intercepted the click into a drawer over
@@ -62,9 +70,9 @@ export const revalidate = 86400;
 export async function generateMetadata({
   params,
 }: PageProps<"/p/[handle]">): Promise<Metadata> {
-  /* The same lookup the page makes. `findByHandle` reads through React's
+  /* The same lookup the page makes. `getProfileByHandle` reads through React's
      per-request memo, so this costs no second round trip. */
-  const person = await findByHandle((await params).handle);
+  const person = await getProfileByHandle((await params).handle);
 
   return {
     title: person ? `${person.name} — Bluehex` : "Profile",
@@ -72,12 +80,8 @@ export async function generateMetadata({
 }
 
 export default async function ProfilePage({ params }: PageProps<"/p/[handle]">) {
-  const handle = (await params).handle;
-  const person = await findByHandle(handle);
+  const person = await getProfileByHandle((await params).handle);
   if (!person) notFound();
-
-  const canonical = profilePath(person);
-  if (`/p/${handle}` !== canonical) redirect(canonical);
 
   /* The whole catalogue, so the credentials block can offer the rest of it
      behind the Not earned control. It was an empty array until this query
