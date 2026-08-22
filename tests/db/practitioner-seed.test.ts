@@ -202,15 +202,117 @@ describe("the seeded population", () => {
     }
   });
 
-  it("makes exactly one of the accounts an admin", async () => {
+  it("makes exactly one of the seeded accounts an admin", async () => {
     /* `public.admins` is the whole of what makes an admin: the access token hook
        reads it and stamps `bluehex_admin` onto the role claim. Seeding the row is
-       what removes the sign-out-and-back-in ritual from every handoff — and the
-       count matters as much as the membership, because a second admin here would be
-       a privilege nobody asked for, sitting in a file that is easy to skim. */
-    const admins = await sql<{ user_id: string }>("select user_id::text from public.admins");
+       what removes the sign-out-and-back-in ritual from every handoff — and which of
+       the three holds it matters as much as that one does, because a second admin
+       here would be a privilege nobody asked for, sitting in a file that is easy to
+       skim.
+
+       Scoped to the `5…` family rather than read across the table. `adminCaller()`
+       inserts into `public.admins` for every admin it builds, so a table-wide
+       assertion would be asserting that another file's teardown ran — true today,
+       since the project is serial and `deleteCreatedUsers()` is in the setup file,
+       and not a thing this test has any business depending on. */
+    const admins = await sql<{ user_id: string }>(
+      "select user_id::text from public.admins where user_id = any($1::uuid[])",
+      [[ADMIN_ACCOUNT, MARA_ACCOUNT, INES_ACCOUNT]],
+    );
 
     expect(admins.map((row) => row.user_id)).toEqual([ADMIN_ACCOUNT]);
+  });
+
+  it("names the seeded admin on every provenance column it fills", async () => {
+    /* The three columns this file newly writes, asserted together because they fail
+       together and for the same reason: each is a positional value in a long `values`
+       list, and each reverts to null without anything else in the repository noticing.
+       `approved_by` and `owner_assigned_by` would simply be absent from `/admin`;
+       `verified_by` is worse, because `credentials_guard` accepts null from a
+       privileged caller and the row still reads as verified — a check with nobody's
+       name against it, which is a state the product cannot produce.
+
+       The pairings are what carry the assertion, not the presence. `approved_by` is
+       set exactly where `approved_at` is, `owner_assigned_by` exactly where `user_id`
+       is, and `verified_by` exactly where `verified` is true — so a column filled in
+       the wrong place fails as loudly as one left empty. */
+    const profiles = await sql<{
+      id: string;
+      approved_at: string | null;
+      approved_by: string | null;
+      user_id: string | null;
+      owner_assigned_at: string | null;
+      owner_assigned_by: string | null;
+    }>(
+      `select id::text, approved_at, approved_by::text,
+              user_id::text, owner_assigned_at, owner_assigned_by::text
+         from public.practitioners where id = any($1::uuid[])`,
+      [SEEDED],
+    );
+
+    for (const row of profiles) {
+      expect(row.approved_by, `approved_by on ${row.id}`).toBe(
+        row.approved_at === null ? null : ADMIN_ACCOUNT,
+      );
+      expect(row.owner_assigned_by, `owner_assigned_by on ${row.id}`).toBe(
+        row.user_id === null ? null : ADMIN_ACCOUNT,
+      );
+      /* Stamped rather than left to the guard, which never fires on an insert. A null
+         here is the fixture claiming ownership arrived from nowhere. */
+      expect(row.owner_assigned_at === null, `owner_assigned_at on ${row.id}`).toBe(
+        row.user_id === null,
+      );
+    }
+
+    const notes = await sql<{ written_by: string | null }>(
+      "select written_by::text from public.practitioner_review_notes where practitioner_id = any($1::uuid[])",
+      [SEEDED],
+    );
+    expect(notes.map((row) => row.written_by)).toEqual([ADMIN_ACCOUNT]);
+
+    const credentials = await sql<{
+      id: string;
+      verified: boolean;
+      verified_at: string | null;
+      verified_by: string | null;
+    }>(
+      `select id::text, verified, verified_at, verified_by::text
+         from public.practitioner_credentials where practitioner_id = any($1::uuid[])`,
+      [SEEDED],
+    );
+
+    expect(credentials.filter((row) => row.verified)).toHaveLength(5);
+    for (const row of credentials) {
+      expect(row.verified_by, `verified_by on ${row.id}`).toBe(row.verified ? ADMIN_ACCOUNT : null);
+      expect(row.verified_at === null, `verified_at on ${row.id}`).toBe(!row.verified);
+    }
+  });
+
+  it("dates every check rather than letting the guard stamp the reset time", async () => {
+    /* `credentials_guard` defaults `verified_at` to `now()`, so an unwritten value
+       dates the check to whenever the stack was last reset. That is invisible in a
+       fresh database and wrong in every other way: it breaks the fixed-timestamp rule
+       the seed states for itself, it puts all five checks in the same second, and it
+       lets a check post-date the approval it was supposed to inform.
+
+       Asserting a date in the past would pass on a stack reset yesterday, so the
+       assertion is against the fixed literals themselves — every check falls after the
+       admin account exists and before the profile's approval. */
+    const rows = await sql<{ id: string; earned_at: string; verified_at: string }>(
+      `select c.id::text, c.earned_at::text, c.verified_at::text
+         from public.practitioner_credentials c
+        where c.practitioner_id = any($1::uuid[]) and c.verified`,
+      [SEEDED],
+    );
+
+    expect(rows).toHaveLength(5);
+    /* Distinct to the second: five rows sharing one timestamp is the signature of the
+       guard having filled them, which is the thing this is here to catch. */
+    expect(new Set(rows.map((row) => row.verified_at)).size).toBe(5);
+    for (const row of rows) {
+      expect(row.verified_at > row.earned_at, `${row.id} verified before it was earned`).toBe(true);
+      expect(row.verified_at < "2026-08-01", `${row.id} is stamped with the reset time`).toBe(true);
+    }
   });
 
   it("gives the rejected profile the review note that says why", async () => {
