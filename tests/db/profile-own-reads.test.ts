@@ -1,11 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import {
-  anonCaller,
-  deleteCreatedUsers,
-  practitionerCaller,
-  type Caller,
-} from "./harness/callers";
+import { anonCaller, practitionerCaller, type Caller } from "./harness/callers";
 import { expectAllowed, expectPermissionDenied } from "./harness/result";
 import { sql } from "./harness/stack";
 
@@ -37,9 +32,23 @@ import { sql } from "./harness/stack";
 let anon: Caller;
 let owner: Caller;
 let stranger: Caller;
+/**
+ * A signed-in account owning no profile at all. Distinct from `stranger`, who
+ * owns one: a predicate that returned *something* to every signed-in caller
+ * would still look correct from `stranger`, whose own row is what they expect
+ * to see.
+ */
+let unowned: Caller;
 
 /** The owner's profile: approved, so no client-side filter can isolate it. */
 let mine: string;
+/**
+ * A curated profile with no owner — `user_id is null`, the state #14's claim
+ * path exists to resolve. It is the row that `null = auth.uid()` is what keeps
+ * private, and seeding it is the only reason that claim is under test rather
+ * than merely asserted in a comment.
+ */
+let unclaimed: string;
 /** A catalogue entry, because a credential must reference one. */
 let entry: string;
 
@@ -57,15 +66,20 @@ beforeAll(async () => {
      burst is the thing the limit counts. */
   owner = await practitionerCaller("owner");
   stranger = await practitionerCaller("stranger");
+  unowned = await practitionerCaller("unowned");
 
   mine = await seedProfile(owner.userId, "Harness own-reads owner");
   /* The stranger owns an approved profile too, so that a `true` predicate inside
      either function would show them the owner's row *and* show the owner theirs
      — the symmetric failure, caught from both sides. */
   await seedProfile(stranger.userId, "Harness own-reads stranger");
+  unclaimed = await seedProfile(null, "Harness own-reads unclaimed");
 
   entry = await seedCatalogueEntry();
   await seedCredential(mine, entry, privateEvidence);
+  /* The unclaimed profile holds a credential too, so the same widened predicate
+     is caught on both functions rather than only on `my_profile()`. */
+  await seedCredential(unclaimed, await seedCatalogueEntry(), privateEvidence);
 });
 
 afterAll(async () => {
@@ -81,7 +95,8 @@ afterAll(async () => {
   await sql(
     `delete from public.practitioner_contacts where contact_email like 'harness-own-reads%'`,
   );
-  await deleteCreatedUsers();
+  /* No `deleteCreatedUsers()` here: `harness/setup.ts` calls it for every file in
+     the project, and its afterAll runs after this one. */
 });
 
 describe("why the functions exist", () => {
@@ -145,6 +160,28 @@ describe("my_profile()", () => {
     expect(result.data![0]!.id).not.toBe(mine);
   });
 
+  it("returns nothing at all to a signed-in caller who owns no profile", async () => {
+    const result = await unowned.client.rpc("my_profile");
+
+    expectAllowed(result);
+    expect(result.data).toHaveLength(0);
+  });
+
+  it("never returns an unclaimed profile, to anybody", async () => {
+    /* `user_id is null` on a curated profile, and `null = auth.uid()` is `null`
+       rather than true — which is the entire reason a widened predicate would be
+       catastrophic rather than merely wrong. A curated row is a real person's
+       name and links, entered by Bluehex before they have an account. */
+    for (const caller of [owner, stranger, unowned]) {
+      const result = await caller.client.rpc("my_profile");
+      expectAllowed(result);
+      expect(
+        result.data!.map((row) => row.id),
+        `${caller.label} was shown the unclaimed profile`,
+      ).not.toContain(unclaimed);
+    }
+  });
+
   it("refuses anon outright", async () => {
     expectPermissionDenied(anon, await anon.client.rpc("my_profile"));
   });
@@ -165,6 +202,24 @@ describe("my_credentials()", () => {
 
     expectAllowed(result);
     expect(result.data).toHaveLength(0);
+  });
+
+  it("returns nothing at all to a signed-in caller who owns no profile", async () => {
+    const result = await unowned.client.rpc("my_credentials");
+
+    expectAllowed(result);
+    expect(result.data).toHaveLength(0);
+  });
+
+  it("never returns an unclaimed profile's credentials, to anybody", async () => {
+    for (const caller of [owner, stranger, unowned]) {
+      const result = await caller.client.rpc("my_credentials");
+      expectAllowed(result);
+      expect(
+        result.data!.map((row) => row.practitioner_id),
+        `${caller.label} was shown the unclaimed profile's credentials`,
+      ).not.toContain(unclaimed);
+    }
   });
 
   it("refuses anon outright", async () => {
@@ -219,11 +274,19 @@ async function seedProfile(userId: string | null, name: string): Promise<string>
   return row!.id;
 }
 
-/** Writes a catalogue entry as `postgres` and returns its id. */
+/**
+ * Writes a catalogue entry as `postgres` and returns its id. Labels are counted
+ * rather than constant: `unique (kind, platform, label)` refuses a second entry
+ * with the same three, and the second caller here would otherwise fail in
+ * `beforeAll`, which reports as every test in the file being skipped.
+ */
+let entries = 0;
 async function seedCatalogueEntry(): Promise<string> {
+  entries += 1;
   const [row] = await sql<{ id: string }>(
     `insert into public.credential_catalogue (kind, platform, label)
-     values ('course', 'Anthropic Academy', 'harness own-reads entry') returning id`,
+     values ('course', 'Anthropic Academy', $1) returning id`,
+    [`harness own-reads entry ${entries}`],
   );
   return row!.id;
 }
