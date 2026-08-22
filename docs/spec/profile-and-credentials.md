@@ -337,6 +337,8 @@ the invariant.
 
 ### No slugs, and no profile identity problem
 
+> **The gate below has been crossed, and #119 settled what was behind it.** #118 opened the public per-profile route; #119 made the identifier a `not null unique` `handle` column and removed the slug outright. The settled decision is *The identifier is `handle`* further down this file, and it is the binding one. What follows is the record of why the question was deferred rather than answered early, which is still worth reading — the deferral was correct, and the reasoning is what stopped a slug scheme being invented before anything needed one.
+
 **Decided by inspection.** `src/app/` has two routes, the home page and contact, and
 nothing in `practitioner-directory.tsx` links a card anywhere. Profiles render inline on
 the directory; there is no profile URL, so there is nothing for a slug to name and
@@ -344,6 +346,8 @@ nothing for a name change to break. #9's identity question has no subject.
 
 **Gate:** the first per-profile route. A profile page needs a stable identifier that is
 not the display name, and that decision should be made when the page is, not before.
+
+**Gate resolved in #119**, and the answer went further than "not the display name": the identifier is not derived from any other column at all. The intermediate scheme — six characters of the row's uuid, with a name slug in front of them — satisfied this gate's literal wording and still failed, because nothing enforced that two profiles could not take the same six characters. A stable identifier has to be a *unique* one, which is a promise only the schema can make.
 
 ## What the badge attests to, and why edits are not locked
 
@@ -741,7 +745,7 @@ claim, so it stays out of the attested set.
 
 **Progress belongs to the editor, and the label rule above applies to it.** "2 of 24" with the whole catalogue folded away beneath it — folded, because expanded, two dozen rows of mostly "not earned" is the discouraging reading the public page is being spared, delivered to the one person it is meant to encourage.
 
-**The editor does not trip the profile-identity gate.** That gate is on "the first per-profile route", and an editor is "my profile" keyed on `auth.uid()` with no identifier in the URL. A *public* profile page would force the slug decision; the editor does not.
+**The editor does not trip the profile-identity gate.** That gate is on "the first per-profile route", and an editor is "my profile" keyed on `auth.uid()` with no identifier in the URL. A *public* profile page would force the slug decision; the editor does not. **That page arrived in #118 and the decision was taken in #119** — there is no slug, and the identifier is the `handle` column; this paragraph is kept for why the editor was allowed to land ahead of it.
 
 **Empty is not null, and the form is the first line rather than the only one.** `""` maps to null for every optional column and to "do not submit this row" for a credential, since `catalogue_id` and `earned_at` are `not null`. Both mappings are stated at the end of the Credentials and Contact sections above; the reason they are repeated here is that the failing version type-checks, and a form that sends `''` to an `https_url` column produces a 400 naming the domain, which is not a message anyone should read.
 
