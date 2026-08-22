@@ -22,11 +22,11 @@ export function getClient(): SupabaseClient<Database> {
   if (client) return client;
 
   /* Read inside the function, never at module top level. This module is imported
-     during `next build`, and a build in CI or a preview without these set must still
-     succeed — it only has to fail if something actually tries to query. Note the two
-     names are written out in full rather than indexed dynamically: Next.js inlines
-     `NEXT_PUBLIC_*` by matching the literal text, so `process.env[name]` silently
-     yields undefined. */
+     during `next build`, and a build in CI or from a clean clone with no `.env.local`
+     must still succeed — it only has to fail if something actually tries to query.
+     Note the two names are written out in full rather than indexed dynamically:
+     Next.js inlines `NEXT_PUBLIC_*` by matching the literal text, so
+     `process.env[name]` silently yields undefined. */
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 

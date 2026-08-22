@@ -135,16 +135,11 @@ sign-in links work locally with no mail provider configured.
 `db:reset` and `db:types` both read the running stack, so `pnpm db:start` first. Note
 `pnpm dev` does not start it either.
 
-**There is one migration, and it holds no product data.** It creates the `bluehex_admin`
-role, the `public.admins` list and the `custom_access_token_hook` that stamps the role
-onto an access token — the groundwork every later policy and grant refers to. So
-`src/lib/database.types.ts` describes `admins` and that function and nothing else, the
-product schema still starts with the practitioners table, which is being designed, and
-nothing in the app queries anything yet.
+**There are six migrations.** The first creates the `bluehex_admin` role, the `public.admins` list and the `custom_access_token_hook` that stamps the role onto an access token — the groundwork every later policy and grant refers to, and the only one holding no product data. The rest are the schema itself: the profile core (`practitioners`, `practitioner_contacts`, `practitioner_review_notes`), the two Bluehex-owned catalogues, a later split of `credential_catalogue.source` into `kind` and `platform`, `practitioner_credentials`, and `practitioner_services`. `src/lib/database.types.ts` is generated from all of it.
 
-That the stack came up empty before this was the honest state rather than an oversight: a
-health-check table invented to have something to read would have to live in the migration
-history permanently to prove a point that the first real query proves for free.
+**Nothing in the app queries any of it yet.** The directory renders from a fixture module, so the schema exists and is tested — `pnpm test:db` asserts its grants, policies and guard triggers against a real stack — while the first read from a page is still ahead of us.
+
+That the stack came up empty for as long as it did was the honest state rather than an oversight: a health-check table invented to have something to read would have to live in the migration history permanently to prove a point that the first real query proves for free.
 
 Schema changes are migrations, created with
 `pnpm exec supabase migration new <name>` and committed. Changing the schema through
@@ -166,14 +161,11 @@ into CI rather than relying on the build to catch lint errors.
 
 ## Deployment
 
-Deployed on Vercel from `main`. Pushes to `main` go to production; pull requests get
-preview deployments.
+Deployed on Vercel from `main`, and **production is the only deployed environment.** Vercel's Git integration is not in use, so a pull request gets CI and nothing else — there are no preview deployments and no preview URL to check a change on. Shipping is [`vercel-deploy.yml`](./.github/workflows/vercel-deploy.yml), which builds with the Vercel CLI and deploys once `CI` is green — and `Schema` too, where a run of it exists. A documentation-only push produces no `Schema` run at all, and ships without one.
 
-The build still succeeds with no environment variables set — that is deliberate, so a
-preview build cannot break for want of a secret. It does not follow that the deployment
-works: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` must be set
-in Vercel's preview and production environments before the first query ships, or every
-database read will fail at request time. They are set as of August 2026.
+The consequence is worth stating rather than discovering: **anything that depends on the hosted database is proved for the first time in production.** There is no staging rehearsal to catch a query that works against the local stack and not against the hosted project, which is why review carries more weight here than it would somewhere with previews, and why the schema reaches the hosted project on its own deploy rather than alongside the code that reads it: that same workflow applies the migrations before it builds.
+
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are set in that production environment. The build still succeeds with neither of them — deliberate, so a build cannot break for want of a variable — but a build succeeding says nothing about whether the deployment works. Without them every database read fails, and for a statically rendered page the failure lands at build time rather than at request time, because that page's query runs on the build machine.
 
 They have to be set *before the build*, not just before the app runs. Next inlines
 `NEXT_PUBLIC_*` into the bundle as literal strings, so a built artifact ignores whatever
@@ -191,12 +183,7 @@ client carries the user's JWT, so policies resolve against the right identity. A
 server-side connection carries no per-user identity unless every request installs it,
 which is the part that goes wrong silently.
 
-So far this is plumbing only: the local stack, the client, the type generation and the
-environment wiring, with an empty database behind it. The practitioners table and its
-policies come next, and they are the part that matters. This supersedes an earlier Neon
-and Drizzle plan; the switch was made to buy authentication rather than build it. The
-rationale and the constraints to follow are in
-[`AGENTS.md`](./AGENTS.md#database--the-plumbing-and-the-contract-for-the-rest).
+The hosted project exists and production points at it. What has not happened yet is a read: no page queries the database, so a green deploy is not evidence that the wiring works, and the first feature to query it is the first thing that will actually test this. This supersedes an earlier Neon and Drizzle plan; the switch was made to buy authentication rather than build it. The rationale and the constraints to follow are in [`AGENTS.md`](./AGENTS.md#database--the-plumbing-and-the-contract-for-the-rest).
 
 ## Toolchain notes
 
