@@ -73,9 +73,14 @@ export type AdminStatus = Exclude<ProfileStatus, "withdrawn">;
 export type QueueProfile = {
   id: string;
   name: string;
-  headline: string;
-  location: string;
-  bio: string;
+  /* Nullable, because the columns are. A profile with no headline is a real
+     row — `name` and a contact are the only things `practitioners` insists on —
+     and it is one an admin should be able to see is empty rather than one the
+     mapper fills in with `""`. Judging a submission means reading what was
+     actually written, absences included. */
+  headline: string | null;
+  location: string | null;
+  bio: string | null;
   focus: string[];
   /** What they sell. Closed set, at most three — the directory's filter axis. */
   services: string[];
