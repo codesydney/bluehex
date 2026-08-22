@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  byCatalogueOrder,
   countryName,
   credentialSource,
   hasVerifiedBadge,
@@ -92,6 +93,37 @@ describe("certified", () => {
        which is the whole reason neither is stored beside the other. */
     expect(isCertified([held(developerCert, false)])).toBe(true);
     expect(hasVerifiedBadge([held(developerCert, false)])).toBe(false);
+  });
+});
+
+describe("catalogue order", () => {
+  /* `sort_order` restarts at 0 per platform, so the two groups collide on every
+     low number. These are the real colliding rows from the seed. */
+  const numbered = (kind: CatalogueEntry["kind"], label: string, sortOrder: number) => ({
+    ...entry(kind, label),
+    sortOrder,
+  });
+
+  it("keeps the Academy track together rather than interleaving the exams", () => {
+    const scrambled = [
+      numbered("certification", "Claude Certified Associate - Foundations (CCAO-F)", 0),
+      numbered("course", "Claude 101", 0),
+      numbered("certification", "Claude Certified Architect - Foundations (CCAR-F)", 1),
+      numbered("course", "Claude Code 101", 1),
+    ];
+
+    expect([...scrambled].sort(byCatalogueOrder).map((item) => item.label)).toEqual([
+      "Claude 101",
+      "Claude Code 101",
+      "Claude Certified Associate - Foundations (CCAO-F)",
+      "Claude Certified Architect - Foundations (CCAR-F)",
+    ]);
+  });
+
+  it("breaks the last tie on the label, so the order is stable rather than merely sorted", () => {
+    const tied = [numbered("course", "Beta", 4), numbered("course", "Alpha", 4)];
+
+    expect([...tied].sort(byCatalogueOrder).map((item) => item.label)).toEqual(["Alpha", "Beta"]);
   });
 });
 

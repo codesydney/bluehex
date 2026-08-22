@@ -14,11 +14,12 @@
  * than a substituted value.
  */
 
-import type {
-  CatalogueEntry,
-  Credential,
-  Profile,
-  ServiceOption,
+import {
+  byCatalogueOrder,
+  type CatalogueEntry,
+  type Credential,
+  type Profile,
+  type ServiceOption,
 } from "@/lib/practitioners";
 
 /* The row shapes as PostgREST returns them for the selects in `@/lib/directory`.
@@ -120,10 +121,10 @@ export function toCatalogueEntry(row: CatalogueRow): CatalogueEntry {
  * the profile page already applies to the unearned half, so the two halves of
  * that list cannot disagree about what order the catalogue is in.
  *
- * `sort_order` restarts at zero per platform in the seed, so `kind` breaks the
- * tie first — courses then certifications, which is the order somebody works
- * through them — and the label breaks it after that, so the list is stable
- * rather than merely sorted.
+ * `byCatalogueOrder` is the rule, and it lives beside `CatalogueEntry` rather
+ * than here because the *unearned* half of the same list is sorted by a client
+ * component that must not import server-side row handling. Two copies is how the
+ * two halves came to disagree.
  *
  * A credential whose catalogue row did not come back is dropped rather than
  * rendered without a label. `catalogue_id` is `not null` with
@@ -142,13 +143,7 @@ export function toCredentials(rows: CredentialRow[] | null): Credential[] {
       verified: row.verified,
       evidenceUrl: row.evidence_url_public,
     }))
-    .sort(
-      (left, right) =>
-        Number(left.entry.kind === "certification") -
-          Number(right.entry.kind === "certification") ||
-        left.entry.sortOrder - right.entry.sortOrder ||
-        left.entry.label.localeCompare(right.entry.label),
-    );
+    .sort((left, right) => byCatalogueOrder(left.entry, right.entry));
 }
 
 /**

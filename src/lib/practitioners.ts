@@ -81,6 +81,33 @@ export type CatalogueEntry = {
 };
 
 /**
+ * Catalogue order: courses before certifications, then `sortOrder`, then label.
+ *
+ * **`sortOrder` alone is not an order.** It restarts at 0 per platform — the
+ * seed's own note says so, and `unique (kind, platform, label)` does not
+ * constrain it — so a course and an exam collide on every low number. Sorting on
+ * it by itself leaves the collisions to whatever order the rows arrived in,
+ * which for a `select` is whatever Postgres found. The result is the Academy
+ * track interleaved with the exams and led by them, which is precisely the
+ * scrambled reading `sortOrder` exists to prevent.
+ *
+ * Courses first because that is the track somebody works through; the label
+ * breaks the last tie so the list is stable rather than merely sorted.
+ *
+ * **One copy, used by both halves of the credentials block.** The profile page
+ * draws what somebody holds and, behind the *Not earned* control, what they do
+ * not — two lists over the same catalogue, on the same screen. A second
+ * comparator is how they came to disagree.
+ */
+export function byCatalogueOrder(left: CatalogueEntry, right: CatalogueEntry) {
+  return (
+    Number(left.kind === "certification") - Number(right.kind === "certification") ||
+    left.sortOrder - right.sortOrder ||
+    left.label.localeCompare(right.label)
+  );
+}
+
+/**
  * The one line a public surface prints under a credential's label.
  *
  * It reproduces what the single `source` column used to render, from the two

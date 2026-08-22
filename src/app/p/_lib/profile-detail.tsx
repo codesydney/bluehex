@@ -35,6 +35,7 @@ import { useId, useState } from "react";
 import { CredentialMark, earnedLabel } from "@/components/credential-mark";
 import { Badge } from "@/components/ui";
 import {
+  byCatalogueOrder,
   credentialSource,
   hasVerifiedBadge,
   profilePath,
@@ -82,15 +83,17 @@ export function ProfileDetail({
      something this person has failed to do. `active` filters the picker for the
      same reason, and a retired entry they *do* hold still renders above.
 
-     Sorted here rather than trusted from the caller. `sortOrder` is the only
-     thing standing between the Academy track and a scrambled reading of it —
-     the field's own doc comment says so — and the caller that will supply this
-     list is a `select` whose row order is whatever Postgres finds unless
-     somebody remembers an `order by`. Filtering already copies the array, so
-     the sort costs nothing and mutates nothing the caller holds. */
+     Sorted here rather than trusted from the caller, because the caller is a
+     `select` whose row order is whatever Postgres finds unless somebody
+     remembers an `order by` — and `order by sort_order` is not enough on its
+     own, since that column restarts per platform. `byCatalogueOrder` is the
+     same comparator the held half above is built with, which is the point: two
+     lists over one catalogue on one screen must not disagree about what order
+     the catalogue is in. Filtering already copies the array, so the sort costs
+     nothing and mutates nothing the caller holds. */
   const unearned = catalogue
     .filter((entry) => entry.active && !holdings.has(entry.id))
-    .sort((a, b) => a.sortOrder - b.sortOrder);
+    .sort(byCatalogueOrder);
 
   /* Absolute, because the point of the button is what a practitioner pastes
      into an application. The origin lives in `site.ts` with the rest of the

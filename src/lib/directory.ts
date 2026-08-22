@@ -191,7 +191,14 @@ export const listCredentialCatalogue = cache(async (): Promise<CatalogueEntry[]>
   const { data, error } = await getClient()
     .from("credential_catalogue")
     .select(CATALOGUE_COLUMNS)
-    .order("kind")
+    /* `kind` descending, because `course` sorts after `certification`
+       alphabetically and courses are the half somebody works through first.
+       `byCatalogueOrder` is what actually decides the order on screen — both
+       halves of the credentials block sort with it — so this is here to keep the
+       network response reading the same way the page does. Do not rely on it:
+       `sort_order` restarts per platform, so an `order by` alone cannot express
+       the tie-break, which is the bug this replaced. */
+    .order("kind", { ascending: false })
     .order("sort_order");
 
   if (error) throw new Error(`Reading the credential catalogue failed: ${error.message}`);
