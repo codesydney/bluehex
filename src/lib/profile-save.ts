@@ -1,37 +1,38 @@
-import type { ProfileWrite } from "@/lib/profile-draft";
+import type { ProfileDraft } from "@/lib/profile-draft";
 
 /**
- * Submitting a profile — the other half of the seam, and the half that is not
- * built.
+ * What a save reports back, and the shape of the function that performs one.
  *
- * #71 stops here on purpose. What is missing is not a function body: it is the
- * two-request creation problem (`practitioner_contacts` is written first and
- * `practitioners.contact_id` is `not null`, so an abandoned submission leaves
- * an orphaned contact row), the policies that decide who may write which
- * column, and a Server Action to carry a session while it happens. All of that
- * is #14, and half of it built here would be built twice.
+ * **The seam #71 drew, now filled from the other side.** This file used to hold
+ * `submitProfile`, which returned a refusal saying the write was not built; the
+ * write is `saveProfileAction` in `src/app/profile/_lib/actions.ts`, and it is
+ * a Server Action rather than a plain function because it carries the
+ * practitioner's session — `auth.uid()` is what every policy behind it is
+ * written against.
  *
- * **It returns a refusal rather than pretending, and that is the design.** A
- * button that reported success would be the one lie this form cannot afford,
- * on a page whose subject is who decides what. The refusal is what the editor
- * renders, and it names the reason.
+ * The types stay here rather than moving into that module for a reason the
+ * runtime enforces: a `"use server"` file may export nothing but async
+ * functions, and `src/components/profile-editor` is a client component that
+ * needs the result type to render it. So the action travels as a prop from the
+ * page, and the contract between them lives in a module both may import.
  *
- * The signature is what #14 inherits: it takes `ProfileWrite`, which is where
- * the `"" → null` and `"" → do not submit this row` mappings have already
- * happened, and it is `async` because the real one is two round trips.
+ * `ok: false` carries a message a practitioner can act on, in Postgres's own
+ * words where Postgres refused. There is no `ok: true` message: a save that
+ * worked is reported by the form, which knows whether it was a first submission
+ * or an edit, and this type should not have an opinion about copy.
  */
-
 export type SaveResult = { ok: true } | { ok: false; message: string };
 
-const NOT_WIRED_UP =
-  "Everything here checks out, and nothing was sent. Submitting a profile is not " +
-  "switched on yet — this editor collects and validates the whole record, and the step " +
-  "that writes it to Bluehex is still being built. Nothing you type is saved.";
-
-/* eslint-disable-next-line @typescript-eslint/no-unused-vars --
-   The parameter is the signature #14 inherits, and it is deliberately named
-   rather than dropped: a seam whose shape is already agreed is the point of
-   stopping here. There is nothing yet to send it to. */
-export async function submitProfile(payload: ProfileWrite): Promise<SaveResult> {
-  return { ok: false, message: NOT_WIRED_UP };
-}
+/**
+ * `ProfileDraft` rather than `ProfileWrite`, which is the correction #125 made
+ * and is worth stating because the earlier signature reads better.
+ *
+ * Handing the writer the already-mapped payload made the browser responsible
+ * for the `"" → null` and `"" → do not submit this row` rules, and left the
+ * action with nothing it could validate: `validateDraft` is defined over the
+ * draft, and by the time `""` has become `null` the difference between "not
+ * saying" and "sent an empty name" is gone. So the draft travels, and the
+ * action validates and maps it — `toWritePayload` is the same pure function,
+ * called one hop later.
+ */
+export type SaveProfile = (draft: ProfileDraft) => Promise<SaveResult>;

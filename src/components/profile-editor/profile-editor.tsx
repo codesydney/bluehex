@@ -4,11 +4,11 @@
  * The profile editor's shell. Holds the draft the form edits and the preview
  * draws, and mocks the one database trigger the preview has to be able to show.
  *
- * **Nothing persists.** #71 builds this against fixtures and local state on
- * purpose: the write path is two requests with a `not null` foreign key between
- * them, guarded by policies written against `auth.uid()`, and it belongs to #14
- * whole rather than in halves. `profile-save.ts` is the seam, and it says so
- * rather than pretending.
+ * **It persists as of #14.** The draft is read from Postgres by the page and
+ * written back by `save`, which is the Server Action in
+ * `src/app/profile/_lib/actions.ts` — passed down rather than imported, because
+ * this is a client component and the action carries the session that every
+ * policy behind it is written against.
  *
  * `controlled` stands in for the two things a practitioner does not own —
  * `status`, and `verified` per credential — which the form shows read-only and
@@ -35,16 +35,25 @@ import {
   type BluehexControlled,
   type ProfileDraft,
 } from "@/lib/profile-draft";
+import type { SaveProfile } from "@/lib/profile-save";
 import { ProfileForm } from "./profile-form";
 
 export function ProfileEditor({
   initialDraft,
   initialControlled,
   catalogue,
+  save,
+  existing,
 }: {
   initialDraft: ProfileDraft;
   initialControlled: BluehexControlled;
   catalogue: CatalogueEntry[];
+  save: SaveProfile;
+  /** Whether there is a row behind this form yet. It changes what the buttons
+      say and what the Review step says about `status` — a profile that does not
+      exist is not waiting on Bluehex, and telling somebody it is would be the
+      form describing a queue it has not joined. */
+  existing: boolean;
 }) {
   const [draft, setDraft] = useState<ProfileDraft>(initialDraft);
   const [controlled, setControlled] = useState<BluehexControlled>(initialControlled);
@@ -54,5 +63,14 @@ export function ProfileEditor({
     setDraft(next);
   };
 
-  return <ProfileForm draft={draft} onChange={change} controlled={controlled} catalogue={catalogue} />;
+  return (
+    <ProfileForm
+      draft={draft}
+      onChange={change}
+      controlled={controlled}
+      catalogue={catalogue}
+      save={save}
+      existing={existing}
+    />
+  );
 }

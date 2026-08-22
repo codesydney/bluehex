@@ -182,6 +182,21 @@ export const services = [
 
 export type Service = (typeof services)[number];
 
+/**
+ * Whether a label is one the directory can filter on.
+ *
+ * The closed set is `services` above, which is also what
+ * `20260820201450_catalogues.sql` seeded `service_catalogue` from and what
+ * `tests/db/catalogues.test.ts` holds the two to. Asking the list rather than
+ * the table is what makes the return type the union the chips are typed
+ * against — and a row that has drifted out of it is a row no control on the
+ * editor could render, which is why both the read and the write consult this
+ * rather than each deciding for itself. See `toServices` and `planServices`.
+ */
+export function isService(label: string): label is Service {
+  return (services as readonly string[]).includes(label);
+}
+
 /** `practitioner_services_cap` enforces this on the table. Written once, so the
     form that shows the cap and the trigger that enforces it cannot drift apart. */
 export const maxServices = 3;
