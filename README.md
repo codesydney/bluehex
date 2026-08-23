@@ -85,10 +85,9 @@ pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) for the placeholder home page.
+Open [http://localhost:3000](http://localhost:3000) for the home page.
 
-The site builds and runs from a clean clone without any of the below. You only need the
-next section to work on anything that touches the database.
+The site builds and runs from a clean clone without any of the below — with no Supabase configured the directory reads as empty rather than failing, which is what lets CI build with no database at all. But an empty directory is most of the product missing, and signing in is not possible without one, so in practice everything from here on is part of the setup rather than an optional extra.
 
 ### Docker
 
@@ -122,29 +121,53 @@ the `.env.example` you just copied already matches.
 
 Two of those URLs are worth a bookmark: Studio at
 [127.0.0.1:54323](http://127.0.0.1:54323) to browse the data, and Mailpit at
-[127.0.0.1:54324](http://127.0.0.1:54324), which catches every email the stack sends so
-sign-in links work locally with no mail provider configured.
+[127.0.0.1:54324](http://127.0.0.1:54324), which catches every email the stack sends —
+which is how you sign in locally, below.
 
 | Command | Description |
 | --- | --- |
 | `pnpm db:start` | Start the local stack |
 | `pnpm db:stop` | Stop it (the data survives) |
-| `pnpm db:reset` | Drop the database and re-apply every migration from scratch |
+| `pnpm db:reset` | Drop the database, re-apply every migration from scratch, and re-run the seed |
 | `pnpm db:types` | Regenerate `src/lib/database.types.ts` after a schema change |
 
-`db:reset` and `db:types` both read the running stack, so `pnpm db:start` first. Note
-`pnpm dev` does not start it either.
+`db:reset` and `db:types` both read the running stack, so `pnpm db:start` first. Note `pnpm dev` does not start it either.
 
-**There are six migrations.** The first creates the `bluehex_admin` role, the `public.admins` list and the `custom_access_token_hook` that stamps the role onto an access token — the groundwork every later policy and grant refers to, and the only one holding no product data. The rest are the schema itself: the profile core (`practitioners`, `practitioner_contacts`, `practitioner_review_notes`), the two Bluehex-owned catalogues, a later split of `credential_catalogue.source` into `kind` and `platform`, `practitioner_credentials`, and `practitioner_services`. `src/lib/database.types.ts` is generated from all of it.
+`db:start` against a stack that is already up is a no-op, so it will not pick up a seed or a migration that arrived with the branch you just pulled. `pnpm db:reset` is what does that.
 
-**Nothing in the app queries any of it yet.** The directory renders from a fixture module, so the schema exists and is tested — `pnpm test:db` asserts its grants, policies and guard triggers against a real stack — while the first read from a page is still ahead of us.
-
-That the stack came up empty for as long as it did was the honest state rather than an oversight: a health-check table invented to have something to read would have to live in the migration history permanently to prove a point that the first real query proves for free.
+The schema is the migrations in [`supabase/migrations/`](./supabase/migrations) — the `bluehex_admin` role and the access token hook first, then the profile core, the two Bluehex-owned catalogues, credentials, services and the public `handle`. `src/lib/database.types.ts` is generated from all of it, and [`AGENTS.md`](./AGENTS.md#database--the-plumbing-and-the-contract-for-the-rest) says what each one carries and why.
 
 Schema changes are migrations, created with
 `pnpm exec supabase migration new <name>` and committed. Changing the schema through
 Studio leaves no diff and no history, so the next person's `pnpm db:reset` silently
 undoes it. Run `pnpm db:types` afterwards so the generated types keep up.
+
+### The seed
+
+`supabase/seed.sql` runs at the end of every `pnpm db:reset` — and on the `supabase start` in CI's `Schema` workflow — and never against the hosted project. That last clause is what makes it safe to keep two quite different things in one file:
+
+- **The credential catalogue.** The 24 real Claude credentials, which `20260820201450_catalogues.sql` deliberately creates the table empty of, because a wrong label in migration history is permanent. [`supabase/seed/credential-catalogue.json`](./supabase/seed/credential-catalogue.json) is the canonical record and `seed.sql` is one loader for it; [`supabase/seed/README.md`](./supabase/seed/README.md) explains why, and a drift test fails if the two disagree.
+- **An invented population.** Eight practitioners with their credentials and services, six unclaimed and two owned, plus three accounts. Fixtures, not reference data — this is the one place invented people are allowed, and the reason is the same clause: it never reaches the hosted project.
+
+So a reset leaves you a directory with something in it rather than an empty page, `/p/seed0001` … `/p/seed0008` reaching the eight profiles by a handle that does not change from one reset to the next, and an account you can actually sign in as.
+
+**An edit to the seed reaches you through a reset and by no other route.** The loader is additive — `on conflict do nothing` throughout — so re-running it by hand inserts what is missing and keeps the stale copy of anything that changed. That is deliberate rather than a rough edge; the reasoning is in the header of `seed.sql`.
+
+### Signing in
+
+Magic link only. There is no password in the product, which means there is none to type here and none committed to the repository.
+
+Start `pnpm dev`, go to [/sign-in](http://localhost:3000/sign-in), enter one of the seeded addresses, then open [Mailpit](http://127.0.0.1:54324) and follow the link in the message that just arrived. No mail provider is configured or needed — Mailpit catches everything the stack sends.
+
+| Address | What it signs you in as |
+| --- | --- |
+| `admin@bluehex.example.invalid` | An admin: the review queue at `/admin` |
+| `mara.ellison@example.invalid` | A practitioner whose profile is approved — `/profile` over a finished one |
+| `ines.okonkwo@example.invalid` | A practitioner still `pending` — `/profile` over one in review |
+
+If no mail arrives at all right after a `pnpm db:reset`, the sign-in request is 502ing on a stale container address rather than failing on anything you typed — see [Tests](#tests) for the one-line fix.
+
+Any other address works too; `signInWithOtp` creates the account on first use. It just owns no profile, which is its own useful state to look at. What it will not be is an admin: that is the `bluehex_admin` role stamped onto the access token by the hook, so adding a row to `public.admins` takes effect on the next token refresh rather than immediately.
 
 ## Scripts
 
@@ -154,10 +177,29 @@ undoes it. Run `pnpm db:types` afterwards so the generated types keep up.
 | `pnpm build` | Production build, including the TypeScript type-check |
 | `pnpm start` | Serve the production build |
 | `pnpm lint` | ESLint (flat config, `eslint-config-next`) |
-| `pnpm test:e2e` | Build, serve, and test the production app in desktop and mobile Chromium |
 
-`next build` no longer runs ESLint, so `pnpm lint` is a separate step — worth wiring
-into CI rather than relying on the build to catch lint errors.
+`next build` no longer runs ESLint, so `pnpm lint` is a separate step — run it yourself
+alongside the tests rather than expecting the build to catch a lint error.
+
+## Tests
+
+| Command | Description |
+| --- | --- |
+| `pnpm test` | Vitest over `src/` — unit tests, no Docker. This is the check that gates every merge |
+| `pnpm test:watch` | The same project, watching |
+| `pnpm test:db` | Vitest over `tests/db/` — the schema's grants, policies and guard triggers, against the running local stack |
+| `pnpm test:e2e` | Playwright: builds, serves on port 3100, and drives desktop and mobile Chromium |
+
+**`pnpm test:db` uses the same database `pnpm dev` does.** There is no second stack keeping it away from yours, and it is not a read-only suite: it signs accounts up and deletes them again, writes fixture profiles and credentials, and revokes a column grant to prove the trigger still refuses the write without it before granting it back. A clean run puts all of that back. A run you interrupt, or one that fails partway through a file, does not — and what it leaves behind is a stray profile in your directory or a privilege your next query is missing, neither of which announces itself as a leftover.
+
+**So expect to reset often.** `pnpm db:reset` after a db run that did not finish cleanly, after pulling a branch that touches `supabase/migrations/` or `supabase/seed.sql`, and any time the directory in front of you stops matching what the seed says should be there. It takes seconds and it is the only way back to a known state.
+
+Two things that will otherwise send you debugging the wrong file:
+
+- **When the stack is not answering, the suite reports `skipped` rather than failed.** The fixtures cannot be built, so the files that need them never run and the summary line stays green-ish. Read the exit code, not the summary.
+- **Kong caches a stale container address across a reset.** `pnpm db:reset` brings the auth container back on a new Docker IP while `supabase_kong_bluehex` keeps routing to the old one, so every sign-up 502s — and, per the point above, the suite goes quiet instead of red. `docker restart supabase_kong_bluehex` fixes it; the rest of the stack can stay up.
+
+`pnpm test` and `pnpm lint` need none of this. The database suite is deliberately not part of the merge check, which is why a stopped Docker daemon cannot fail the run that gates a pull request; CI runs it in a `Schema` workflow of its own.
 
 ## Deployment
 
@@ -183,7 +225,7 @@ client carries the user's JWT, so policies resolve against the right identity. A
 server-side connection carries no per-user identity unless every request installs it,
 which is the part that goes wrong silently.
 
-The hosted project exists and production points at it. What has not happened yet is a read: no page queries the database, so a green deploy is not evidence that the wiring works, and the first feature to query it is the first thing that will actually test this. This supersedes an earlier Neon and Drizzle plan; the switch was made to buy authentication rather than build it. The rationale and the constraints to follow are in [`AGENTS.md`](./AGENTS.md#database--the-plumbing-and-the-contract-for-the-rest).
+The hosted project exists and production points at it. The site reads from it — the directory, one profile, the enquiry form's subject — and writes to it, through sign-in and the profile editor. This supersedes an earlier Neon and Drizzle plan; the switch was made to buy authentication rather than build it. The rationale and the constraints to follow are in [`AGENTS.md`](./AGENTS.md#database--the-plumbing-and-the-contract-for-the-rest).
 
 ## Toolchain notes
 
