@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Mirrors pnpm-workspace.yaml's minimumReleaseAge: 10080 (7 days) so Dependabot
+    # never proposes a version pnpm's own install-time floor would refuse.
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # typescript is pinned to ^6.0.3 in package.json — typescript-eslint 8.67.0
+      # throws on TS 7. See AGENTS.md#toolchain-pins.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # eslint is pinned to ^9 in package.json — eslint-plugin-react 7.37.5 calls
+      # an API ESLint 10 removed. See AGENTS.md#toolchain-pins.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+
+# GitHub Actions workflow updates are deferred to a follow-up ticket per
+# https://github.com/codesydney/bluehex/issues/12#issuecomment-5379229542.
