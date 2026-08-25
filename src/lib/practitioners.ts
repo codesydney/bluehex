@@ -369,6 +369,33 @@ export function isCertified(credentials: Credential[]) {
    `@/lib/profile-draft`. */
 
 /**
+ * The three portfolio links, in the order a surface draws them.
+ *
+ * **`bookingUrl` is not one of these**, which is why it is absent from the
+ * parameter type rather than filtered out inside. These three are routes to
+ * somebody's work and read as ordinary links; a booking URL is a route to their
+ * calendar and reads as a button. Keeping the two apart in the type is what
+ * stops the two rows collapsing into one.
+ *
+ * An absent field is dropped rather than carried with an empty `href`: a link
+ * labelled `Website` that goes nowhere is worse than no link.
+ *
+ * A `Pick` rather than the whole `Profile`, following `profilePath` below.
+ * Nothing here has any business reading the rest of a profile.
+ */
+export function portfolioLinks(
+  person: Pick<Profile, "websiteUrl" | "githubUrl" | "linkedinUrl">,
+) {
+  /* The `https://` shape is the database's — all three columns are the
+     `public.https_url` domain — so nothing here re-checks it. */
+  const links: { label: string; url: string }[] = [];
+  if (person.websiteUrl) links.push({ label: "Website", url: person.websiteUrl });
+  if (person.githubUrl) links.push({ label: "GitHub", url: person.githubUrl });
+  if (person.linkedinUrl) links.push({ label: "LinkedIn", url: person.linkedinUrl });
+  return links;
+}
+
+/**
  * Where a profile lives: `/p/<handle>`, and nothing else.
  *
  * **The slug is gone** (#119). It used to lead — `/p/mara-ellison-9f3c1a` — with

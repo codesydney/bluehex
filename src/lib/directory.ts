@@ -54,11 +54,11 @@ import { getClient } from "@/lib/supabase/anon";
 import { supabaseEnvOrNull } from "@/lib/supabase/env";
 import { toCatalogueEntry, toProfile, toServiceOptions } from "@/lib/directory-mapping";
 
-/* The `anon` grant on `practitioners`, in full. `availability` and the four
-   links are read and carried into the model; only `bookingUrl` is drawn today,
-   and drawing the rest is #84 and #85. Reading a column the page does not render
-   costs one field in a payload and keeps the model and the grant the same list;
-   naming a subset would make the next person diff two lists to find out why. */
+/* The `anon` grant on `practitioners`, in full. All four links are drawn on the
+   profile page; `availability` is the one column here that no public surface
+   draws yet. Reading a column the page does not render costs one field in a
+   payload and keeps the model and the grant the same list; naming a subset would
+   make the next person diff two lists to find out why. */
 const PROFILE_COLUMNS =
   "id,handle,name,headline,location,country_code,bio,focus,availability,website_url,github_url,linkedin_url,booking_url" as const;
 
