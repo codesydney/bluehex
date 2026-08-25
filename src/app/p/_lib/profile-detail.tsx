@@ -21,11 +21,9 @@
  * progress against the whole catalogue belongs, because there the reader is the
  * practitioner looking at their own record.
  *
- * **`services`, `availability` and the four published links are in the model
- * and are not drawn here yet.** The links have been unrendered since the
- * columns landed; `services` and `availability` join them with this change.
- * All six are in the `anon` grant, so this page is where they belong — it is
- * the only surface a visitor reads before deciding to enquire, and
+ * **`services` and `availability` are in the model and are not drawn here
+ * yet.** Both are in the `anon` grant, so this page is where they belong — it
+ * is the only surface a visitor reads before deciding to enquire, and
  * `availability` in particular is read exactly once, right there. Drawing them
  * is a design decision rather than a mechanical follow-on, which is why it is
  * flagged rather than guessed at.
@@ -38,6 +36,7 @@ import {
   byCatalogueOrder,
   credentialSource,
   hasVerifiedBadge,
+  portfolioLinks,
   profilePath,
   type CatalogueEntry,
   type Profile,
@@ -74,6 +73,7 @@ export function ProfileDetail({
   catalogue?: CatalogueEntry[];
 }) {
   const badged = hasVerifiedBadge(person.credentials);
+  const links = portfolioLinks(person);
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<View>("earned");
   const viewLabelId = useId();
@@ -287,6 +287,30 @@ export function ProfileDetail({
         <div className="mt-8 flex flex-wrap gap-2 border-t border-stroke pt-7">
           {person.focus.map((item) => (
             <Badge key={item}>{item}</Badge>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Below the credentials, and outside that block. The badge is what the
+          page is read for, so a row of exits above it would invite a visitor to
+          leave before reaching the part Bluehex checked; putting them inside it
+          would instead suggest these were checked too, and nothing here is
+          attested.
+
+          Plain links rather than an icon-and-label affordance: that piece is
+          #133's. */}
+      {links.length > 0 ? (
+        <div className="mt-8 flex flex-wrap gap-4 border-t border-stroke pt-7">
+          {links.map((link) => (
+            <a
+              key={link.label}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm underline underline-offset-4"
+            >
+              {link.label}
+            </a>
           ))}
         </div>
       ) : null}

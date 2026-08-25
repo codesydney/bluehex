@@ -6,6 +6,7 @@ import {
   hasVerifiedBadge,
   isCertified,
   isProfileHandle,
+  portfolioLinks,
   profilePath,
   services,
   vocabularyServices,
@@ -142,6 +143,55 @@ describe("the built-in service vocabulary", () => {
        array with the index as `sort_order`, so the two orders are one order. */
     expect(vocabularyServices.map((option) => option.label)).toEqual([...services]);
     expect(vocabularyServices.map((option) => option.sortOrder)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+});
+
+describe("the portfolio links", () => {
+  it("carries nothing for a profile that published none — Devon", () => {
+    /* An empty list rather than three entries with null hrefs, so the caller's
+       only decision is whether to draw a section at all. A profile with no links
+       is an ordinary profile, the same way one with no credentials is. */
+    expect(portfolioLinks({ websiteUrl: null, githubUrl: null, linkedinUrl: null })).toEqual([]);
+  });
+
+  it("drops an absent field rather than labelling an empty address — Mara", () => {
+    expect(
+      portfolioLinks({
+        websiteUrl: "https://example.invalid/mara",
+        githubUrl: "https://github.example.invalid/mara-ellison",
+        linkedinUrl: null,
+      }),
+    ).toEqual([
+      { label: "Website", url: "https://example.invalid/mara" },
+      { label: "GitHub", url: "https://github.example.invalid/mara-ellison" },
+    ]);
+  });
+
+  it("carries a field set on its own, wherever it sits in the order — Toby", () => {
+    /* The last of the three and the only one Toby published. A list built by
+       position rather than by presence would leave two holes in front of it. */
+    expect(
+      portfolioLinks({
+        websiteUrl: null,
+        githubUrl: null,
+        linkedinUrl: "https://www.linkedin.example.invalid/in/toby-nakamura",
+      }),
+    ).toEqual([
+      { label: "LinkedIn", url: "https://www.linkedin.example.invalid/in/toby-nakamura" },
+    ]);
+  });
+
+  it("puts Website first and LinkedIn last, whatever a row holds", () => {
+    /* Website, GitHub, LinkedIn — the order they sit in on `Profile` and the
+       order they are drawn in. No approved profile in the seed holds all three,
+       so this is the case a reader cannot check by opening the page. */
+    expect(
+      portfolioLinks({
+        websiteUrl: "https://example.invalid/w",
+        githubUrl: "https://example.invalid/g",
+        linkedinUrl: "https://example.invalid/l",
+      }).map((link) => link.label),
+    ).toEqual(["Website", "GitHub", "LinkedIn"]);
   });
 });
 

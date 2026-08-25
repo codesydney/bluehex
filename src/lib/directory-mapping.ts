@@ -186,8 +186,8 @@ export function toServiceLabels(rows: ServiceRow[] | null): string[] {
  * rule somebody has to remember.
  *
  * `availability` and the four link columns *do* land here. They are in the
- * `anon` grant and in the model; only `bookingUrl` is drawn today, and drawing
- * the rest is #84 and #85 rather than an oversight.
+ * `anon` grant and in the model; all four links are drawn on the profile page,
+ * and `availability` is read without being rendered rather than by oversight.
  */
 export function toProfile(row: ProfileRow): Profile {
   return {
