@@ -72,17 +72,27 @@
  * is what produces the next truth. The view state — filter, order, where you
  * are in the list — is local and is deliberately *not* reset by that
  * revalidation: where an admin is in the queue is theirs, not the server's.
+ *
+ * **`lookupAccountAction` is deliberately not a member of that object.**
+ * `QueueActions` is commands: every member returns `void | Promise<void>`, which
+ * is what lets the implementation behind it be swapped without touching anything
+ * below. A question that comes back with an answer would widen that shape for
+ * one caller, so the panel calls the action itself and keeps the answer in its
+ * own state.
  */
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import {
   assignOwnerAction,
+  lookupAccountAction,
   setNoteAction,
   setStatusAction,
   setVerifiedAction,
+  type AccountLookup,
   type ActionOutcome,
 } from "./_lib/actions";
 import {
+  answerForField,
   badgeShows,
   checkable,
   countByFilter,
@@ -92,6 +102,7 @@ import {
   queueFilters,
   queueOrders,
   unchecked,
+  type LookupAnswer,
   type QueueActions,
   type QueueCredential,
   type QueueFilter,
@@ -329,6 +340,13 @@ function ProfilePanel({
      explanation of what it wants. */
   const [needsReason, setNeedsReason] = useState(false);
   const [accountId, setAccountId] = useState("");
+  /* The last answer `Look up` produced, paired with the id it was asked about.
+     Never rendered directly: `answerForField` is what decides whether it still
+     describes the field, and clearing this on a keystroke would not be the same
+     thing — the request already in flight lands afterwards and would repaint a
+     stale address under a changed id. */
+  const [lookup, setLookup] = useState<LookupAnswer<AccountLookup> | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
   const noteField = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -356,6 +374,43 @@ function ProfilePanel({
     setNeedsReason(false);
     actions.setStatus(profile.id, "rejected", reason);
   };
+
+  /**
+   * Resolve the pasted id to an address.
+   *
+   * Its own pending flag and its own result rather than the panel's `run`: this
+   * writes nothing, so it does not belong in a banner that reports writes, and
+   * the answer has to appear beside the field it is about rather than at the top
+   * of the page.
+   *
+   * **The id asked about is captured here and travels with the answer**, so that
+   * an answer arriving after the field has changed can be recognised as no
+   * longer describing it. See `answerForField`.
+   *
+   * The `??` covers an action whose guard redirected an expired session, which
+   * resolves with nothing while the router navigates away. The `catch` covers
+   * everything that stopped it reaching its own return.
+   */
+  const lookUp = () => {
+    const askedFor = accountId.trim();
+    setLookingUp(true);
+    lookupAccountAction(askedFor)
+      .then((answer) => setLookup(answer ? { askedFor, answer } : null))
+      .catch((error: unknown) =>
+        setLookup({
+          askedFor,
+          answer: {
+            ok: false,
+            message: error instanceof Error ? error.message : "The lookup did not go through.",
+          },
+        }),
+      )
+      .finally(() => setLookingUp(false));
+  };
+
+  /* Null whenever the field no longer holds the id this answer is about, which
+     covers both a keystroke and a reply that lost the race with one. */
+  const answer = answerForField(lookup, accountId);
 
   return (
     <article className="max-w-3xl">
@@ -504,13 +559,15 @@ function ProfilePanel({
 
         {!profile.owner ? (
           <div className="mt-5">
-            {/* The account is named by id, which is a gap rather than a
-                design: the rule is that a claim matches the claimer's verified
-                address against the contact address above, and nothing
-                reachable from PostgREST resolves an address to an account —
-                `auth` is not an exposed schema. So the match is a human check
-                and the id is pasted, which is at least the same manual
-                judgement the badge itself rests on. */}
+            {/* The field takes an id and not an address, because nothing
+                resolves an address to an account: `auth` is not an exposed
+                schema. `Look up` goes the other way, through
+                `account_emails()`, which only `bluehex_admin` may execute.
+
+                What is deliberately absent is a verdict. Both addresses are on
+                the panel and neither this component nor anything behind it says
+                whether they match, because the spec makes that comparison a
+                human check rather than a mechanism. */}
             <label htmlFor="assign-owner" className="text-xs text-t-faint uppercase">
               Account id
             </label>
@@ -524,20 +581,60 @@ function ProfilePanel({
                 className="h-9 w-full max-w-sm rounded-tight border border-stroke bg-surface px-3.5 font-mono text-sm outline-ink outline-offset-2 focus:outline-2"
               />
               <Action
-                onClick={() => actions.assignOwner(profile.id, accountId)}
+                onClick={lookUp}
                 disabled={pending || accountId.trim() === ""}
+                busy={lookingUp}
+                quiet
+              >
+                {lookingUp ? "Looking up…" : "Look up"}
+              </Action>
+              {/* Disabled while a lookup is in flight, keeping the rule the rest
+                  of this screen follows: one operation at a time. Here it also
+                  stops an assignment being made in the middle of the check the
+                  reviewer has just asked for, while no answer is on screen. */}
+              <Action
+                onClick={() => actions.assignOwner(profile.id, accountId)}
+                disabled={pending || lookingUp || accountId.trim() === ""}
                 quiet
               >
                 Assign owner
               </Action>
             </div>
+
+            {/* The address, and no verdict about it. Putting "these match" here
+                would be the mechanism the spec refuses: the comparison is the
+                control, and a control the screen performs is not a human check
+                any more. */}
+            {answer ? (
+              <p className="mt-3 max-w-prose text-sm">
+                {!answer.ok ? (
+                  <span className="text-t-muted">{answer.message}</span>
+                ) : answer.email ? (
+                  <>
+                    That account&rsquo;s address is{" "}
+                    <strong className="font-mono font-medium text-t-bright">
+                      {answer.email}
+                    </strong>
+                    .
+                  </>
+                ) : (
+                  <span className="text-t-muted">
+                    Nothing came back for that id, so there is no address to compare.
+                  </span>
+                )}
+              </p>
+            ) : null}
+
             <p className="mt-2 max-w-prose text-sm text-t-muted">
-              Check the account&rsquo;s verified address is {profile.contactEmail} first —
-              that address is the lock on an unclaimed profile, and nothing here checks it
-              for you, because nothing reachable from here resolves an id to an address.
-              Hands over a profile that may already carry the badge and clears every check
-              on it. A profile never changes owners twice, so getting it wrong is repaired
-              by unassigning below rather than by assigning again.
+              Look the id up first and read the address that comes back against{" "}
+              {profile.contactEmail}, which is what the profile was written up from and the
+              lock on an unclaimed one. Nothing here compares the two for you: the override
+              is where social engineering comes back, so the judgement stays a
+              person&rsquo;s. Assigning hands over a profile that may already carry the badge
+              and clears every check on it. A profile never changes owners twice, so getting
+              it wrong is repaired by unassigning below rather than by assigning again.
+              Unassigning also withdraws the profile, so putting a mistake right means
+              assigning again, publishing again, and re-checking every credential.
             </p>
           </div>
         ) : (
@@ -836,10 +933,12 @@ function CredentialRow({
 
              The name is missing when the row records no account — an admin
              whose account was deleted, or a privileged path with no
-             `auth.uid()` to write. The sentence drops the clause rather than
-             printing an empty one: the day is still known, and "Checked by  on
-             …" would read as a rendering fault rather than as a fact about the
-             row. */
+             `auth.uid()` to write. An id that is recorded and did not resolve
+             is a different fact and arrives as "another Bluehex admin", so this
+             clause is only ever about a check with nobody against it. The
+             sentence drops the clause rather than printing an empty one: the
+             day is still known, and "Checked by  on …" would read as a
+             rendering fault rather than as a fact about the row. */
           <p className="mt-2 text-sm">
             {credential.verifiedBy
               ? `Checked by ${credential.verifiedBy} on ${credential.verifiedAt?.slice(0, 10)}.`
@@ -976,17 +1075,24 @@ function Action({
   onClick,
   quiet,
   disabled,
+  busy,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   quiet?: boolean;
+  /** `busy` implies this, and is the narrower reason. */
   disabled?: boolean;
+  /** Disabled *because something is in flight*, which a screen reader is told
+      rather than left to infer from a control that stopped responding. Matches
+      the save button in `@/components/profile-editor/profile-form`. */
+  busy?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled || busy}
+      aria-busy={busy || undefined}
       className={`inline-flex h-9 w-fit items-center rounded-full px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         quiet
           ? "border border-stroke-strong bg-surface hover:bg-ink hover:text-t-invert"

@@ -51,13 +51,15 @@ export type QueueCredential = {
   verifiedAt: string | null;
   /**
    * The column is `verified_by uuid`. It is a display name here because the
-   * badge means a *named human* looked on a given day, and a uuid names nobody
-   * — the query resolves it, in `queue-mapping.ts`.
+   * badge means a *named human* looked on a given day, and a uuid names nobody:
+   * `queue-read.ts` resolves the ids through `account_emails()`, and
+   * `queue-mapping.ts` decides what to print when one of them does not resolve.
    *
    * Null is a real answer rather than an absent one, and means the check stands
    * with no name against it: `verified_by` is `on delete set null`, so an admin
    * whose account is gone leaves one, and so does any privileged path that had
-   * no `auth.uid()` to record.
+   * no `auth.uid()` to record. An id that is recorded and did not resolve is a
+   * different fact, and reads as `another Bluehex admin` rather than as null.
    */
   verifiedBy: string | null;
 };
@@ -327,6 +329,37 @@ export function partitionQueue(
       order,
     ),
   };
+}
+
+/**
+ * An answer the assignment panel asked for, and the field value it answers
+ * about.
+ *
+ * The pairing is the whole type. An account lookup is asked about whatever is
+ * in the field at the moment the button is pressed, and the answer arrives
+ * later, by which time the field may hold something else.
+ */
+export type LookupAnswer<Answer> = { askedFor: string; answer: Answer };
+
+/**
+ * The answer to put on screen beside a field, or null when there is none to
+ * show.
+ *
+ * **An address beside an id it does not describe is worse than no address**, so
+ * an answer is shown only while the field still holds what it was asked about.
+ * A stale one does not look stale: it reads as the answer to the question just
+ * asked, and the assignment beside it is made on that reading.
+ *
+ * Trimmed on both sides because the action trims before it asks, so an answer
+ * about `" abc "` is an answer about `"abc"` and the field agreeing but for
+ * whitespace is the field agreeing.
+ */
+export function answerForField<Answer>(
+  held: LookupAnswer<Answer> | null,
+  field: string,
+): Answer | null {
+  if (!held) return null;
+  return held.askedFor === field.trim() ? held.answer : null;
 }
 
 /**

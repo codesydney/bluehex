@@ -74,33 +74,53 @@ export type QueueProfileRow = {
 };
 
 /**
- * Who is reading the queue, for the one field that needs to know.
+ * The distinct account ids a page of the queue will name, for `./queue-read` to
+ * resolve into addresses.
  *
- * `label` is what the reviewer is called on screen — their email, or their id
- * when the token carries no address.
+ * **Only the ids the screen will print.** The name is drawn inside the block
+ * `../review-queue` gates on `credential.verified`, and an unchecked row can
+ * still carry `verified_by`: `credentials_guard` clears the provenance on the
+ * transition out of checked, which a row written false to begin with never
+ * makes. Both conditions, or this asks for addresses nobody sees.
+ *
+ * De-duplicated because one admin checking six credentials is the ordinary
+ * case. That is an economy rather than a requirement — `account_emails()`
+ * answers a repeated id once either way — and so is the empty result, which
+ * saves a round trip rather than avoiding a call that would have failed.
  */
-export type QueueViewer = { id: string; label: string };
+export function reviewerIds(rows: QueueProfileRow[]): string[] {
+  const ids = new Set<string>();
+
+  for (const row of rows) {
+    for (const credential of row.practitioner_credentials ?? []) {
+      if (credential.verified && credential.verified_by) ids.add(credential.verified_by);
+    }
+  }
+
+  return [...ids];
+}
 
 /**
- * A `verified_by` uuid as something a human can read.
+ * A `verified_by` uuid as something a human can read. `names` is the lookup
+ * `./queue-read` has already made; this only decides what to print.
  *
- * **The badge means a named human looked, and this is the closest the admin
- * screen can currently get to naming them.** Nothing reachable from PostgREST
- * turns a uuid into a person: `auth` is not an exposed schema, and
- * `public.admins` deliberately carries no grant to `bluehex_admin` at all, so
- * an admin cannot even read the list they are on. Resolving the name properly
- * wants a `security definer` function or a column on `admins` — a migration,
- * and therefore not this ticket's to write. Recorded on the pull request.
+ * **Three answers, and the last two must not be folded together.** A name is a
+ * resolved address. `another Bluehex admin` means an account is recorded and did
+ * not resolve, which `auth.users.email` being nullable makes reachable. Null
+ * means the row records nobody at all, which `verified_by` being `on delete set
+ * null` makes reachable separately.
  *
- * So: your own check is yours by name, somebody else's is attributed but not
- * named, and a row recording nobody says so rather than printing `null` at a
- * reviewer. The third is reachable today — `verified_by` is `on delete set
- * null`, and every seeded verified row has it null because no account existed
- * to write.
+ * The tempting simplification is `?? null`, and it would tell a reviewer an
+ * attestation was anonymous when somebody is in fact recorded against it. On the
+ * one screen whose subject is who vouched for what, that is the wrong direction
+ * to lose information in.
  */
-function reviewerName(verifiedBy: string | null, viewer: QueueViewer): string | null {
+function reviewerName(
+  verifiedBy: string | null,
+  names: ReadonlyMap<string, string>,
+): string | null {
   if (!verifiedBy) return null;
-  return verifiedBy === viewer.id ? viewer.label : "another Bluehex admin";
+  return names.get(verifiedBy) ?? "another Bluehex admin";
 }
 
 function toCatalogueEntry(row: QueueCatalogueRow): CatalogueEntry {
@@ -133,7 +153,7 @@ function toCatalogueEntry(row: QueueCatalogueRow): CatalogueEntry {
  */
 function toCredentials(
   rows: QueueCredentialRow[] | null,
-  viewer: QueueViewer,
+  names: ReadonlyMap<string, string>,
 ): QueueCredential[] {
   return (rows ?? [])
     .filter(
@@ -162,7 +182,7 @@ function toCredentials(
       evidencePublic: row.evidence_public,
       verified: row.verified,
       verifiedAt: row.verified_at,
-      verifiedBy: reviewerName(row.verified_by, viewer),
+      verifiedBy: reviewerName(row.verified_by, names),
     }));
 }
 
@@ -217,13 +237,16 @@ function lastVerifiedAt(credentials: QueueCredential[]): string | null {
  * `grant select on practitioners to anon` can publish it. See
  * `docs/adr/0002-links-are-published-addresses-are-not.md`.
  *
- * `owner` is `user_id` — an account id rather than a name, because there is
- * nothing to resolve it against (see `reviewerName`). The screen only asks
- * whether it is null, which is what tells an unclaimed profile from a claimed
- * one.
+ * `owner` is `user_id`, an account id rather than a name, and stays one because
+ * the screen asks only whether it is null: that is what tells an unclaimed
+ * profile from a claimed one. `account_emails()` would resolve it, and resolving
+ * it would buy a round trip for a value nothing renders.
  */
-export function toQueueProfile(row: QueueProfileRow, viewer: QueueViewer): QueueProfile {
-  const credentials = toCredentials(row.practitioner_credentials, viewer);
+export function toQueueProfile(
+  row: QueueProfileRow,
+  names: ReadonlyMap<string, string>,
+): QueueProfile {
+  const credentials = toCredentials(row.practitioner_credentials, names);
 
   return {
     id: row.id,

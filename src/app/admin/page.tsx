@@ -36,15 +36,15 @@ export const metadata: Metadata = {
  * above reads cookies, so the render is already request-bound and there is
  * nothing for it to add.
  *
- * `viewer` is handed to the query as well as to the screen, because one field
- * needs to know who is asking — a credential checked by the reader is theirs by
- * name, and one checked by anybody else cannot be named at all. See
- * `reviewerName` in `./_lib/queue-mapping`.
+ * `viewer` is for the screen and not for the query. Who is reading changes
+ * nothing about what the queue says: a credential names the admin who checked
+ * it whoever is looking, so `readQueue` takes no argument and there is no
+ * per-reader view of a row to keep straight.
  */
 export default async function AdminPage() {
   const viewer = await requireAdmin("/admin");
   const reviewer = viewer.email ?? viewer.id;
-  const queue = await readQueue({ id: viewer.id, label: reviewer });
+  const queue = await readQueue();
 
   return (
     <>
