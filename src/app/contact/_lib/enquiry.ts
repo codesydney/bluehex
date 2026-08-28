@@ -35,6 +35,15 @@ export const emailjs = {
 
 const clean = (value: string) => value.trim();
 
+/* Values folded into the block above the visitor's message are the part Bluehex
+   wrote, so a newline in one lets its author forge a line there. `about` is a
+   practitioner's display name and is free text all the way down —
+   `practitioners.name` is a bare `name text not null` and `profile-validation`
+   only rejects it when it trims to empty — so collapse its interior whitespace
+   rather than only trimming the ends. The visitor's own `message` needs no such
+   treatment: it sits below the blank line, where their words are expected. */
+const oneLine = (value: string) => value.replace(/\s+/gu, " ").trim();
+
 /**
  * The four variables the shared template renders. It is Code.Sydney's template
  * and this repository cannot change it, so anything it has no variable for has
@@ -46,7 +55,7 @@ const clean = (value: string) => value.trim();
  * is the whole point of the directory's Enquire button.
  */
 export function toTemplateParams(enquiry: Enquiry): Record<string, string> {
-  const about = enquiry.about ? clean(enquiry.about) : "";
+  const about = enquiry.about ? oneLine(enquiry.about) : "";
 
   const message = [
     `Sent from the ${site.name} contact form — ${site.origin}/contact`,
@@ -70,8 +79,8 @@ export function toTemplateParams(enquiry: Enquiry): Record<string, string> {
  * issue #2.
  */
 export function mailtoHref(email: string, enquiry: Enquiry): string {
-  const about = enquiry.about ? clean(enquiry.about) : "";
-  const name = clean(enquiry.name);
+  const about = enquiry.about ? oneLine(enquiry.about) : "";
+  const name = oneLine(enquiry.name);
 
   const body = [
     `Name: ${name}`,
@@ -101,24 +110,45 @@ export function mailtoHref(email: string, enquiry: Enquiry): string {
   return `mailto:${email}?${query.toString().replace(/\+/gu, "%20")}`;
 }
 
+/* `fetch` has no timeout of its own, and a connection that opens and then goes
+   silent never settles its promise. Without this the form sits disabled on
+   "Sending…" forever and the caller's failure path — the `mailto:` holding
+   everything the visitor typed — is never reached, which is the one loss this
+   whole module exists to prevent. Fifteen seconds is long enough that a slow
+   connection still succeeds and short enough that nobody concludes the site is
+   broken and closes the tab. */
+const SEND_TIMEOUT_MS = 15_000;
+
 /**
  * Hands the enquiry to EmailJS. Rejects on any non-2xx, because EmailJS answers
  * a refused send with a status and a one-line reason rather than a JSON body —
  * the reason is worth carrying into the console, but never onto the page, where
  * it would say more about the account than a visitor should see.
+ *
+ * Rejects on a stall too. The timeout lives here rather than in the caller so
+ * that no caller can forget it: a send that cannot fail is a form that cannot
+ * recover.
  */
-export async function sendEnquiry(enquiry: Enquiry, signal?: AbortSignal): Promise<void> {
-  const response = await fetch(emailjs.endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal,
-    body: JSON.stringify({
-      user_id: emailjs.publicKey,
-      service_id: emailjs.serviceId,
-      template_id: emailjs.templateId,
-      template_params: toTemplateParams(enquiry),
-    }),
-  });
+export async function sendEnquiry(enquiry: Enquiry): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(emailjs.endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        user_id: emailjs.publicKey,
+        service_id: emailjs.serviceId,
+        template_id: emailjs.templateId,
+        template_params: toTemplateParams(enquiry),
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(`EmailJS refused the send: ${response.status} ${await response.text()}`);
