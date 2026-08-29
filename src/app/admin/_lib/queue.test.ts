@@ -12,6 +12,7 @@ import {
   partitionQueue,
   sortQueue,
   unchecked,
+  answerForField,
   type CatalogueEntry,
   type QueueCredential,
   type QueueProfile,
@@ -364,3 +365,55 @@ describe("partitioning the list", () => {
   });
 });
 
+
+describe("an answer belongs to the field it was asked about", () => {
+  /* The assignment panel resolves a pasted account id to an address, and the
+     reviewer's whole job at that moment is to compare that address against the
+     contact email before handing over a profile. Getting it wrong clears every
+     credential's `verified` and takes an unassign-then-reassign to repair, so
+     what the panel may show beside the field is a correctness question rather
+     than a presentation one.
+
+     The lookup is asked about whatever is in the field when the button is
+     pressed, and the answer arrives later. Between those two moments the field
+     can change. */
+
+  it("shows the answer while the field still holds what was asked about", () => {
+    const held = { askedFor: "acct-a", answer: { ok: true, email: "a@example.invalid" } };
+
+    expect(answerForField(held, "acct-a")).toEqual({ ok: true, email: "a@example.invalid" });
+  });
+
+  it("shows nothing once the field has moved on", () => {
+    /* The failure this function exists for. Without the pairing, the answer to
+       `acct-a` renders under `acct-b`, and a reviewer reading the legible half
+       of the screen compares the right address against the wrong account. It is
+       not obviously stale: it looks exactly like the answer to the question they
+       just asked. */
+    const held = { askedFor: "acct-a", answer: { ok: true, email: "a@example.invalid" } };
+
+    expect(answerForField(held, "acct-b")).toBeNull();
+  });
+
+  it("shows nothing when nothing has been asked", () => {
+    expect(answerForField(null, "acct-a")).toBeNull();
+  });
+
+  it("counts a field that differs only in whitespace as the same question", () => {
+    /* `lookupAccountAction` trims before it asks, so an answer about `" a "` is
+       an answer about `"a"`. Treating the untrimmed field as a different
+       question would blank the answer the moment somebody's paste carried a
+       trailing space. */
+    const held = { askedFor: "acct-a", answer: { ok: true, email: "a@example.invalid" } };
+
+    expect(answerForField(held, "  acct-a  ")).toEqual({ ok: true, email: "a@example.invalid" });
+  });
+
+  it("keeps a refusal tied to its field in the same way", () => {
+    /* A refusal is an answer about an id too. Left standing after the field
+       changed, it reports a failure about an account nobody asked about. */
+    const held = { askedFor: "acct-a", answer: { ok: false, message: "That is not an account id." } };
+
+    expect(answerForField(held, "acct-b")).toBeNull();
+  });
+});

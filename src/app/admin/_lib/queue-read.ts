@@ -1,5 +1,7 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/database.types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { toQueueProfile, type QueueProfileRow, type QueueViewer } from "./queue-mapping";
+import { reviewerIds, toQueueProfile, type QueueProfileRow } from "./queue-mapping";
 import type { QueueProfile } from "./queue";
 
 /**
@@ -20,8 +22,9 @@ import type { QueueProfile } from "./queue";
  * filters on `status`, and there is no `where` clause at all: `practitioners_admin_all`
  * is `using (true)` for `bluehex_admin` and returns nothing for anybody else, so
  * a practitioner who somehow reached this code path reads their own profile
- * through `practitioners_read_own` and no more. Deleting `requireAdmin` from the
- * page would make it ugly rather than insecure — see
+ * through `practitioners_read_own` and no more, and is then refused outright by
+ * `account_emails()`, which `bluehex_admin` alone may execute. Deleting
+ * `requireAdmin` from the page would make it ugly rather than insecure — see
  * `docs/adr/0001-admins-are-a-postgres-role.md`.
  *
  * **Every column is named**, as everywhere else in this repository. `select *`
@@ -30,6 +33,10 @@ import type { QueueProfile } from "./queue";
  * list is the review screen's contract with the schema: a column that arrives
  * later is invisible here until somebody names it, which is the direction that
  * fails closed.
+ *
+ * **Two round trips, and they cannot be one.** The second call takes the
+ * `verified_by` ids the first call returned, so it cannot run beside it, and
+ * `auth.users` is unreachable from PostgREST so it cannot be an embed either.
  *
  * **No `cache` from React and no `revalidate`.** The page is request-bound
  * already — `requireAdmin` reads cookies — and a review queue is the one screen
@@ -96,7 +103,7 @@ const QUEUE_SELECT =
  * behind `requireAdmin`, which has already required a session, which has already
  * required the environment.
  */
-export async function readQueue(viewer: QueueViewer): Promise<QueueProfile[]> {
+export async function readQueue(): Promise<QueueProfile[]> {
   const supabase = await createServerSupabaseClient();
 
   const { data, error } = await supabase
@@ -106,5 +113,31 @@ export async function readQueue(viewer: QueueViewer): Promise<QueueProfile[]> {
 
   if (error) throw new Error(`Reading the review queue failed: ${error.message}`);
 
-  return data.map((row: QueueProfileRow) => toQueueProfile(row, viewer));
+  const names = await reviewerNames(supabase, data);
+
+  return data.map((row: QueueProfileRow) => toQueueProfile(row, names));
+}
+
+/**
+ * The addresses behind the `verified_by` ids on this screen, by id.
+ *
+ * Which ids those are is `reviewerIds`, next door in the pure half, where the
+ * rule can be asserted without a stack. This is the request it feeds.
+ *
+ * **It throws rather than degrading to an empty map.** Every check would read
+ * `another Bluehex admin`, a sentence the screen already draws, so a lost grant
+ * or a dropped function would look exactly like a queue nobody had checked yet.
+ */
+async function reviewerNames(
+  supabase: SupabaseClient<Database>,
+  rows: QueueProfileRow[],
+): Promise<ReadonlyMap<string, string>> {
+  const ids = reviewerIds(rows);
+
+  if (ids.length === 0) return new Map();
+
+  const { data, error } = await supabase.rpc("account_emails", { ids });
+  if (error) throw new Error(`Resolving reviewer names failed: ${error.message}`);
+
+  return new Map(data.map((row) => [row.id, row.email]));
 }

@@ -6,7 +6,8 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { AdminStatus } from "./queue";
 
 /**
- * The review queue's four writes. **The other half of the seam #72 left.**
+ * The review queue's four writes, and the one read that belongs beside them.
+ * **The other half of the seam #72 left.**
  *
  * Each one is a Server Action, and the client shell in `../review-queue` wraps
  * them into the `QueueActions` object the components were always handed. That
@@ -37,12 +38,12 @@ import type { AdminStatus } from "./queue";
  *
  * ## Failures come back as values
  *
- * Every action returns an `ActionOutcome` rather than throwing. A thrown error
- * out of a Server Action is replaced with a generic message in a production
- * build, and the errors that matter here are the specific ones — `23514` from
- * the ownership state machine, `42501` from a privilege the caller does not
- * hold. Those are exactly what a reviewer needs to read, so they are returned
- * where the shell can put them on screen.
+ * Every action returns a value rather than throwing. A thrown error out of a
+ * Server Action is replaced with a generic message in a production build, and
+ * the errors that matter here are the specific ones — `23514` from the ownership
+ * state machine, `42501` from a privilege the caller does not hold. Those are
+ * exactly what a reviewer needs to read, so they are returned where the shell
+ * can put them on screen.
  */
 
 /**
@@ -53,9 +54,24 @@ import type { AdminStatus } from "./queue";
  * admin to retry a change Postgres has already committed, and reporting it as a
  * bare success would hide a public page still serving the old badge.
  */
-export type ActionOutcome =
-  | { ok: true; notice?: string }
-  | { ok: false; message: string };
+export type ActionOutcome = { ok: true; notice?: string } | Refusal;
+
+/** How anything on this screen fails: in Postgres's own words. */
+type Refusal = { ok: false; message: string };
+
+/**
+ * What the account lookup reports.
+ *
+ * `email` is null when nothing came back, which covers both an id that names no
+ * account and an account carrying no address, because `account_emails()` drops
+ * the second rather than returning a row with a hole in it. The screen does not
+ * distinguish them and could not act on the difference if it did: either way
+ * there is no address to compare.
+ *
+ * A separate type rather than a widened `ActionOutcome`. Success here carries an
+ * answer, and an answer is not a notice.
+ */
+export type AccountLookup = { ok: true; email: string | null } | Refusal;
 
 /** A uuid, checked before it is sent, so an obvious typo reads as one. Postgres
     answers `22P02 invalid input syntax for type uuid` otherwise, which names the
@@ -70,7 +86,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * profile first, then claim it", and the message alone leaves a reviewer
  * looking for a button that does not exist.
  */
-function refusal(error: { message: string; hint?: string | null }): ActionOutcome {
+function refusal(error: { message: string; hint?: string | null }): Refusal {
   return { ok: false, message: error.hint ? `${error.message} — ${error.hint}` : error.message };
 }
 
@@ -311,12 +327,13 @@ export async function setNoteAction(profileId: string, note: string): Promise<Ac
  * person and there is no story where the record about one person becomes
  * another's — and the repair is to unassign first, which is what the hint says.
  *
- * **The account is named by id, and that is a gap rather than a design.** The
- * spec's rule is that a claim is checked against `practitioner_contacts.contact_email`,
- * and nothing reachable from PostgREST can resolve an address to an account:
- * `auth` is not an exposed schema. So the match is a human check made against
- * the contact address on screen, and the id is pasted. Closing it properly is a
- * `security definer` lookup, which is a migration and is on the pull request.
+ * **The account is named by id, and the match is a human's to make.** The
+ * spec's rule is that a claim is checked against
+ * `practitioner_contacts.contact_email`; `lookupAccountAction` below puts the
+ * account's address on the panel so both sides of that comparison are legible,
+ * and nothing compares them. An override is exactly where social engineering
+ * comes back, which is why the spec asks for a human check rather than a
+ * mechanism, and why nothing here may grow into one.
  */
 export async function assignOwnerAction(
   profileId: string,
@@ -353,4 +370,46 @@ export async function assignOwnerAction(
   purgePublicPages(data.handle);
   purgeQueue();
   return { ok: true };
+}
+
+/**
+ * The address behind an account id, so a reviewer can check a claim.
+ *
+ * No `revalidatePath` and no `purgeQueue`: nothing here moves a row.
+ *
+ * It goes through `account_emails()`, which `bluehex_admin` alone may execute,
+ * and which is the only door: see the migration for why its execute grant is the
+ * whole of what protects it.
+ *
+ * **It reports the address and stops.** Comparing it against the contact email
+ * is the reviewer's, and building that comparison here is the thing
+ * `docs/spec/profile-and-credentials.md` refuses on purpose. A screen that said
+ * "these match" would turn a human decision into an automatic one at exactly the
+ * point where the human decision is the control.
+ */
+export async function lookupAccountAction(accountId: string): Promise<AccountLookup> {
+  await requireAdmin("/admin");
+
+  /* Checked before it is sent, for the reason the regex exists: Postgres answers
+     `22P02 invalid input syntax for type uuid`, which names the type rather than
+     the mistake. `assignOwnerAction` treats a pasted id the same way, and an id
+     that would be refused there should not be accepted here. An empty field is
+     refused too, unlike there, where emptiness means unassign and is the repair
+     the whole panel rests on. */
+  const account = accountId.trim();
+  if (!UUID.test(account)) {
+    return {
+      ok: false,
+      message: "That is not an account id. It is a uuid, from the account's own record.",
+    };
+  }
+
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.rpc("account_emails", { ids: [account] });
+  if (error) return refusal(error);
+
+  /* Empty means no answer, and the two ways to get there are an id naming no
+     account and an account with no address. Neither is something a reviewer can
+     act on differently, so the screen says the same thing about both. */
+  return { ok: true, email: data[0]?.email ?? null };
 }
