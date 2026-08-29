@@ -367,6 +367,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      account_emails: {
+        Args: { ids: string[] }
+        Returns: {
+          email: string
+          id: string
+        }[]
+      }
       approve_practitioner: {
         Args: { profile_id: string }
         Returns: {
