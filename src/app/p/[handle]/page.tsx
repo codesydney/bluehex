@@ -74,8 +74,23 @@ export async function generateMetadata({
      per-request memo, so this costs no second round trip. */
   const person = await getProfileByHandle((await params).handle);
 
+  if (!person) return { title: "Profile" };
+
   return {
-    title: person ? `${person.name} — Bluehex` : "Profile",
+    /* The name alone. The root layout's `title.template` appends " — Bluehex",
+       so naming the suffix here rendered it twice — every other route returns
+       its leaf and comes out right. */
+    title: person.name,
+    /* No `openGraph` here, deliberately, so this page keeps inheriting the
+       root's whole block — including the share card. A profile therefore
+       unfurls under the site's name rather than the practitioner's, which is
+       worse copy and the right trade for now: metadata merges *shallowly*, so
+       naming `openGraph` here replaces every field the root set, and the
+       file-convention image goes with it. The root never declares `images` —
+       `opengraph-image.png` is injected by the convention — so there is nothing
+       to spread back in, and the alternative is hardcoding the path and losing
+       the content hash. Fixing it properly means giving this route an image of
+       its own, which is the per-profile card in #142. */
   };
 }
 
