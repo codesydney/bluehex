@@ -18,6 +18,13 @@ const funnelSans = Funnel_Sans({
 });
 
 export const metadata: Metadata = {
+  /* Every crawler resolves `og:image` as an absolute URL, and the file
+     convention below emits a path. `metadataBase` is what the path is resolved
+     against — without it Next warns at build time and falls back to localhost,
+     which unfurls as nothing. `site.origin` is a constant, deliberately: reading
+     an environment variable here would break `next build` with none set, which
+     `src/lib/supabase/env.ts` exists to keep working. */
+  metadataBase: new URL(site.origin),
   title: {
     default: `${site.name}`,
     template: `%s — ${site.name}`,
@@ -28,6 +35,13 @@ export const metadata: Metadata = {
     description: site.tagline,
     siteName: site.name,
     type: "website",
+  },
+  /* The card is 1200×630, and without this X renders it as a small square
+     thumbnail — the one failure mode that looks deliberate. The image itself is
+     not named here: `opengraph-image.png` sits beside this file and Next emits
+     the `og:image` tags from it, `twitter:image` included. */
+  twitter: {
+    card: "summary_large_image",
   },
 };
 
