@@ -374,6 +374,16 @@ export type Database = {
           id: string
         }[]
       }
+      apply_profile_children: {
+        Args: {
+          credential_inserts: Json
+          credential_removals: string[]
+          credential_updates: Json
+          service_inserts: string[]
+          service_removals: string[]
+        }
+        Returns: undefined
+      }
       approve_practitioner: {
         Args: { profile_id: string }
         Returns: {
