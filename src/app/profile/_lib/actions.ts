@@ -64,10 +64,13 @@ import {
  * is deliberately the harmless one: if the second request fails, what is left
  * behind is a contact row nobody references rather than a published profile
  * nobody can reach. The spec accepts that and calls for an occasional sweep;
- * this action does not try to be clever about it, because the alternatives —
- * a transaction it cannot open over PostgREST, or a delete of the row it just
- * wrote on an error path that may itself have failed — are both worse than a
- * stray address.
+ * this action does not try to be clever about it, because the alternatives are
+ * both worse than a stray address: a delete of the row it just wrote, on an
+ * error path that may itself have failed, or folding the pair into an RPC the
+ * way `saveChildren` folds the child tables. The second is a real option now
+ * rather than an impossible one — it would be a transaction — but it also moves
+ * the profile's own update inside a function, which is where #129's concurrency
+ * token would then have to live.
  *
  * ## Failures come back as values
  *
@@ -117,8 +120,8 @@ type Refusal = Extract<SaveResult, { ok: false }>;
  * `practitioner_services_cap` raises with the count in the message and
  * `credentials_guard` says nothing a practitioner has to act on, so this is
  * mostly a passthrough — but a constraint name on its own ("23505:
- * practitioner_credentials_practitioner_id_catalogue_id_key") is not a
- * sentence, so the two that are reachable through this form are translated.
+ * practitioner_credentials_one_claim_each") is not a sentence, so the two that
+ * are reachable through this form are translated.
  */
 function refusal(error: { code?: string; message: string; hint?: string | null }): Refusal {
   if (error.code === "23505") {
@@ -248,23 +251,16 @@ export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult
        button over a change Postgres has already committed. It is also not a
        success: the credentials are what the badge attests to, and a profile
        that quietly kept last week's list is the one lie this form cannot
-       afford. So it says which half landed. */
+       afford. So it says which half landed.
+
+       **One sentence, and it must not grow a second.** The children are all or
+       nothing, so a message hedging about which of them survived — or telling
+       somebody to reload and see what Bluehex now holds — would be describing a
+       state that cannot occur. */
     purge(profile);
     return {
       ok: false,
-      /* **Which half landed is read off what actually ran**, not assumed. There
-         is no transaction across PostgREST — the deletes are their own
-         statements and commit before the inserts are attempted — so a save that
-         fails part way through has already changed the rows it got to. Saying
-         "your credentials were not saved" over a credential that has just been
-         deleted is the one lie this form cannot afford, and it was what this
-         message said before #125. Making it atomic — one `security definer`
-         RPC, one transaction — is #128; this is the honest report until then. */
-      message: children.applied
-        ? "Your details were saved, and your credentials and services were changed only in " +
-          `part before this failed: ${children.message} Reload the page to see what Bluehex ` +
-          "now holds before you edit them again."
-        : `Your details were saved. Your credentials and services were not: ${children.message}`,
+      message: `Your details were saved. Your credentials and services were not: ${children.message}`,
     };
   }
 
@@ -279,30 +275,42 @@ export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult
  * saved rows and an edit has some, and `./profile-plan` produces the same three
  * piles either way.
  *
- * **Deletes go first.** Both tables have a reason: `practitioner_services_cap`
- * counts rows and refuses the fourth, so swapping one service for another
- * inserts into a full table unless the removal has already happened, and
- * `unique (practitioner_id, catalogue_id)` does the same to a credential moved
- * from one row to another. Ordering the piles is cheaper than teaching either
- * constraint about intent.
+ * **The reads stay here and the writes do not.** Working out the piles needs the
+ * closed vocabulary in `@/lib/practitioners` — `planServices` only ever removes a
+ * row this form could have drawn — and that vocabulary is TypeScript's, so a
+ * second copy of it in plpgsql would be a second thing to keep in step. Applying
+ * them needs a transaction, which over PostgREST means one request. So the plan
+ * is made here and handed to `apply_profile_children()` whole.
+ *
+ * **Do not put the writes back into separate requests**, however tempting one
+ * more round trip looks. The migration creating that function gives the whole
+ * argument; the short version is that separate requests are separate
+ * transactions, and the half-applied save that follows is reachable by ordinary
+ * use on the table the Verified badge attests to.
+ *
+ * **A plan is not idempotent, and pressing Save twice does not need it to be.**
+ * The piles are worked out against the read a few lines below, so a second press
+ * plans against the rows the first one wrote and asks for nothing. What is not
+ * safe to send twice is one plan, from two tabs at once: the second asks to
+ * insert a credential the first already inserted, and `23505` takes the whole
+ * call back rather than half of it. The rows are right and the sentence
+ * `refusal()` produces is not — it tells somebody to remove a duplicate that is
+ * not in their form — because what actually happened is a stale read, which is
+ * #129's token to detect and not this function's to guess at.
  */
-type ChildOutcome = { ok: true } | { ok: false; message: string; applied: boolean };
-
 async function saveChildren(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   practitionerId: string,
   payload: ProfileWrite,
-): Promise<ChildOutcome> {
+): Promise<SaveResult> {
   const [saved, savedServices, catalogue] = await Promise.all([
     supabase.rpc("my_credentials"),
     supabase.from("practitioner_services").select("id,catalogue_id,label").eq("practitioner_id", practitionerId),
     supabase.from("service_catalogue").select("id,label"),
   ]);
 
-  /* Nothing has been written when a lookup fails, which is the one place in
-     this function `applied: false` is a fact rather than a claim. */
   const lookupFailure = saved.error ?? savedServices.error ?? catalogue.error;
-  if (lookupFailure) return { ...refusal(lookupFailure), applied: false };
+  if (lookupFailure) return refusal(lookupFailure);
 
   /* `my_credentials()` returns every credential the caller owns, which for one
      account is one profile's worth — `practitioners.user_id` is unique. Filtered
@@ -318,55 +326,22 @@ async function saveChildren(
     (catalogue.data ?? []) as ServiceCatalogueEntry[],
   );
 
-  /* Set by the first statement that commits, and read by the caller to decide
-     what to tell the practitioner. It is deliberately not a count of what
-     landed: this function knows that *something* did, and anything finer would
-     be a second description of the same rows for somebody to keep in step. */
-  let applied = false;
-  const failed = (error: { code?: string; message: string; hint?: string | null }): ChildOutcome => ({
-    ...refusal(error),
-    applied,
+  /* The plan, flattened onto the wire. `id` is separate from `row` in a
+     `CredentialPlan` because it is the row's identity rather than one of the
+     columns a practitioner may write — it is absent from the update grant — and
+     the two are joined only here, where the function's record definition names
+     it as a column of the same shape.
+
+     No `practitioner_id` travels. `apply_profile_children()` reads the profile
+     from `my_profile()`, so the one thing that decides whose rows are written is
+     who is asking, exactly as it is for the reads above. */
+  const { error } = await supabase.rpc("apply_profile_children", {
+    credential_removals: credentials.remove,
+    credential_updates: credentials.update.map(({ id, row }) => ({ id, ...row })),
+    credential_inserts: credentials.insert,
+    service_removals: services.remove,
+    service_inserts: services.insert,
   });
 
-  if (credentials.remove.length > 0) {
-    const { error } = await supabase
-      .from("practitioner_credentials")
-      .delete()
-      .in("id", credentials.remove);
-    if (error) return failed(error);
-    applied = true;
-  }
-
-  if (services.remove.length > 0) {
-    const { error } = await supabase
-      .from("practitioner_services")
-      .delete()
-      .in("id", services.remove);
-    if (error) return failed(error);
-    applied = true;
-  }
-
-  for (const { id, row } of credentials.update) {
-    const { error } = await supabase.from("practitioner_credentials").update(row).eq("id", id);
-    if (error) return failed(error);
-    applied = true;
-  }
-
-  if (credentials.insert.length > 0) {
-    const { error } = await supabase
-      .from("practitioner_credentials")
-      .insert(credentials.insert.map((row) => ({ ...row, practitioner_id: practitionerId })));
-    if (error) return failed(error);
-    applied = true;
-  }
-
-  if (services.insert.length > 0) {
-    const { error } = await supabase
-      .from("practitioner_services")
-      .insert(services.insert.map((id) => ({ practitioner_id: practitionerId, catalogue_id: id })));
-    if (error) return failed(error);
-    applied = true;
-  }
-
-  return { ok: true };
+  return error ? refusal(error) : { ok: true };
 }
