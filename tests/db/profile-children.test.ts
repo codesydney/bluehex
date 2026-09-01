@@ -567,7 +567,16 @@ describe("an admin, whom the policies would otherwise let reach further", () => 
 
 describe("who may call it", () => {
   it("refuses anon", async () => {
-    expectPermissionDenied(anon, await apply(anon, {}));
+    const result = await apply(anon, {});
+
+    /* The message as well as the code, because the code alone does not say which
+       grant refused. This function is `security invoker` and its first statement
+       calls `my_profile()`, which `anon` may not execute either — so a version of
+       this migration with its own `revoke` dropped is refused one level further
+       in, with the same `42501` and therefore the same 401. The function named in
+       the message is the only thing that tells the two apart. */
+    expectPermissionDenied(anon, result);
+    expect(result.error!.message).toContain("apply_profile_children");
   });
 
   it("refuses a signed-in account that has no profile", async () => {
