@@ -202,3 +202,12 @@ export function PageHeader({
     </header>
   );
 }
+
+
+export function ExternalLinkDisclaimer() {
+  return (
+    <p className="mt-3 text-xs text-t-faint">
+      This will take you to an extenal website.
+    </p>
+  );
+}
