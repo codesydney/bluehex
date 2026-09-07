@@ -325,7 +325,6 @@ export function ProfileDetail({
           Enquire about {person.name.split(" ")[0]}
         </a>
         {person.bookingUrl ? (
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
             <a
               href={person.bookingUrl}
               target="_blank"
@@ -336,11 +335,14 @@ export function ProfileDetail({
               <ArrowUpRight className="size-5" aria-hidden="true"/>
               <span className="sr-only"> (opens external site)</span>
             </a>
-            <ExternalLinkDisclaimer />
-          </div>
         ) : null}
       </div>
-    
+      {person.bookingUrl ? (          
+        <ExternalLinkDisclaimer>
+          Booking opens {person.name.split(" ")[0]}'s own scheduling page.
+          Anything arranged there is between you and them, not through Bluehex.
+        </ExternalLinkDisclaimer>
+        ) : null}
     </article>
   );
 }

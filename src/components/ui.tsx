@@ -204,10 +204,14 @@ export function PageHeader({
 }
 
 
-export function ExternalLinkDisclaimer() {
+export function ExternalLinkDisclaimer({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <p className="mt-3 text-xs text-t-faint">
-      This will take you to an extenal website.
+      {children}
     </p>
   );
 }
