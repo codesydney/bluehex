@@ -339,7 +339,7 @@ export function ProfileDetail({
       </div>
       {person.bookingUrl ? (          
         <ExternalLinkDisclaimer>
-          Booking opens {person.name.split(" ")[0]}'s own scheduling page.
+          Booking opens {person.name.split(" ")[0]}&apos;s own scheduling page.
           Anything arranged there is between you and them, not through Bluehex.
         </ExternalLinkDisclaimer>
         ) : null}
