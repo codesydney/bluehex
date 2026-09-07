@@ -31,7 +31,9 @@
 
 import { useId, useState } from "react";
 import { CredentialMark, earnedLabel } from "@/components/credential-mark";
-import { Badge } from "@/components/ui";
+import { Badge, ExternalLinkDisclaimer } from "@/components/ui";
+import { ArrowUpRight } from "@/components/icons";
+
 import {
   byCatalogueOrder,
   credentialSource,
@@ -314,7 +316,7 @@ export function ProfileDetail({
           ))}
         </div>
       ) : null}
-
+    
       <div className="mt-9 flex flex-wrap gap-4">
         <a
           href={`/contact?about=${encodeURIComponent(person.id)}`}
@@ -323,16 +325,24 @@ export function ProfileDetail({
           Enquire about {person.name.split(" ")[0]}
         </a>
         {person.bookingUrl ? (
-          <a
-            href={person.bookingUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-13 items-center justify-center rounded-full border border-stroke bg-transparent px-7 font-medium text-t-muted transition-colors hover:border-stroke-strong hover:text-t-bright"
-          >
-            Book a meeting
-          </a>
+            <a
+              href={person.bookingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-13 items-center justify-center rounded-full border border-stroke bg-transparent px-7 font-medium text-t-muted transition-colors hover:border-stroke-strong hover:text-t-bright"
+            >
+              Book a meeting
+              <ArrowUpRight className="size-5" aria-hidden="true"/>
+              <span className="sr-only"> (opens external site)</span>
+            </a>
         ) : null}
       </div>
+      {person.bookingUrl ? (          
+        <ExternalLinkDisclaimer>
+          Booking opens {person.name.split(" ")[0]}&apos;s own scheduling page.
+          Anything arranged there is between you and them, not through Bluehex.
+        </ExternalLinkDisclaimer>
+        ) : null}
     </article>
   );
 }

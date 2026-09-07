@@ -202,3 +202,16 @@ export function PageHeader({
     </header>
   );
 }
+
+
+export function ExternalLinkDisclaimer({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <p className="mt-3 text-xs text-t-faint">
+      {children}
+    </p>
+  );
+}
