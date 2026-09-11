@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   byCatalogueOrder,
+  byRosterOrder,
   countryName,
   credentialSource,
   hasVerifiedBadge,
@@ -126,6 +127,35 @@ describe("catalogue order", () => {
     const tied = [numbered("course", "Beta", 4), numbered("course", "Alpha", 4)];
 
     expect([...tied].sort(byCatalogueOrder).map((item) => item.label)).toEqual(["Alpha", "Beta"]);
+  });
+});
+
+describe("roster order", () => {
+  const numbered = (kind: CatalogueEntry["kind"], label: string, sortOrder: number) => ({
+    ...entry(kind, label),
+    sortOrder,
+  });
+
+  it("leads with certifications rather than interleaving them with the Academy track", () => {
+    const scrambled = [
+      numbered("certification", "Claude Certified Associate - Foundations (CCAO-F)", 0),
+      numbered("course", "Claude 101", 0),
+      numbered("certification", "Claude Certified Architect - Foundations (CCAR-F)", 1),
+      numbered("course", "Claude Code 101", 1),
+    ];
+
+    expect([...scrambled].sort(byRosterOrder).map((item) => item.label)).toEqual([
+      "Claude Certified Associate - Foundations (CCAO-F)",
+      "Claude Certified Architect - Foundations (CCAR-F)",
+      "Claude 101",
+      "Claude Code 101",
+    ]);
+  });
+
+  it("breaks the last tie on the label, so the order is stable rather than merely sorted", () => {
+    const tied = [numbered("course", "Beta", 4), numbered("course", "Alpha", 4)];
+
+    expect([...tied].sort(byRosterOrder).map((item) => item.label)).toEqual(["Alpha", "Beta"]);
   });
 });
 
