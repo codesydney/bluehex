@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { PractitionerDirectory } from "@/components/practitioner-directory";
 import { Card, Button, SectionLabel } from "@/components/ui";
-import { listProfiles, listServiceOptions } from "@/lib/directory";
+import { listCredentialCatalogue, listProfiles, listServiceOptions } from "@/lib/directory";
 import { site } from "@/lib/site";
 
 /**
@@ -81,9 +81,10 @@ export default async function HomePage() {
      output per request; this one must not. It is cached for a day on purpose,
      and `await connection()` would opt the route out of prerendering entirely
      and undo the rendering decision rather than implement it. */
-  const [practitioners, serviceCatalogue] = await Promise.all([
+  const [practitioners, serviceCatalogue, credentialCatalogue] = await Promise.all([
     listProfiles(),
     listServiceOptions(),
+    listCredentialCatalogue(),
   ]);
 
   return (
@@ -135,6 +136,7 @@ export default async function HomePage() {
       <PractitionerDirectory
         practitioners={practitioners}
         serviceCatalogue={serviceCatalogue}
+        credentialCatalogue={credentialCatalogue}
       />
     </>
   );

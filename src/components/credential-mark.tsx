@@ -11,7 +11,7 @@
  * must not point from production code into a route's `_lib`.
  */
 
-import type { Credential } from "@/lib/practitioners";
+import { credentialSource, type CatalogueEntry, type Credential } from "@/lib/practitioners";
 
 /** `earnedAt` is a date, not a timestamp — read and formatted as one. */
 export function earnedLabel(credential: Credential) {
@@ -72,5 +72,37 @@ export function Tick({ className = "" }: { className?: string }) {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+export function Diamond({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={className}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M8 1.5L14.5 8L8 14.5L1.5 8L8 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function CredentialWeight({ entry }: { entry: CatalogueEntry }) {
+  if (entry.kind !== "certification") {
+    return <span className="text-t-faint">{credentialSource(entry)}</span>;
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 font-medium text-t-bright">
+      <Diamond className="size-2.5" />
+      {credentialSource(entry)}
+    </span>
   );
 }
