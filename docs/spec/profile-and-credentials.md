@@ -670,7 +670,7 @@ This is also load-bearing rather than tidy: **an unclaimed profile has no `user_
 no `auth.users` row, so no address anywhere.** Without this table Bluehex cannot contact
 a person it wrote up itself, and curated intake does not work at all.
 
-**"The enquiry button goes somewhere" is a schema invariant**, and the mechanism is the direction of the foreign key rather than a constraint or a check. The contact row is written first and `practitioners.contact_id` is `not null unique`, so a profile without a contact cannot be represented — there is no state to validate, no RPC to route through, and no application code to remember. `contact_email` being `not null` on top of that rules out the address being empty.
+**"The enquiry button goes somewhere" is a schema invariant**, and the mechanism is the direction of the foreign key rather than a constraint or a check. The contact row is written first and `practitioners.contact_id` is `not null unique`, so a profile without a contact cannot be represented — there is no state to validate, no RPC to route through, and no application code to remember. A check constraint using `btrim` on `contact_email` rules out the address being empty.
 
 An earlier draft had the foreign key the other way, which made a contact row optional in the schema and left the guarantee to a deferred constraint or an RPC. Reversing it deleted the problem instead of policing it.
 
