@@ -21,27 +21,27 @@
     "db:types": "supabase gen types typescript --local > src/lib/database.types.ts.new && mv src/lib/database.types.ts.new src/lib/database.types.ts || (rm -f src/lib/database.types.ts.new; exit 1)"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.4",
-    "@supabase/supabase-js": "^2.112.3",
-    "next": "16.3.2",
+    "@supabase/ssr": "^0.12.6",
+    "@supabase/supabase-js": "^2.115.0",
+    "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^26",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9.39.5",
-    "eslint-config-next": "16.3.2",
+    "eslint-config-next": "16.3.4",
     "pg": "^8.23.0",
-    "supabase": "^2.115.0",
+    "supabase": "^2.116.0",
     "tailwindcss": "^4",
     "typescript": "^6.0.3",
-    "vercel": "^59.5.0",
+    "vercel": "^59.11.7",
     "vitest": "^4.1.11"
   }
 }
