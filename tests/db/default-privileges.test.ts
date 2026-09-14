@@ -26,6 +26,10 @@ const apiRoles = ["anon", "authenticated", "service_role"] as const;
 const privileges = ["select", "insert", "update", "delete"] as const;
 
 beforeAll(async () => {
+  /* Dropped first rather than `if not exists`: a run that died between here and
+     `afterAll` leaves the table behind, and one left by an older version of this
+     file could carry a grant the assertions below would then be reading. */
+  await sql(`drop table if exists ${table}`);
   await sql(`create table ${table} (id int primary key)`);
 });
 
