@@ -112,6 +112,7 @@ export default async function ProfilePage() {
         <ProfileEditor
           initialDraft={own.draft}
           initialControlled={own.controlled}
+          initialRevision={own.profile?.updated_at ?? null}
           catalogue={catalogue}
           save={saveProfileAction}
           existing={existing}
