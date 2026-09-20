@@ -32,17 +32,17 @@ test("the menu contains keyboard focus and restores it after Escape", async ({ p
   await expect(page.getByRole("button", { name: "Open menu" })).toBeFocused();
 });
 
-test("an in-page menu link closes the overlay and reaches its section", async ({ page }) => {
+test("a menu link closes the overlay and navigates to its page", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Open menu" }).click();
   await page
     .getByRole("dialog", { name: "Site menu" })
-    .getByRole("link", { name: "Practitioners" })
+    .getByRole("link", { name: "Claude Practitioners" })
     .click();
 
-  await expect(page).toHaveURL(/\/#practitioners$/);
+  await expect(page).toHaveURL(/\/practitioners$/);
   await expect(page.getByRole("dialog", { name: "Site menu" })).toBeHidden();
-  await expect(page.locator("#practitioners")).toBeInViewport();
+  await expect(page.getByRole("heading", { level: 1, name: "Claude Specialists." })).toBeVisible();
 });
 
 test("the fixed menu button remains available when the header fades", async ({ page }) => {
