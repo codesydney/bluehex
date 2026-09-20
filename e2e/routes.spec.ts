@@ -1,13 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
-/* The home page's `h1` has read "Claude Specialists." since well before #53 —
-   "We only do Claude." is the tagline underneath it, and this assertion drifted
-   from the page without anybody noticing because the `End-to-end tests` workflow
-   is disabled by hand and nothing else runs Playwright. Corrected here rather
-   than left red, and recorded so the fix reads as deliberate. */
+/* The home page's `h1` read "Claude Specialists." from before #53 until #157
+   moved Agent Exchange onto `/` and the practitioner directory onto
+   `/practitioners`, carrying its old heading with it. */
 const routes = [
-  { path: "/", heading: "Claude Specialists." },
+  { path: "/", heading: "Agent Exchange." },
+  { path: "/practitioners", heading: "Claude Specialists." },
   { path: "/contact", heading: "Let's talk about your project!" },
 ] as const;
 
@@ -45,7 +44,7 @@ test("an unknown route renders the 404 page", async ({ page }) => {
 });
 
 /**
- * The directory with nothing in it.
+ * The practitioner directory with nothing in it.
  *
  * Since #53 the roster is a query rather than an empty array, and this build has
  * no Supabase configured — which is the sanctioned degradation, not an accident:
@@ -56,8 +55,10 @@ test("an unknown route renders the 404 page", async ({ page }) => {
  * The invitation is the page's only call to action when there is nothing to
  * list, so losing it is the regression worth a test of its own.
  */
-test("an empty directory renders the invitation rather than nothing", async ({ page }) => {
-  await page.goto("/#practitioners");
+test("an empty practitioner directory renders the invitation rather than nothing", async ({
+  page,
+}) => {
+  await page.goto("/practitioners#practitioners");
 
   await expect(page.getByText("The first profiles are being verified now.")).toBeVisible();
   await expect(page.getByText("Your profile here")).toBeVisible();
@@ -67,4 +68,18 @@ test("an empty directory renders the invitation rather than nothing", async ({ p
      source data, so a chip that could only ever return nothing is not drawn. */
   await expect(page.getByRole("button", { name: "Verified only" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /^View profile/ })).toHaveCount(0);
+});
+
+/**
+ * The Agent Exchange roster, which unlike the practitioner directory is never
+ * anything but empty until an agent clears manual review — see `@/lib/agents`.
+ * This is the state production actually ships #157 in, and it is the only
+ * state this suite can assert, since there is no database to seed.
+ */
+test("an empty agent directory renders the invitation rather than nothing", async ({ page }) => {
+  await page.goto("/#agents");
+
+  await expect(page.getByText("The first agents are being reviewed now.")).toBeVisible();
+  await expect(page.getByText("Your agent here")).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Visit/ })).toHaveCount(0);
 });

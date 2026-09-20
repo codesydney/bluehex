@@ -11,8 +11,12 @@ export const site = {
      path — the share button on a profile today, metadata and sitemaps later.
      No trailing slash; every path this is joined with starts with one. */
   origin: "https://bluehex.au",
+  /* Drives the root metadata description and the Agent Exchange hero, since
+     Agent Exchange is the home page now — see #157. The practitioner
+     directory's own hero copy moved to `/practitioners` as a literal, rather
+     than following this field, because the two pages say different things. */
   tagline:
-    "Claude practitioners from the Code.Sydney community. Find one, hire one.",
+    "Australia's marketplace for AI agents, built by indie developers and reviewed by Bluehex before they list here.",
   /* Contact details carried over from the Code.Sydney site — Code.Sydney Pty
      Ltd is the legal entity trading as Bluehex, so these stay accurate. Swap
      the address/email here if Bluehex gets its own. */
@@ -44,13 +48,12 @@ export type NavGroup = {
 };
 
 /**
- * The site is a single page plus a contact page, so most of these are in-page
- * anchors. Keep this list to routes and anchors that actually exist — the menu
- * overlay renders it verbatim and would otherwise link into a 404.
+ * Keep this list to routes and anchors that actually exist — the menu overlay
+ * renders it verbatim and would otherwise link into a 404.
  */
 export const navigation: NavGroup[] = [
-  { label: "Home", href: "/" },
-  { label: "Practitioners", href: "/#practitioners" },
+  { label: "Agent Exchange", href: "/" },
+  { label: "Claude Practitioners", href: "/practitioners" },
   { label: "Contact", href: "/contact" },
   /* One entry for signing in and signing up, because with magic links they are
      the same request. It is also correct for someone already signed in: the

@@ -4,8 +4,8 @@ import { Card } from "@/components/ui";
 import { site } from "@/lib/site";
 
 const footerNav = [
-  { label: "Home", href: "/" },
-  { label: "Practitioners", href: "/#practitioners" },
+  { label: "Agent Exchange", href: "/" },
+  { label: "Claude Practitioners", href: "/practitioners" },
   { label: "Contact", href: "/contact" },
 ];
 
