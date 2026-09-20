@@ -6,6 +6,7 @@ import { site } from "@/lib/site";
 const footerNav = [
   { label: "Agent Exchange", href: "/" },
   { label: "Claude Practitioners", href: "/practitioners" },
+  { label: "Meetups", href: "/meetups" },
   { label: "Contact", href: "/contact" },
 ];
 

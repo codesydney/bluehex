@@ -54,6 +54,7 @@ export type NavGroup = {
 export const navigation: NavGroup[] = [
   { label: "Agent Exchange", href: "/" },
   { label: "Claude Practitioners", href: "/practitioners" },
+  { label: "Meetups", href: "/meetups" },
   { label: "Contact", href: "/contact" },
   /* One entry for signing in and signing up, because with magic links they are
      the same request. It is also correct for someone already signed in: the

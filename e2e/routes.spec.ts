@@ -7,6 +7,7 @@ import { expect, test, type Page } from "@playwright/test";
 const routes = [
   { path: "/", heading: "Agent Exchange." },
   { path: "/practitioners", heading: "Claude Specialists." },
+  { path: "/meetups", heading: "Meetups." },
   { path: "/contact", heading: "Let's talk about your project!" },
 ] as const;
 
@@ -82,4 +83,22 @@ test("an empty agent directory renders the invitation rather than nothing", asyn
   await expect(page.getByText("The first agents are being reviewed now.")).toBeVisible();
   await expect(page.getByText("Your agent here")).toBeVisible();
   await expect(page.getByRole("link", { name: /^Visit/ })).toHaveCount(0);
+});
+
+/**
+ * The Meetups page renders one of exactly two states, and never a third:
+ * either the live feed produced a next event, or it did not and the fallback
+ * explanation shows instead — see `@/lib/events`'s invariant that a Meetup
+ * outage must degrade rather than break the page. This build's own network
+ * access decides which one below actually renders, which is why the
+ * assertion is "one of the two" rather than either on its own.
+ */
+test("the Meetups page shows a next event or the fallback, never neither", async ({ page }) => {
+  const response = await page.goto("/meetups#meetups");
+
+  expect(response?.ok()).toBe(true);
+
+  const nextMeetup = page.getByText("Next meetup");
+  const fallback = page.getByText("Nothing scheduled right now.");
+  await expect(nextMeetup.or(fallback)).toBeVisible();
 });
