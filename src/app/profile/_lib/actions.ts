@@ -69,8 +69,8 @@ import {
  * error path that may itself have failed, or folding the pair into an RPC the
  * way `saveChildren` folds the child tables. The second is a real option now
  * rather than an impossible one — it would be a transaction — but it also moves
- * the profile's own update inside a function, which is where #129's concurrency
- * token would then have to live.
+ * the profile's own update inside a function, which is where the revision check
+ * below would then have to live.
  *
  * ## Failures come back as values
  *
@@ -176,7 +176,25 @@ function purge(profile: { handle: string; status: ProfileRow["status"] }) {
   }
 }
 
-export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult> {
+/**
+ * Refused before anything is written. The row moved since this tab read it,
+ * and a save planned against a read that is no longer true is the save that
+ * deletes what the other tab added — see `saveChildren`. Nothing here can
+ * merge the two, so the one honest answer is to say so and stop.
+ *
+ * The message does not say whose save moved the row. It is usually another tab
+ * of theirs, and it is also Bluehex approving or rejecting the profile.
+ */
+const stale: Refusal = {
+  ok: false,
+  message:
+    "This profile changed since you opened it, so nothing was saved. Reload the page and make your edit again.",
+};
+
+export async function saveProfileAction(
+  draft: ProfileDraft,
+  revision: string | null,
+): Promise<SaveResult> {
   const viewer = await requireAccount("/profile");
 
   /* Before anything is written, and before the client is trusted to have run
@@ -197,9 +215,13 @@ export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult
   /* One `id` and `handle` from here on, whichever branch produced them. The
      handle is Postgres's — `new_profile_handle()` generates it as a column
      default — so a create has to read it back rather than guess it. */
-  let profile: { id: string; handle: string; status: ProfileRow["status"] };
+  let profile: { id: string; handle: string; status: ProfileRow["status"]; updated_at: string };
 
   if (!existing) {
+    /* A tab that read no row while another tab has since created one: the same
+       stale read as below, one step earlier. */
+    if (revision !== null) return stale;
+
     const { data: contact, error: contactError } = await supabase
       .from("practitioner_contacts")
       .insert(contactColumns(payload))
@@ -210,7 +232,7 @@ export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult
     const { data: created, error: profileError } = await supabase
       .from("practitioners")
       .insert({ ...profileColumns(payload), user_id: viewer.id, contact_id: contact.id })
-      .select("id,handle,status")
+      .select("id,handle,status,updated_at")
       .single();
 
     /* The orphaned contact row this leaves is the accepted cost above, and the
@@ -227,19 +249,32 @@ export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult
 
     profile = created;
   } else {
-    const { error: contactError } = await supabase
-      .from("practitioner_contacts")
-      .update(contactColumns(payload))
-      .eq("id", existing.contact_id);
-    if (contactError) return refusal(contactError);
+    /* The profile row first, because it carries the revision check, and the
+       contact row only once that has passed: a refused save must have written
+       nothing, and with the contact row first it would already be overwritten
+       by the time the check ran — the same lost update, one table over.
+
+       `.eq("updated_at", revision)` is the whole of the check. `practitioners_guard`
+       moves `updated_at` on every update, so a row this tab did not read last
+       has a different value and the update matches nothing. `maybeSingle()`
+       turns that into `null` rather than an error code to decode. */
+    if (revision === null) return stale;
 
     const { data: updated, error: profileError } = await supabase
       .from("practitioners")
       .update(profileColumns(payload))
       .eq("id", existing.id)
-      .select("id,handle,status")
-      .single();
+      .eq("updated_at", revision)
+      .select("id,handle,status,updated_at")
+      .maybeSingle();
     if (profileError) return refusal(profileError);
+    if (!updated) return stale;
+
+    const { error: contactError } = await supabase
+      .from("practitioner_contacts")
+      .update(contactColumns(payload))
+      .eq("id", existing.contact_id);
+    if (contactError) return refusal(contactError);
 
     profile = updated;
   }
@@ -261,11 +296,12 @@ export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult
     return {
       ok: false,
       message: `Your details were saved. Your credentials and services were not: ${children.message}`,
+      revision: profile.updated_at,
     };
   }
 
   purge(profile);
-  return { ok: true };
+  return { ok: true, revision: profile.updated_at };
 }
 
 /**
@@ -290,19 +326,19 @@ export async function saveProfileAction(draft: ProfileDraft): Promise<SaveResult
  *
  * **A plan is not idempotent, and pressing Save twice does not need it to be.**
  * The piles are worked out against the read a few lines below, so a second press
- * plans against the rows the first one wrote and asks for nothing. What is not
- * safe to send twice is one plan, from two tabs at once: the second asks to
- * insert a credential the first already inserted, and `23505` takes the whole
- * call back rather than half of it. The rows are right and the sentence
- * `refusal()` produces is not — it tells somebody to remove a duplicate that is
- * not in their form — because what actually happened is a stale read, which is
- * #129's token to detect and not this function's to guess at.
+ * plans against the rows the first one wrote and asks for nothing. What would
+ * not be safe is one plan from two tabs, planned against two different reads —
+ * and that never reaches here, because the revision check in
+ * `saveProfileAction` refuses the second tab's save before its plan is made.
+ * Nothing in this function guesses at staleness, and nothing should: the read
+ * below is fresh by construction, and the check that it matches what the form
+ * was drawn from lives on the profile row, not on these.
  */
 async function saveChildren(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   practitionerId: string,
   payload: ProfileWrite,
-): Promise<SaveResult> {
+): Promise<Refusal | { ok: true }> {
   const [saved, savedServices, catalogue] = await Promise.all([
     supabase.rpc("my_credentials"),
     supabase.from("practitioner_services").select("id,catalogue_id,label").eq("practitioner_id", practitionerId),

@@ -43,6 +43,9 @@ export type ProfileRow = {
   linkedin_url: string | null;
   booking_url: string | null;
   status: BluehexControlled["status"];
+  /** The revision a save is checked against. Kept as the string PostgREST
+      served — see `SaveProfile`. */
+  updated_at: string;
 };
 
 export type ContactRow = {

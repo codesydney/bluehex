@@ -21,7 +21,22 @@ import type { ProfileDraft } from "@/lib/profile-draft";
  * worked is reported by the form, which knows whether it was a first submission
  * or an edit, and this type should not have an opinion about copy.
  */
-export type SaveResult = { ok: true } | { ok: false; message: string };
+export type SaveResult =
+  | {
+      ok: true;
+      /** `practitioners.updated_at` after the write. The form keeps it as the
+          revision its next save is checked against; without it the second save
+          from the same tab would be refused as stale. */
+      revision: string;
+    }
+  | {
+      ok: false;
+      message: string;
+      /** Present when the profile row was written before the refusal — the
+          children failed — so a retry from the same tab is checked against the
+          row as it now is rather than refused as stale. */
+      revision?: string;
+    };
 
 /**
  * `ProfileDraft` rather than `ProfileWrite`, which is the correction #125 made
@@ -35,4 +50,15 @@ export type SaveResult = { ok: true } | { ok: false; message: string };
  * action validates and maps it — `toWritePayload` is the same pure function,
  * called one hop later.
  */
-export type SaveProfile = (draft: ProfileDraft) => Promise<SaveResult>;
+/**
+ * `revision` is `practitioners.updated_at` as the read served it, or null when
+ * there was no row to read. It is the optimistic-concurrency token of #129: the
+ * update is conditioned on the row still carrying it, so a tab that read the
+ * profile before another tab saved it is refused rather than allowed to plan
+ * its child rows against state it never saw.
+ *
+ * It travels as the string PostgREST produced and is never parsed. `Date` holds
+ * milliseconds and the column holds microseconds, so a token that has been
+ * through `new Date()` matches nothing, ever.
+ */
+export type SaveProfile = (draft: ProfileDraft, revision: string | null) => Promise<SaveResult>;
