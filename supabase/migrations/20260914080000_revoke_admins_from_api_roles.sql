@@ -1,0 +1,20 @@
+-- `public.admins` is not part of the API surface: nobody but `supabase_auth_admin`
+-- reads it, and that only from inside the access token hook. The first migration
+-- said so in a comment and wrote no grant, relying on the default privileges for a
+-- `postgres`-owned table being nothing — which is the CLI's `auto_expose_new_tables`
+-- setting, and whose unset meaning flipped between CLI 2.114 (`false`) and 2.116
+-- (`true`). Under the latter a fresh stack handed `anon` and `authenticated` every
+-- privilege on this table, and RLS was the only thing left between a visitor and the
+-- admin list.
+--
+-- Every other table here revokes before it grants, so none of them depended on that
+-- default. This one now does the same. `service_role` is included because the role
+-- bypasses row level security, so a grant to it is a grant with no policy behind it —
+-- and nothing holding that key exists in this repository by design (ADR 0001).
+--
+-- `config.toml` pins the setting to `false` as well; the two are belt and braces.
+-- The setting decides what a *future* table starts with, and a migration cannot
+-- assert that. This revoke decides what *this* table holds, whatever the setting
+-- says, and whatever the hosted project's "Default privileges for new entities"
+-- toggle — which `db push` does not carry — happens to be.
+revoke all on public.admins from anon, authenticated, service_role;
