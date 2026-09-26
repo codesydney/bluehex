@@ -8,8 +8,8 @@ Anything not written here is an idea, not a commitment. Ideas are welcome — th
 where they get a number attached and become work.
 
 **This document owns cost, not design.** `docs/spec/profile-and-credentials.md` owns what
-a profile contains and how ownership works, `docs/profile-lifecycle.md` owns the lifecycle
-and the write path, `CONTEXT.md` owns the vocabulary, and `docs/adr/` owns the decisions.
+a profile contains, how ownership works, the lifecycle and the write path, `CONTEXT.md`
+owns the vocabulary, and `docs/adr/` owns the decisions.
 Where this file and any of those disagree, they win — and the disagreement is a bug in this
 file. Sections here point at them rather than restating them, because a document that
 restates a spec drifts from it and a document that points at one cannot.
@@ -190,9 +190,9 @@ Collect that.
 ### Profile lifecycle, ownership, and where the data lives
 
 **Owned by the spec.** `docs/spec/profile-and-credentials.md` for what a profile contains,
-how ownership works, and the DDL; `docs/profile-lifecycle.md` for the lifecycle, the roles
-and the write path; `CONTEXT.md` for the vocabulary; ADR-0001 for how admin privilege is
-held. All four are settled and proved against the local stack.
+how ownership works, the lifecycle, the write path and the DDL; `CONTEXT.md` for the
+vocabulary; ADR-0001 for the roles and how admin privilege is held. All three are settled
+and proved against the local stack.
 
 Five things this document previously described and got wrong, recorded here only so nobody
 reintroduces them from an old copy:
@@ -356,11 +356,12 @@ looking is what makes it worth anything. Automating it would remove the only ste
 that gives it value.
 
 **The profile and credential model** — settled by the #35 spike and the #9 grill-spec
-session, and recorded in `docs/profile-lifecycle.md` and
-`docs/spec/profile-and-credentials.md`. **How admins hold privilege** — ADR-0001.
+session, and recorded in `docs/spec/profile-and-credentials.md`. **How admins hold
+privilege** — ADR-0001.
 
 **One spike has run and it is closed.** #35 proved the lifecycle, the roles and the write
-path against the local stack; everything it established is in `docs/profile-lifecycle.md`.
+path against the local stack; what it established is in the spec, in ADR-0001, and in the
+tests under `tests/db/`.
 No spike is currently open.
 
 ---

@@ -5,8 +5,6 @@ policies, no implementation. Decisions live in `docs/spec/` and `docs/adr/` —
 `docs/spec/profile-and-credentials.md` for the profile and credential model,
 `docs/adr/0001-admins-are-a-postgres-role.md` for how admin authority works, and
 `docs/adr/0002-links-are-published-addresses-are-not.md` for what a profile may publish.
-`docs/profile-lifecycle.md` is the superseded spike report, kept for its proof
-transcript; do not implement from it.
 
 ## People and records
 

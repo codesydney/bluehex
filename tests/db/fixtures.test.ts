@@ -131,8 +131,8 @@ describe("the SQL seam", () => {
   it("can grant and revoke a privilege a caller then sees change", async () => {
     /* The mechanism the spec's most valuable assertion needs: revoke a grant,
        confirm the write is refused, re-grant it by hand and confirm the trigger
-       still refuses it. That test lands in #55 against a schema that has triggers;
-       this proves the seam it will be written on. */
+       still refuses it. Those tests live with the tables whose triggers they
+       exercise; this proves the seam they are written on. */
     const before = await anon.client.from("admins").select("user_id");
     expectPermissionDenied(anon, before);
 

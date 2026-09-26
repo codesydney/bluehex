@@ -111,6 +111,37 @@ describe("creating a profile", () => {
     await sql("delete from public.practitioners where id = $1", [result.data!.id]);
   });
 
+  it("lands as `pending`", async () => {
+    const contact = await seedContact(newcomer.userId);
+
+    const result = await newcomer.client
+      .from("practitioners")
+      .insert({ contact_id: contact, user_id: newcomer.userId, name: "Ada" })
+      .select("id, status")
+      .single();
+
+    expectAllowed(result);
+    expect(result.data?.status).toBe("pending");
+    await sql("delete from public.practitioners where id = $1", [result.data!.id]);
+  });
+
+  it("is refused with `status` named, so nobody approves themselves on the way in", async () => {
+    const contact = await seedContact(newcomer.userId);
+
+    const result = await newcomer.client.from("practitioners").insert({
+      contact_id: contact,
+      user_id: newcomer.userId,
+      name: "Self-approved",
+      status: "approved",
+    } as never);
+
+    /* The insert grant is the whole of this rule. `practitioners_guard` fires on
+       `update` only, so unlike every other write to `status` there is no trigger
+       behind the grant, and the column default is the one status a practitioner's
+       insert can give a profile. */
+    expectPermissionDenied(newcomer, result);
+  });
+
   it("is refused for somebody else's account", async () => {
     const contact = await seedContact(newcomer.userId);
 
@@ -294,6 +325,47 @@ describe("what a signed-in practitioner may read", () => {
 
     expectAllowed(result);
     expect(result.data).toEqual([]);
+  });
+});
+
+describe("who approved a profile, and who assigned it", () => {
+  /* Which admin acted on a profile is Bluehex's record, not the directory's, and
+     it is readable because `bluehex_admin` holds `select` on the whole table
+     rather than through any column grant. */
+  const provenance = ["approved_by", "owner_assigned_by"] as const;
+
+  it("is not anon's to read, or to filter on", async () => {
+    for (const column of provenance) {
+      expectPermissionDenied(anon, await anon.client.from("practitioners").select(column));
+      /* A filter is a `where` clause, and Postgres checks column privileges
+         there too. */
+      expectPermissionDenied(
+        anon,
+        await anon.client.from("practitioners").select("id").not(column, "is", null),
+      );
+    }
+  });
+
+  it("is not a signed-in practitioner's to read", async () => {
+    for (const column of provenance) {
+      const result = await practitioner.client.from("practitioners").select(column);
+      expectPermissionDenied(practitioner, result);
+    }
+  });
+
+  it("is an admin's to read over the API", async () => {
+    const profile = await seedProfile({ status: "pending" });
+    expectAllowed(await admin.client.rpc("approve_practitioner", { profile_id: profile }));
+
+    const result = await admin.client
+      .from("practitioners")
+      .select("approved_by, owner_assigned_by")
+      .eq("id", profile)
+      .single();
+
+    expectAllowed(result);
+    expect(result.data?.approved_by).toBe(admin.userId);
+    await sql("delete from public.practitioners where id = $1", [profile]);
   });
 });
 

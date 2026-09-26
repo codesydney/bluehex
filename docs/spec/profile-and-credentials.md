@@ -3,10 +3,11 @@
 The technical design for [#9](https://github.com/codesydney/bluehex/issues/9) — the
 blocker on the first migration. Built inline during a grill-spec session.
 
-Binding context, already settled: `docs/profile-lifecycle.md` (spike #35) owns the
-lifecycle, the roles and the write path, and every claim in it was proved against the
-local stack. `CONTEXT.md` owns the vocabulary. This document owns what a profile
-*contains* and how ownership works.
+Binding context, already settled: spike #35 decided the lifecycle, the roles and the
+write path. How admins hold their role is `docs/adr/0001-admins-are-a-postgres-role.md`,
+and what the spike proved against the local stack is asserted by the tests under
+`tests/db/`. `CONTEXT.md` owns the vocabulary. This document owns what a profile
+*contains*, how ownership works, the lifecycle and the write path.
 
 ## System architecture
 
@@ -266,7 +267,7 @@ problem today, and not worth a second column now.
 ### Consequence: the guard trigger from #35 is incomplete
 
 Moving credentials off the profile row moves the attested content off the row the
-guard trigger watches. `docs/profile-lifecycle.md` clears `verified` when `name` or
+guard trigger watches. The #35 schema clears `verified` when `name` or
 `certified` changes; with a child table, **adding or editing a credential would not
 clear the badge**, which is the exact failure the rule exists to prevent.
 
@@ -808,10 +809,9 @@ Three findings from those rounds survive, because they are not about layout:
 ## Program design
 
 Seven tables, and the prerequisites they sit on. Those prerequisites are **repeated here
-rather than referenced**, because the only other copy is in `docs/profile-lifecycle.md`,
-which opens with "Do not implement from this file" and is scheduled for deletion once its
-assertions land as tests. A binding spec cannot delegate its first statements to a
-document that forbids implementing from it.
+rather than referenced**, because no other document states them: ADR-0001 records the
+decision and not the DDL. A binding spec cannot delegate its first statements to a
+document that does not contain them.
 
 The decision behind this block — why a Postgres role rather than a flag or the service
 role key — is `docs/adr/0001-admins-are-a-postgres-role.md`. It is unchanged; only the

@@ -412,8 +412,6 @@ being vouched for, which is the normal case.
 - **`docs/spec/profile-and-credentials.md`** — the model: what a profile contains, who
   owns it, what the badge attests to, and the DDL with its grant lists, triggers and RPCs.
   Binding on the first migration.
-- **`docs/profile-lifecycle.md`** — the #35 spike report and its proof transcript.
-  Historical: parts of it are superseded, and its own header says which.
 
 The parts most likely to catch you out:
 
