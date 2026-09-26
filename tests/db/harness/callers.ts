@@ -40,8 +40,13 @@ import type { Database } from "@/lib/database.types";
 
 import { apiUrl, publishableKey, sql, stackUnreachable } from "./stack";
 
-/** The claims a test may reasonably read off an access token. */
+/**
+ * The claims a test may reasonably read off an access token, and an index for the
+ * rest: asserting what the hook leaves alone means reading claims it does not
+ * rewrite.
+ */
 export type TokenClaims = {
+  readonly [claim: string]: unknown;
   /** The user id. `auth.uid()` resolves to this in every policy. */
   readonly sub: string;
   /**
@@ -124,6 +129,12 @@ function authFailure(what: string, error: AuthError): Error {
 /** User ids this run created, so the setup file can take them out again. */
 const created = new Set<string>();
 
+/**
+ * The latest refresh token for each account. Kept here rather than on `Caller`,
+ * for the reason `Caller.claims` gives against a second field.
+ */
+const sessions = new Map<string, string>();
+
 async function signUp(
   label: string,
 ): Promise<{ userId: string; email: string; accessToken: string }> {
@@ -145,6 +156,7 @@ async function signUp(
   }
 
   created.add(session.user.id);
+  sessions.set(session.user.id, session.refresh_token);
   return { userId: session.user.id, email, accessToken: session.access_token };
 }
 
@@ -189,9 +201,44 @@ export async function adminCaller(label = "admin"): Promise<Caller> {
   const session = data.session;
   if (!session) throw new Error(`signing ${label} back in returned no session`);
 
+  sessions.set(userId, session.refresh_token);
   return {
     label,
     userId,
+    claims: decodeClaims(session.access_token),
+    client: clientFor(session.access_token),
+  };
+}
+
+/**
+ * The same account, holding a token minted now rather than when the caller was
+ * built.
+ *
+ * A refresh rather than another sign-in, because a refresh is what a signed-in
+ * browser does and the hook runs on it: a change to `public.admins` reaches an
+ * account at its next refresh and not before, which is the revocation lag ADR 0001
+ * accepts. A sign-in would start a new session instead of exercising that one.
+ *
+ * Returns a new caller and leaves the one passed in alone, so the old token stays
+ * usable — which is what a test of the lag needs — and every caller is still
+ * pinned to one token, per `clientFor()`.
+ */
+export async function refreshed(caller: Caller): Promise<Caller> {
+  const refreshToken = caller.userId ? sessions.get(caller.userId) : undefined;
+  if (!refreshToken) throw new Error(`${caller.label} has no session to refresh`);
+
+  const { data, error } = await clientFor().auth.refreshSession({
+    refresh_token: refreshToken,
+  });
+  if (error) throw authFailure(`could not refresh ${caller.label}`, error);
+
+  const session = data.session;
+  if (!session) throw new Error(`refreshing ${caller.label} returned no session`);
+
+  sessions.set(session.user.id, session.refresh_token);
+  return {
+    label: caller.label,
+    userId: caller.userId,
     claims: decodeClaims(session.access_token),
     client: clientFor(session.access_token),
   };
@@ -206,4 +253,5 @@ export async function deleteCreatedUsers(): Promise<void> {
   if (created.size === 0) return;
   await sql("delete from auth.users where id = any($1::uuid[])", [[...created]]);
   created.clear();
+  sessions.clear();
 }
