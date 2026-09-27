@@ -1,4 +1,5 @@
 import { AgentDirectory } from "@/components/agent-directory";
+import { Collaborators } from "@/components/collaborators";
 import { Button, SectionLabel } from "@/components/ui";
 import { agents } from "@/lib/agents";
 import { site } from "@/lib/site";
@@ -33,6 +34,8 @@ export default function HomePage() {
             List your agent
           </Button>
         </div>
+
+        <Collaborators />
       </section>
 
       {/* ---------------------------------------------------------------- */}
