@@ -557,6 +557,22 @@ describe("changing who the profile is clears every credential on it", () => {
     expect(await verifiedThrough(practitioner, second)).toBe(false);
   });
 
+  it("clears when an admin corrects the name, exactly as when the practitioner renames", async () => {
+    /* The trigger's `when` clause looks at the name and not at who changed it, so
+       an admin's correction is a new assertion about who this is like any other. */
+    const first = await seedCredential(mine, entryA, { verified: true });
+    const second = await seedCredential(mine, entryB, { verified: true });
+
+    const result = await admin.client
+      .from("practitioners")
+      .update({ name: "Corrected By An Admin" })
+      .eq("id", mine);
+
+    expectAllowed(result);
+    expect(await verifiedThrough(admin, first)).toBe(false);
+    expect(await verifiedThrough(admin, second)).toBe(false);
+  });
+
   it("clears nothing when the whole form is saved with `name` unchanged", async () => {
     /* The case that actually bites, and the reason
        `when (old.name is distinct from new.name)` is on the trigger. `update of
@@ -658,6 +674,36 @@ describe("changing who the profile is clears every credential on it", () => {
 
     expectAllowed(result);
     expect(await verifiedThrough(practitioner, credential)).toBe(true);
+  });
+});
+
+describe("admission and the badge are separate axes", () => {
+  it("leaves every credential as it was when a profile is approved", async () => {
+    /* Approving says the profile may be listed, not that anything on it was
+       checked, so it neither grants a badge nor spends one. */
+    const profile = await seedProfile({ status: "pending" });
+    const checked = await seedCredential(profile, entryA, { verified: true });
+    const unchecked = await seedCredential(profile, entryB);
+
+    expectAllowed(await admin.client.rpc("approve_practitioner", { profile_id: profile }));
+
+    expect(await verifiedThrough(admin, checked)).toBe(true);
+    expect(await verifiedThrough(admin, unchecked)).toBe(false);
+  });
+
+  it("leaves the profile published when a rename clears its badge", async () => {
+    const credential = await seedCredential(mine, entryA, { verified: true });
+
+    const result = await practitioner.client
+      .from("practitioners")
+      .update({ name: "Someone Else Entirely" })
+      .eq("id", mine)
+      .select("status")
+      .single();
+
+    expectAllowed(result);
+    expect(await verifiedThrough(practitioner, credential)).toBe(false);
+    expect(result.data?.status).toBe("approved");
   });
 });
 
