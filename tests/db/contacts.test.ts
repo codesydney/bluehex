@@ -9,6 +9,7 @@ import {
 import {
   expectAllowed,
   expectPermissionDenied,
+  expectSqlstate,
   sqlstate,
 } from "./harness/result";
 import { sql } from "./harness/stack";
@@ -122,6 +123,16 @@ describe("a practitioner's own contact row", () => {
 
     expectAllowed(read);
     expect(read.data?.contact_email).toBe(email);
+  });
+
+  it("refuses a whitespace-only email, a single tab included", async () => {
+    for (const email of ["", " ", "\t", "\n", " \t\n "]) {
+      const result = await practitioner.client
+        .from("practitioner_contacts")
+        .insert({ contact_email: email });
+
+      expectSqlstate(result, sqlstate.checkViolation);
+    }
   });
 
   it("is writable by its author", async () => {

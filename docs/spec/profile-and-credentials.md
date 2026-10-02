@@ -915,7 +915,7 @@ create table public.practitioners (
   -- is the whole guarantee that an approved profile can be reached
   contact_id uuid not null unique references public.practitioner_contacts (id),
 
-  name text not null,
+  name text not null check (name ~ '[^[:space:]]'),
   headline text,
   location text,                       -- free text; the practitioner picks granularity
   country_code text check (country_code ~ '^[A-Z]{2}$'),
@@ -1178,7 +1178,7 @@ points at `active` instead, which is the operation that was actually meant.
 ```sql
 create table public.practitioner_contacts (
   id uuid primary key default gen_random_uuid(),
-  contact_email text not null,
+  contact_email text not null check (contact_email ~ '[^[:space:]]'),
   contact_phone text,
   contact_note text,
   -- who wrote the row, so it has an owner before any profile points at it.

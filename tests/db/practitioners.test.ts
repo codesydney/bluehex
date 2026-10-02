@@ -111,6 +111,24 @@ describe("creating a profile", () => {
     await sql("delete from public.practitioners where id = $1", [result.data!.id]);
   });
 
+  it("refuses a whitespace-only name, a single tab included", async () => {
+    const contact = await seedContact(newcomer.userId);
+
+    for (const name of ["", " ", "\t", "\n", " \t\n "]) {
+      const result = await newcomer.client
+        .from("practitioners")
+        .insert({
+          contact_id: contact,
+          user_id: newcomer.userId,
+          name: name,
+        });
+
+      expectSqlstate(result, sqlstate.checkViolation);
+    }
+    
+    await sql("delete from public.practitioner_contacts where id = $1", [contact]);
+  });
+
   it("is refused for somebody else's account", async () => {
     const contact = await seedContact(newcomer.userId);
 
