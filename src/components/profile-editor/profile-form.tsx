@@ -62,6 +62,7 @@ export function ProfileForm({
   draft,
   onChange,
   controlled,
+  initialRevision,
   catalogue,
   save,
   existing,
@@ -69,10 +70,15 @@ export function ProfileForm({
   draft: ProfileDraft;
   onChange: (next: ProfileDraft) => void;
   controlled: BluehexControlled;
+  initialRevision: string | null;
   catalogue: CatalogueEntry[];
   save: SaveProfile;
   existing: boolean;
 }) {
+  /* The revision the next save is checked against: what the page read, until a
+     save succeeds and reports the one it wrote. Never derived from the draft,
+     which is the practitioner's; this is Postgres's clock. */
+  const [revision, setRevision] = useState<string | null>(initialRevision);
   const [step, setStep] = useState(0);
   /* Errors exist from the first render and are shown only once somebody has
      asked for the form to be checked. Validating as you type turns a field you
@@ -139,7 +145,9 @@ export function ProfileForm({
 
     setPending(true);
     try {
-      setResult(await save(draft));
+      const outcome = await save(draft, revision);
+      if (outcome.revision) setRevision(outcome.revision);
+      setResult(outcome);
     } catch {
       /* A Server Action rejects on a network failure and on an expired session
          — and `requireAccount` redirects rather than returning, which arrives

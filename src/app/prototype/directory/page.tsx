@@ -73,6 +73,7 @@ export default function DirectoryPrototypePage() {
       <PractitionerDirectory
         practitioners={launchPopulation}
         serviceCatalogue={vocabularyServices}
+        credentialCatalogue={catalogue}
       />
 
       {/* The page behind that link, drawn here because it cannot be reached:

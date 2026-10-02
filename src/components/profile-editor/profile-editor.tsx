@@ -41,12 +41,15 @@ import { ProfileForm } from "./profile-form";
 export function ProfileEditor({
   initialDraft,
   initialControlled,
+  initialRevision,
   catalogue,
   save,
   existing,
 }: {
   initialDraft: ProfileDraft;
   initialControlled: BluehexControlled;
+  /** `practitioners.updated_at` as read, or null with no row. See `SaveProfile`. */
+  initialRevision: string | null;
   catalogue: CatalogueEntry[];
   save: SaveProfile;
   /** Whether there is a row behind this form yet. It changes what the buttons
@@ -68,6 +71,7 @@ export function ProfileEditor({
       draft={draft}
       onChange={change}
       controlled={controlled}
+      initialRevision={initialRevision}
       catalogue={catalogue}
       save={save}
       existing={existing}

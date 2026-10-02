@@ -36,6 +36,7 @@ function profileRow(over: Partial<ProfileRow> = {}): ProfileRow {
     linkedin_url: null,
     booking_url: null,
     status: "pending",
+    updated_at: "2026-09-17T08:49:26.123456+00:00",
     ...over,
   };
 }

@@ -30,13 +30,11 @@
  */
 
 import { useId, useState } from "react";
-import { CredentialMark, earnedLabel } from "@/components/credential-mark";
+import { CredentialMark, CredentialWeight, earnedLabel } from "@/components/credential-mark";
 import { Badge, ExternalLinkDisclaimer } from "@/components/ui";
 import { ArrowUpRight } from "@/components/icons";
-
 import {
   byCatalogueOrder,
-  credentialSource,
   hasVerifiedBadge,
   portfolioLinks,
   profilePath,
@@ -229,7 +227,7 @@ export function ProfileDetail({
                 <div className="min-w-0">
                   <p className="break-words">{credential.entry.label}</p>
                   <p className="mt-0.5 text-sm text-t-faint">
-                    {credentialSource(credential.entry)} · {earnedLabel(credential)}
+                    <CredentialWeight entry={credential.entry} /> · {earnedLabel(credential)}
                   </p>
                   {credential.evidenceUrl ? (
                     <a
@@ -277,7 +275,9 @@ export function ProfileDetail({
               {unearned.map((entry) => (
                 <li key={entry.id} className="text-sm text-t-muted">
                   {entry.label}
-                  <span className="ml-2 text-xs text-t-faint">{credentialSource(entry)}</span>
+                  <span className="ml-2 text-xs">
+                    <CredentialWeight entry={entry} />
+                  </span>
                 </li>
               ))}
             </ul>
@@ -316,7 +316,7 @@ export function ProfileDetail({
           ))}
         </div>
       ) : null}
-    
+
       <div className="mt-9 flex flex-wrap gap-4">
         <a
           href={`/contact?about=${encodeURIComponent(person.id)}`}
@@ -337,7 +337,7 @@ export function ProfileDetail({
             </a>
         ) : null}
       </div>
-      {person.bookingUrl ? (          
+      {person.bookingUrl ? (
         <ExternalLinkDisclaimer>
           Booking opens {person.name.split(" ")[0]}&apos;s own scheduling page.
           Anything arranged there is between you and them, not through Bluehex.

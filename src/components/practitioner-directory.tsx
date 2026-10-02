@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useId, useMemo, useRef, useState } from "react";
-import { CredentialMark, Tick, earnedLabel } from "@/components/credential-mark";
+import { CredentialMark, CredentialWeight, Tick, earnedLabel } from "@/components/credential-mark";
 import { Close, Search, Sparkle } from "@/components/icons";
 import { Badge, Card } from "@/components/ui";
 import {
+  byRosterOrder,
   countryName,
   credentialSource,
   hasVerifiedBadge,
   profilePath,
+  type CatalogueEntry,
   type Profile,
   type ServiceOption,
 } from "@/lib/practitioners";
@@ -98,6 +100,7 @@ function matchesQuery(person: Profile, query: string) {
 export function PractitionerDirectory({
   practitioners,
   serviceCatalogue,
+  credentialCatalogue,
 }: {
   practitioners: Profile[];
   /**
@@ -110,11 +113,21 @@ export function PractitionerDirectory({
    * draws this roster against invented people with no rows behind them.
    */
   serviceCatalogue: ServiceOption[];
+  /**
+   * The whole credential catalogue `listCredentialCatalogue()`, read by the
+   * Server Component above, the same query the profile page already uses. A
+   * prop for the same reason `serviceCatalogue` is: it is a query result, and
+   * the roster derives its Certifications chips from it rather than from a
+   * hardcoded list of four labels, which is exactly the reading this ticket
+   * exists to avoid. (See `certificationOptions` below.)
+   */
+  credentialCatalogue: CatalogueEntry[];
 }) {
   const [query, setQuery] = useState("");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [countryFilters, setCountryFilters] = useState<string[]>([]);
   const [serviceFilters, setServiceFilters] = useState<string[]>([]);
+  const [certificationFilters, setCertificationFilters] = useState<string[]>([]);
   const searchBox = useRef<HTMLInputElement>(null);
 
   /* Only services somebody actually offers get a chip, rather than the whole
@@ -139,6 +152,27 @@ export function PractitionerDirectory({
           practitioners.some((person) => person.services.includes(service.label)),
         ),
     [practitioners, serviceCatalogue],
+  );
+
+  /* The same "only a chip somebody actually holds" rule as `offered`, but
+     matched on catalogue **id** rather than label. Label matching is right for
+     services because a custom service arrives as free text with no catalogue
+     row behind it; a credential has no such escape hatch. It always
+     references `credential_catalogue`, so the id is always there and is the
+     correct key. Retired entries are excluded the same way the profile page's
+     `unearned` list excludes them: `active` filters the picker, not what
+     already-held rows render. */
+  const certificationOptions = useMemo(
+    () =>
+      credentialCatalogue
+        .filter((entry) => entry.kind === "certification" && entry.active)
+        .filter((entry) =>
+          practitioners.some((person) =>
+            person.credentials.some((credential) => credential.entry.id === entry.id),
+          ),
+        )
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.label.localeCompare(right.label)),
+    [practitioners, credentialCatalogue],
   );
 
   /* The Verification group gates on its source data like the other two, rather
@@ -178,13 +212,25 @@ export function PractitionerDirectory({
         ) {
           return false;
         }
+        if (
+          certificationFilters.length &&
+          !certificationFilters.some((id) =>
+            person.credentials.some((credential) => credential.entry.id === id),
+          )
+        ) {
+          return false;
+        }
         return matchesQuery(person, query);
       }),
-    [practitioners, query, verifiedOnly, countryFilters, serviceFilters],
+    [practitioners, query, verifiedOnly, countryFilters, serviceFilters, certificationFilters],
   );
 
   const filtering =
-    query.trim() !== "" || verifiedOnly || countryFilters.length > 0 || serviceFilters.length > 0;
+    query.trim() !== "" ||
+    verifiedOnly ||
+    countryFilters.length > 0 ||
+    serviceFilters.length > 0 ||
+    certificationFilters.length > 0;
 
   const toggle = (setter: typeof setServiceFilters) => (value: string) =>
     setter((current) =>
@@ -196,6 +242,7 @@ export function PractitionerDirectory({
     setVerifiedOnly(false);
     setCountryFilters([]);
     setServiceFilters([]);
+    setCertificationFilters([]);
   };
 
   return (
@@ -289,6 +336,20 @@ export function PractitionerDirectory({
           </FilterGroup>
         ) : null}
 
+        {certificationOptions.length > 0 ? (
+          <FilterGroup label="Certifications">
+            {certificationOptions.map((entry) => (
+              <FilterChip
+                key={entry.id}
+                pressed={certificationFilters.includes(entry.id)}
+                onClick={() => toggle(setCertificationFilters)(entry.id)}
+              >
+                {entry.label}
+              </FilterChip>
+            ))}
+          </FilterGroup>
+        ) : null}
+
         {filtering ? (
           <button
             type="button"
@@ -343,7 +404,7 @@ export function PractitionerDirectory({
                 {results.map((person) => (
                   <li
                     key={person.id}
-                    className="grid gap-5 border-b border-stroke px-6 py-6 last:border-b-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto] lg:items-start lg:gap-8 lg:px-8"
+                    className="grid gap-5 border-b border-stroke px-6 py-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto] lg:items-start lg:gap-8 lg:px-8"
                   >
                     <PractitionerRow person={person} />
                   </li>
@@ -355,7 +416,7 @@ export function PractitionerDirectory({
           {/* The invitation only belongs on an unfiltered view — under an active
               search it would read as a result. */}
           {!filtering ? (
-            <div className="flex flex-col items-start gap-3 border-t border-dashed border-stroke p-8 first:border-t-0 md:p-10">
+            <div className="flex flex-col items-start gap-3 border-t border-dashed border-stroke p-8 md:p-10">
               <Sparkle className="size-6 text-t-faint" />
               <p className="text-xl font-medium">Your profile here</p>
               {/* "Working towards it" is a statement about people, not about a
@@ -379,7 +440,7 @@ function FilterGroup({ label, children }: { label: string; children: React.React
   const labelId = useId();
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-5">
       <span
         id={labelId}
         className="w-20 shrink-0 text-xs font-medium tracking-wide text-t-faint uppercase"
@@ -426,12 +487,12 @@ function PractitionerRow({ person }: { person: Profile }) {
           what a flag would be drawn from; the flag asset itself is its own
           ticket, so nothing renders it here yet. */}
       <div className="min-w-0">
-        <h3 className="font-medium break-words">{person.name}</h3>
+        <h3 className="font-medium wrap-break-word">{person.name}</h3>
         {person.headline ? (
-          <p className="mt-0.5 text-sm break-words text-t-muted">{person.headline}</p>
+          <p className="mt-0.5 text-sm wrap-break-word text-t-muted">{person.headline}</p>
         ) : null}
         {person.location ? (
-          <p className="mt-1.5 text-xs break-words text-t-faint">{person.location}</p>
+          <p className="mt-1.5 text-xs wrap-break-word text-t-faint">{person.location}</p>
         ) : null}
       </div>
 
@@ -448,31 +509,36 @@ function PractitionerRow({ person }: { person: Profile }) {
           <p className="text-sm text-t-faint">No credentials listed.</p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {person.credentials.map((credential) => (
-              <li key={credential.entry.id} className="flex items-start gap-2 text-sm">
-                <CredentialMark credential={credential} />
-                <span className="min-w-0">
-                  <span className="break-words text-t-medium">{credential.entry.label}</span>
-                  <span className="ml-2 text-xs whitespace-nowrap text-t-faint">
-                    {earnedLabel(credential)}
+            {[...person.credentials]
+              .sort((left, right) => byRosterOrder(left.entry, right.entry))
+              .map((credential) => (
+                <li key={credential.entry.id} className="flex items-start gap-2 text-sm">
+                  <CredentialMark credential={credential} />
+                  <span className="min-w-0">
+                    <span className="wrap-break-word text-t-medium">{credential.entry.label}</span>
+                    <span className="ml-2 text-xs whitespace-nowrap text-t-faint">
+                      {earnedLabel(credential)}
+                    </span>
+                    <span className="block text-xs">
+                      <CredentialWeight entry={credential.entry} />
+                    </span>
+                    {credential.evidenceUrl ? (
+                      <a
+                        href={credential.evidenceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-2 text-xs text-t-muted underline decoration-stroke underline-offset-4 transition-colors hover:text-t-bright hover:decoration-current"
+                      >
+                        Certificate
+                        <span className="sr-only">
+                          {" "}
+                          for {credential.entry.label}, opens in a new tab
+                        </span>
+                      </a>
+                    ) : null}
                   </span>
-                  {credential.evidenceUrl ? (
-                    <a
-                      href={credential.evidenceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ml-2 text-xs text-t-muted underline decoration-stroke underline-offset-4 transition-colors hover:text-t-bright hover:decoration-current"
-                    >
-                      Certificate
-                      <span className="sr-only">
-                        {" "}
-                        for {credential.entry.label}, opens in a new tab
-                      </span>
-                    </a>
-                  ) : null}
-                </span>
-              </li>
-            ))}
+                </li>
+              ))}
           </ul>
         )}
       </div>
