@@ -128,7 +128,8 @@ describe("creating a profile", () => {
     }
     
     await sql("delete from public.practitioner_contacts where id = $1", [contact]);
-
+  });
+  
   it("lands as `pending`", async () => {
     const contact = await seedContact(newcomer.userId);
 
