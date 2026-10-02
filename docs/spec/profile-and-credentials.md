@@ -671,7 +671,7 @@ This is also load-bearing rather than tidy: **an unclaimed profile has no `user_
 no `auth.users` row, so no address anywhere.** Without this table Bluehex cannot contact
 a person it wrote up itself, and curated intake does not work at all.
 
-**"The enquiry button goes somewhere" is a schema invariant**, and the mechanism is the direction of the foreign key rather than a constraint or a check. The contact row is written first and `practitioners.contact_id` is `not null unique`, so a profile without a contact cannot be represented — there is no state to validate, no RPC to route through, and no application code to remember. `contact_email` being `not null` on top of that rules out the address being empty.
+**"The enquiry button goes somewhere" is a schema invariant**, and the mechanism is the direction of the foreign key rather than a constraint or a check. The contact row is written first and `practitioners.contact_id` is `not null unique`, so a profile without a contact cannot be represented — there is no state to validate, no RPC to route through, and no application code to remember. A check constraint using `btrim` on `contact_email` rules out the address being empty.
 
 An earlier draft had the foreign key the other way, which made a contact row optional in the schema and left the guarantee to a deferred constraint or an RPC. Reversing it deleted the problem instead of policing it.
 
@@ -915,7 +915,7 @@ create table public.practitioners (
   -- is the whole guarantee that an approved profile can be reached
   contact_id uuid not null unique references public.practitioner_contacts (id),
 
-  name text not null,
+  name text not null check (name ~ '[^[:space:]]'),
   headline text,
   location text,                       -- free text; the practitioner picks granularity
   country_code text check (country_code ~ '^[A-Z]{2}$'),
@@ -1178,7 +1178,7 @@ points at `active` instead, which is the operation that was actually meant.
 ```sql
 create table public.practitioner_contacts (
   id uuid primary key default gen_random_uuid(),
-  contact_email text not null,
+  contact_email text not null check (contact_email ~ '[^[:space:]]'),
   contact_phone text,
   contact_note text,
   -- who wrote the row, so it has an owner before any profile points at it.
