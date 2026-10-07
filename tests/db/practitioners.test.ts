@@ -111,6 +111,25 @@ describe("creating a profile", () => {
     await sql("delete from public.practitioners where id = $1", [result.data!.id]);
   });
 
+
+  it("refuses a whitespace-only name, a single tab included", async () => {
+    const contact = await seedContact(newcomer.userId);
+
+    for (const name of ["", " ", "\t", "\n", " \t\n "]) {
+      const result = await newcomer.client
+        .from("practitioners")
+        .insert({
+          contact_id: contact,
+          user_id: newcomer.userId,
+          name: name,
+        });
+
+      expectSqlstate(result, sqlstate.checkViolation);
+    }
+    
+    await sql("delete from public.practitioner_contacts where id = $1", [contact]);
+  });
+
   it("lands as `pending`", async () => {
     const contact = await seedContact(newcomer.userId);
 
@@ -140,6 +159,7 @@ describe("creating a profile", () => {
        behind the grant, and the column default is the one status a practitioner's
        insert can give a profile. */
     expectPermissionDenied(newcomer, result);
+
   });
 
   it("is refused for somebody else's account", async () => {
