@@ -877,7 +877,7 @@ function QueueRow({
       /* Three states that are actually distinguishable on a #faf7f6 page:
          page, white on hover, ink when selected. */
       className={`w-full rounded-tight px-3 py-2.5 text-left transition-colors ${
-        selected ? "bg-ink text-t-invert" : "hover:bg-surface"
+        selected ? "bg-ink text-t-invert" : "hover:bg-xh-jacarta-50"
       }`}
     >
       <p className="font-medium">{profile.name}</p>

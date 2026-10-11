@@ -76,7 +76,7 @@ export function MeetupEvents({ events }: { events: Event[] }) {
       </Card>
 
       {upcoming.length > 0 ? (
-        <div className="overflow-hidden rounded-card bg-surface">
+        <div className="overflow-hidden rounded-card border border-stroke bg-surface">
           <ul>
             {upcoming.map((event) => (
               <li

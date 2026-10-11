@@ -57,7 +57,7 @@ export default function DesignIndex() {
           <li key={design.href}>
             <Link
               href={design.href}
-              className="group block rounded-card bg-surface p-8 transition-colors hover:bg-surface-shade md:p-10"
+              className="group block rounded-card border border-stroke bg-surface p-8 transition-colors hover:shadow-lg md:p-10"
             >
               <p className="display-3 flex items-start gap-3">
                 {design.title}

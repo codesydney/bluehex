@@ -88,7 +88,7 @@ export function ContactForm({ email, about }: { email: string; about?: string })
   return (
     <form onSubmit={onSubmit} className="mt-14 grid gap-x-8 gap-y-10 sm:grid-cols-2">
       {about ? (
-        <p className="rounded-tight bg-surface px-5 py-4 text-sm text-t-muted sm:col-span-2">
+        <p className="rounded-tight border border-stroke bg-surface px-5 py-4 text-sm text-t-muted sm:col-span-2">
           Enquiring about <strong className="font-medium text-t-bright">{about}</strong>.
           Bluehex passes it on — practitioners are not contacted directly.
         </p>

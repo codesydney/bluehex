@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import { Collaborators } from "@/components/collaborators";
 import { MeetupEvents } from "@/components/meetup-events";
-import { Button, SectionLabel } from "@/components/ui";
+import { Button, Hero } from "@/components/ui";
 import { listUpcomingEvents } from "@/lib/events";
 import { site } from "@/lib/site";
 
@@ -27,27 +28,30 @@ export default async function MeetupsPage() {
 
   return (
     <>
-      <section className="container-x pt-36 pb-20 md:pt-48 md:pb-28">
-        <SectionLabel>Meetups</SectionLabel>
+      <Hero
+        label="Meetups"
+        title="Meetups."
+        lead={
+          <>
+            The Code.Sydney Claude community meets weekly in Sydney — beginners and builders
+            both. See what&rsquo;s next below, or join the group to get notified of every one.
+          </>
+        }
+        actions={
+          <>
+            <Button href="#meetups" size="lg">
+              See what&rsquo;s next
+            </Button>
+            <Button href={site.meetup} variant="outline" size="lg">
+              Join the group
+            </Button>
+          </>
+        }
+      >
+        <Collaborators />
+      </Hero>
 
-        <h1 className="display-1 mt-8 max-w-6xl">Meetups.</h1>
-
-        <p className="mt-10 max-w-2xl text-lg text-t-muted md:text-xl">
-          The Code.Sydney Claude community meets weekly in Sydney — beginners and builders
-          both. See what&rsquo;s next below, or join the group to get notified of every one.
-        </p>
-
-        <div className="mt-12 flex flex-wrap gap-4">
-          <Button href="#meetups" size="lg">
-            See what&rsquo;s next
-          </Button>
-          <Button href={site.meetup} variant="outline" size="lg">
-            Join the group
-          </Button>
-        </div>
-      </section>
-
-      <section id="meetups" className="container-x scroll-mt-24 pb-16 md:pb-24">
+      <section id="meetups" className="container-x scroll-mt-24 py-16 md:py-24">
         <MeetupEvents events={events} />
       </section>
     </>

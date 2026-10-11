@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useId, useMemo, useRef, useState } from "react";
 import { CredentialMark, CredentialWeight, Tick, earnedLabel } from "@/components/credential-mark";
 import { Close, Search, Sparkle } from "@/components/icons";
-import { Badge, Card } from "@/components/ui";
+import { Badge, Card, GradientBand } from "@/components/ui";
 import {
   byRosterOrder,
   countryName,
@@ -246,193 +246,197 @@ export function PractitionerDirectory({
   };
 
   return (
-    <section id="practitioners" className="container-x scroll-mt-24 py-16 md:py-24">
-      <h2 className="display-2 max-w-3xl">Find a Claude practitioner.</h2>
+    <GradientBand id="practitioners" tone="soft" className="scroll-mt-24 py-24">
+      <div className="container-x">
+        <h2 className="mb-4 text-center font-display text-3xl text-t-bright">Find a Claude practitioner.</h2>
 
-      <p className="mt-6 max-w-2xl text-t-muted">
-        Anyone in the community can publish a profile.{" "}
-        <strong className="font-medium text-t-bright">Verified</strong> means Bluehex has
-        checked that credential against the certificate that issued it.
-      </p>
+        <p className="mx-auto max-w-2xl text-center text-t-muted">
+          Anyone in the community can publish a profile.{" "}
+          <strong className="font-medium text-t-bright">Verified</strong> means Bluehex has
+          checked that credential against the certificate that issued it.
+        </p>
 
-      {/* Search ------------------------------------------------------- */}
-      <div className="mt-10 max-w-3xl">
-        <label htmlFor="practitioner-search" className="sr-only">
-          Search practitioners by name, service, skill, credential or location
-        </label>
-        {/* The focus ring lives on the pill rather than the input, so it traces
-            the rounded shape instead of boxing the text. Matches the global
-            :focus-visible treatment in globals.css. */}
-        <div className="flex items-center gap-4 rounded-full bg-surface px-6 py-4 outline-ink outline-offset-[3px] focus-within:outline-2 md:px-8 md:py-5">
-          <Search className="size-5 shrink-0 text-t-faint md:size-6" />
-          <input
-            ref={searchBox}
-            id="practitioner-search"
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by service, skill, credential or location"
-            /* The native search affordances duplicate the clear button and the
-               icon this box already draws. */
-            className="w-full bg-transparent text-base outline-none placeholder:text-t-faint md:text-lg [&::-webkit-search-cancel-button]:appearance-none"
-          />
-          {query ? (
+        {/* Search ------------------------------------------------------- */}
+        <div className="mx-auto mt-10 max-w-2xl">
+          <label htmlFor="practitioner-search" className="sr-only">
+            Search practitioners by name, service, skill, credential or location
+          </label>
+          {/* The focus ring lives on the box rather than the input, so it traces
+              the rounded shape instead of boxing the text. */}
+          <div className="flex items-center gap-3 rounded-2xl border border-stroke bg-surface px-4 py-3 focus-within:border-ink focus-within:ring-2 focus-within:ring-ink">
+            <Search className="size-4 shrink-0 text-t-muted" />
+            <input
+              ref={searchBox}
+              id="practitioner-search"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by service, skill, credential or location"
+              /* The native search affordances duplicate the clear button and the
+                 icon this box already draws. */
+              className="w-full bg-transparent text-base text-t-bright outline-none placeholder:text-t-faint [&::-webkit-search-cancel-button]:appearance-none"
+            />
+            {query ? (
+              <button
+                type="button"
+                /* Clearing unmounts this button, so hand focus back to the input
+                   rather than dropping the keyboard user out to the document. */
+                onClick={() => {
+                  setQuery("");
+                  searchBox.current?.focus();
+                }}
+                aria-label="Clear search"
+                className="grid size-8 shrink-0 place-items-center rounded-full text-t-muted transition-colors hover:bg-ink hover:text-t-invert"
+              >
+                <Close className="size-4" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Filters ------------------------------------------------------ */}
+        {/* Grouped rather than one flat row of chips: "Verified", a country and a
+            focus area are three different kinds of claim, and mixing them makes
+            the row read as one undifferentiated pile. Groups whose source data is
+            empty render nothing at all. */}
+        <div className="mt-8 flex flex-col items-center gap-4">
+          {anyBadged ? (
+            <FilterGroup label="Verification">
+              <FilterChip pressed={verifiedOnly} onClick={() => setVerifiedOnly(!verifiedOnly)}>
+                Verified only
+              </FilterChip>
+            </FilterGroup>
+          ) : null}
+
+          {countries.length > 0 ? (
+            <FilterGroup label="Location">
+              {countries.map((country) => (
+                <FilterChip
+                  key={country.code}
+                  pressed={countryFilters.includes(country.code)}
+                  onClick={() => toggle(setCountryFilters)(country.code)}
+                >
+                  {country.name}
+                </FilterChip>
+              ))}
+            </FilterGroup>
+          ) : null}
+
+          {offered.length > 0 ? (
+            <FilterGroup label="Services">
+              {offered.map((service) => (
+                <FilterChip
+                  key={service.id}
+                  pressed={serviceFilters.includes(service.label)}
+                  onClick={() => toggle(setServiceFilters)(service.label)}
+                >
+                  {service.label}
+                </FilterChip>
+              ))}
+            </FilterGroup>
+          ) : null}
+
+          {certificationOptions.length > 0 ? (
+            <FilterGroup label="Certifications">
+              {certificationOptions.map((entry) => (
+                <FilterChip
+                  key={entry.id}
+                  pressed={certificationFilters.includes(entry.id)}
+                  onClick={() => toggle(setCertificationFilters)(entry.id)}
+                >
+                  {entry.label}
+                </FilterChip>
+              ))}
+            </FilterGroup>
+          ) : null}
+
+          {filtering ? (
             <button
               type="button"
-              /* Clearing unmounts this button, so hand focus back to the input
-                 rather than dropping the keyboard user out to the document. */
-              onClick={() => {
-                setQuery("");
-                searchBox.current?.focus();
-              }}
-              aria-label="Clear search"
-              className="grid size-8 shrink-0 place-items-center rounded-full text-t-muted transition-colors hover:bg-ink hover:text-t-invert"
+              onClick={clearAll}
+              className="w-fit text-sm text-ink underline-offset-4 hover:underline"
             >
-              <Close className="size-4" />
+              Clear all
             </button>
           ) : null}
         </div>
-      </div>
 
-      {/* Filters ------------------------------------------------------ */}
-      {/* Grouped rather than one flat row of chips: "Verified", a country and a
-          focus area are three different kinds of claim, and mixing them makes
-          the row read as one undifferentiated pile. Groups whose source data is
-          empty render nothing at all. */}
-      <div className="mt-8 flex flex-col gap-4">
-        {anyBadged ? (
-          <FilterGroup label="Verification">
-            <FilterChip pressed={verifiedOnly} onClick={() => setVerifiedOnly(!verifiedOnly)}>
-              Verified only
-            </FilterChip>
-          </FilterGroup>
-        ) : null}
+        {/* Results ------------------------------------------------------ */}
+        <p aria-live="polite" className="mt-8 text-center text-sm text-t-muted">
+          {practitioners.length === 0
+            ? "The first profiles are being verified now."
+            : `${results.length} ${results.length === 1 ? "practitioner" : "practitioners"}`}
+        </p>
 
-        {countries.length > 0 ? (
-          <FilterGroup label="Location">
-            {countries.map((country) => (
-              <FilterChip
-                key={country.code}
-                pressed={countryFilters.includes(country.code)}
-                onClick={() => toggle(setCountryFilters)(country.code)}
-              >
-                {country.name}
-              </FilterChip>
-            ))}
-          </FilterGroup>
-        ) : null}
+        {/* No `practitioners.length > 0` guard. The empty roster is what production
+            ships, and the guard meant the one state that most needs an explanation
+            got none: filtering emptied the results, the invitation below is
+            suppressed under an active filter, and the container has no padding, so
+            the page's only call to action was replaced by nothing at all. Gating
+            the Verification chip above removes the one-click version of that; the
+            search box is not gated and cannot be, so the card has to cover it. */}
+        {filtering && results.length === 0 ? (
+          <Card className="mx-auto mt-6 max-w-2xl text-center">
+            <p className="font-display text-lg text-t-bright">No practitioner matches that yet.</p>
+            <p className="mt-3 text-t-muted">
+              {practitioners.length > 0
+                ? "Try a broader term, or clear the filters to see everyone in the directory."
+                : "No profiles are published yet, so there is nothing to search — clearing this will not turn any up. Yours would be the first: certified, or working towards it."}
+            </p>
+          </Card>
+        ) : (
+          <div className="mt-6 overflow-hidden rounded-card border border-stroke bg-surface">
+            {results.length > 0 ? (
+              <>
+                {/* Column headings, set like Xhibiter's Rankings table.
+                    Suppressed below lg, where a row stacks and headings would
+                    label nothing. */}
+                <div
+                  aria-hidden="true"
+                  className="hidden border-b border-stroke bg-xh-jacarta-50 px-6 py-4 font-display text-sm text-t-bright lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto] lg:gap-8 lg:px-8"
+                >
+                  <span>Practitioner</span>
+                  <span>Credentials</span>
+                  <span>Services</span>
+                  <span />
+                </div>
 
-        {offered.length > 0 ? (
-          <FilterGroup label="Services">
-            {offered.map((service) => (
-              <FilterChip
-                key={service.id}
-                pressed={serviceFilters.includes(service.label)}
-                onClick={() => toggle(setServiceFilters)(service.label)}
-              >
-                {service.label}
-              </FilterChip>
-            ))}
-          </FilterGroup>
-        ) : null}
+                <ul>
+                  {results.map((person) => (
+                    <li
+                      key={person.id}
+                      className="grid gap-5 border-b border-stroke px-6 py-6 transition-shadow hover:relative hover:shadow-lg lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto] lg:items-start lg:gap-8 lg:px-8"
+                    >
+                      <PractitionerRow person={person} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
 
-        {certificationOptions.length > 0 ? (
-          <FilterGroup label="Certifications">
-            {certificationOptions.map((entry) => (
-              <FilterChip
-                key={entry.id}
-                pressed={certificationFilters.includes(entry.id)}
-                onClick={() => toggle(setCertificationFilters)(entry.id)}
-              >
-                {entry.label}
-              </FilterChip>
-            ))}
-          </FilterGroup>
-        ) : null}
-
-        {filtering ? (
-          <button
-            type="button"
-            onClick={clearAll}
-            className="w-fit text-sm text-t-muted underline-offset-4 transition-colors hover:text-t-bright hover:underline"
-          >
-            Clear all
-          </button>
-        ) : null}
-      </div>
-
-      {/* Results ------------------------------------------------------ */}
-      <p aria-live="polite" className="mt-8 text-sm text-t-muted">
-        {practitioners.length === 0
-          ? "The first profiles are being verified now."
-          : `${results.length} ${results.length === 1 ? "practitioner" : "practitioners"}`}
-      </p>
-
-      {/* No `practitioners.length > 0` guard. The empty roster is what production
-          ships, and the guard meant the one state that most needs an explanation
-          got none: filtering emptied the results, the invitation below is
-          suppressed under an active filter, and the container has no padding, so
-          the page's only call to action was replaced by nothing at all. Gating
-          the Verification chip above removes the one-click version of that; the
-          search box is not gated and cannot be, so the card has to cover it. */}
-      {filtering && results.length === 0 ? (
-        <Card className="mt-6">
-          <p className="text-lg">No practitioner matches that yet.</p>
-          <p className="mt-3 text-t-muted">
-            {practitioners.length > 0
-              ? "Try a broader term, or clear the filters to see everyone in the directory."
-              : "No profiles are published yet, so there is nothing to search — clearing this will not turn any up. Yours would be the first: certified, or working towards it."}
-          </p>
-        </Card>
-      ) : (
-        <div className="mt-6 overflow-hidden rounded-card bg-surface">
-          {results.length > 0 ? (
-            <>
-              {/* Column headings. Suppressed below lg, where a row stacks and
-                  headings would label nothing. */}
-              <div
-                aria-hidden="true"
-                className="hidden border-b border-stroke px-6 py-3 text-xs font-medium tracking-wide text-t-faint uppercase lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto] lg:gap-8 lg:px-8"
-              >
-                <span>Practitioner</span>
-                <span>Credentials</span>
-                <span>Services</span>
-                <span />
+            {/* The invitation only belongs on an unfiltered view — under an active
+                search it would read as a result. */}
+            {!filtering ? (
+              <div className="flex flex-col items-center gap-3 border-t border-dashed border-stroke p-8 text-center first:border-t-0 md:p-10">
+                <span className="grid size-12 place-items-center rounded-full bg-ink text-t-invert shadow-xh-accent-volume">
+                  <Sparkle className="size-5" />
+                </span>
+                <p className="font-display text-xl text-t-bright">Your profile here</p>
+                {/* "Working towards it" is a statement about people, not about a
+                    row anybody can enter — there is no in-progress credential and
+                    a profile with none is an ordinary profile. The invitation is
+                    still true and is deliberately not narrowed to the credentialed:
+                    a practitioner says what they are working through in their bio,
+                    in their own words. */}
+                <p className="max-w-md text-sm leading-relaxed text-t-muted">
+                  Certified, or working towards it. Both belong in the directory.
+                </p>
               </div>
-
-              <ul>
-                {results.map((person) => (
-                  <li
-                    key={person.id}
-                    className="grid gap-5 border-b border-stroke px-6 py-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto] lg:items-start lg:gap-8 lg:px-8"
-                  >
-                    <PractitionerRow person={person} />
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-
-          {/* The invitation only belongs on an unfiltered view — under an active
-              search it would read as a result. */}
-          {!filtering ? (
-            <div className="flex flex-col items-start gap-3 border-t border-dashed border-stroke p-8 md:p-10">
-              <Sparkle className="size-6 text-t-faint" />
-              <p className="text-xl font-medium">Your profile here</p>
-              {/* "Working towards it" is a statement about people, not about a
-                  row anybody can enter — there is no in-progress credential and
-                  a profile with none is an ordinary profile. The invitation is
-                  still true and is deliberately not narrowed to the credentialed:
-                  a practitioner says what they are working through in their bio,
-                  in their own words. */}
-              <p className="max-w-md text-sm leading-relaxed text-t-muted">
-                Certified, or working towards it. Both belong in the directory.
-              </p>
-            </div>
-          ) : null}
-        </div>
-      )}
-    </section>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </GradientBand>
   );
 }
 
@@ -440,14 +444,11 @@ function FilterGroup({ label, children }: { label: string; children: React.React
   const labelId = useId();
 
   return (
-    <div className="flex flex-wrap items-center gap-5">
-      <span
-        id={labelId}
-        className="w-20 shrink-0 text-xs font-medium tracking-wide text-t-faint uppercase"
-      >
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      <span id={labelId} className="mr-1 font-display text-sm text-t-bright">
         {label}
       </span>
-      <div role="group" aria-labelledby={labelId} className="flex flex-wrap items-center gap-2">
+      <div role="group" aria-labelledby={labelId} className="flex flex-wrap items-center justify-center gap-2">
         {children}
       </div>
     </div>
@@ -468,10 +469,10 @@ function FilterChip({
       type="button"
       onClick={onClick}
       aria-pressed={pressed}
-      className={`inline-flex h-10 items-center rounded-full border px-4 text-sm font-medium transition-colors ${
+      className={`inline-flex h-9 items-center rounded-xl border px-4 font-display text-sm transition-colors ${
         pressed
-          ? "border-ink bg-ink text-t-invert"
-          : "border-stroke text-t-muted hover:border-stroke-strong hover:text-t-bright"
+          ? "border-transparent bg-ink text-t-invert"
+          : "border-stroke bg-surface text-t-muted hover:border-transparent hover:bg-ink hover:text-t-invert"
       }`}
     >
       {children}
@@ -486,20 +487,28 @@ function PractitionerRow({ person }: { person: Profile }) {
           the top of the file. `countryCode` drives the location filter and is
           what a flag would be drawn from; the flag asset itself is its own
           ticket, so nothing renders it here yet. */}
-      <div className="min-w-0">
-        <h3 className="font-medium wrap-break-word">{person.name}</h3>
-        {person.headline ? (
-          <p className="mt-0.5 text-sm wrap-break-word text-t-muted">{person.headline}</p>
-        ) : null}
-        {person.location ? (
-          <p className="mt-1.5 text-xs wrap-break-word text-t-faint">{person.location}</p>
-        ) : null}
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden="true"
+          className="grid size-12 shrink-0 place-items-center rounded-tight bg-ink font-display text-lg text-t-invert"
+        >
+          {person.name.charAt(0).toUpperCase()}
+        </span>
+        <div className="min-w-0">
+          <h3 className="font-display text-lg leading-tight wrap-break-word text-t-bright">{person.name}</h3>
+          {person.headline ? (
+            <p className="mt-1 text-sm wrap-break-word text-t-muted">{person.headline}</p>
+          ) : null}
+          {person.location ? (
+            <p className="mt-1 text-xs wrap-break-word text-ink">{person.location}</p>
+          ) : null}
+        </div>
       </div>
 
       {/* Credentials, and the badge that belongs to them. */}
       <div className="min-w-0">
         {hasVerifiedBadge(person.credentials) ? (
-          <p className="mb-2.5 inline-flex items-center gap-1.5 rounded-full bg-ink px-2.5 py-1 text-[11px] font-medium text-t-invert">
+          <p className="mb-2.5 inline-flex items-center gap-1.5 rounded-full bg-xh-green px-2.5 py-1 text-[11px] font-semibold text-t-invert">
             <Tick className="size-2.5" />
             Verified by Bluehex
           </p>
@@ -570,7 +579,7 @@ function PractitionerRow({ person }: { person: Profile }) {
           and cut for that reason among others. */}
       <Link
         href={profilePath(person)}
-        className="inline-flex h-9 w-fit shrink-0 items-center rounded-full border border-stroke-strong px-4 text-sm font-medium transition-colors hover:bg-ink hover:text-t-invert"
+        className="inline-flex h-10 w-fit shrink-0 items-center rounded-full bg-ink px-5 text-sm font-semibold text-t-invert shadow-xh-accent-volume transition-colors hover:bg-ink-tint"
       >
         View profile
         <span className="sr-only"> for {person.name}</span>

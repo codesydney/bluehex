@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowUpRight, Sparkle } from "@/components/icons";
 
@@ -9,16 +10,17 @@ type ButtonVariant = "solid" | "outline" | "lime" | "ghost";
 type ButtonSize = "sm" | "md" | "lg";
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  solid: "bg-ink text-t-invert hover:bg-ink-tint",
-  outline: "border border-stroke-strong text-t-bright hover:bg-ink hover:text-t-invert",
-  lime: "bg-lime text-ink hover:brightness-95",
+  solid: "bg-ink text-t-invert shadow-xh-accent-volume hover:bg-ink-tint",
+  outline:
+    "bg-surface text-ink shadow-xh-white-volume hover:bg-ink-tint hover:text-t-invert hover:shadow-xh-accent-volume",
+  lime: "bg-lime text-t-bright hover:brightness-95",
   ghost: "text-t-bright hover:text-t-muted",
 };
 
 const buttonSizes: Record<ButtonSize, string> = {
   sm: "h-10 px-5 text-sm gap-2",
-  md: "h-12 px-6 text-base gap-2.5",
-  lg: "h-16 px-8 text-xl gap-3",
+  md: "h-12 px-7 text-base gap-2.5",
+  lg: "h-14 px-8 text-lg gap-3",
 };
 
 type ButtonProps = {
@@ -45,7 +47,7 @@ export function Button({
   external,
 }: ButtonProps) {
   const classes = [
-    "inline-flex items-center justify-center rounded-full font-medium transition-colors duration-200",
+    "inline-flex items-center justify-center rounded-full font-semibold whitespace-nowrap transition-all duration-200",
     buttonVariants[variant],
     buttonSizes[size],
     className,
@@ -90,7 +92,7 @@ export function SectionLabel({
 }) {
   return (
     <p
-      className={`flex items-center gap-2 text-sm font-medium text-t-medium ${className}`}
+      className={`flex items-center gap-2 text-sm font-semibold tracking-wide text-ink uppercase ${className}`}
     >
       <Sparkle className="size-4 shrink-0" />
       {children}
@@ -112,20 +114,21 @@ export function Badge({
   className?: string;
 }) {
   const tones = {
-    quiet: "border-stroke text-t-muted",
-    strong: "border-stroke-strong text-t-bright",
+    quiet: "border-stroke bg-xh-jacarta-50 text-t-medium",
+    strong: "border-stroke-strong bg-surface text-ink",
   };
 
   return (
     <span
-      className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${tones[tone]} ${className}`}
+      className={`inline-flex w-fit items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium ${tones[tone]} ${className}`}
     >
       {children}
     </span>
   );
 }
 
-/** White rounded panel — the repeating surface across every page. */
+/** White rounded panel — the repeating surface across every page. Bordered,
+    as Xhibiter's cards are, since the page behind it is near-white too. */
 export function Card({
   children,
   className = "",
@@ -136,7 +139,9 @@ export function Card({
   as?: React.ElementType;
 }) {
   return (
-    <Tag className={`rounded-card bg-surface p-8 md:p-10 ${className}`}>{children}</Tag>
+    <Tag className={`rounded-card border border-stroke bg-surface p-8 md:p-10 ${className}`}>
+      {children}
+    </Tag>
   );
 }
 
@@ -173,8 +178,8 @@ export function Marquee({
 }
 
 /**
- * Page-title block used by every inner page: a starred eyebrow beside a large
- * heading, with optional supporting copy underneath.
+ * Page-title block used by every inner page: Xhibiter's page-title banner — a
+ * centred eyebrow, heading and supporting copy over the soft gradient.
  */
 export function PageHeader({
   label,
@@ -188,21 +193,82 @@ export function PageHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <header className="container-x pt-32 pb-16 md:pt-44 md:pb-24">
-      <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-16">
-        <SectionLabel className="md:w-40 md:shrink-0 md:pt-4">{label}</SectionLabel>
-        <div className="max-w-4xl">
-          <h1 className="display-2">{title}</h1>
-          {lead ? (
-            <p className="mt-8 max-w-2xl text-lg text-t-muted md:text-xl">{lead}</p>
-          ) : null}
-          {children ? <div className="mt-10">{children}</div> : null}
-        </div>
+    <GradientBand as="header" className="pt-36 pb-16 md:pt-44 md:pb-24">
+      <div className="container-x flex flex-col items-center text-center">
+        <SectionLabel>{label}</SectionLabel>
+        <h1 className="display-2 mt-6 max-w-4xl">{title}</h1>
+        {lead ? <p className="mt-6 max-w-2xl text-lg text-t-muted">{lead}</p> : null}
+        {children ? <div className="mt-10">{children}</div> : null}
       </div>
-    </header>
+    </GradientBand>
   );
 }
 
+/**
+ * The top-of-page hero shared by the three directory tabs: Xhibiter's Home 2
+ * hero — centred heading, lead and actions over the strong gradient, with
+ * room underneath for whatever closes it (the collaborators strip).
+ */
+export function Hero({
+  label,
+  title,
+  lead,
+  actions,
+  children,
+}: {
+  label?: string;
+  title: React.ReactNode;
+  lead?: React.ReactNode;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <GradientBand className="pt-28 pb-20 md:pt-36">
+      <div className="container-x">
+        <div className="flex flex-col items-center py-16 text-center md:py-24">
+          {label ? <SectionLabel className="mb-6">{label}</SectionLabel> : null}
+          <h1 className="display-1 max-w-5xl">{title}</h1>
+          {lead ? <p className="mt-6 max-w-2xl text-lg text-t-muted">{lead}</p> : null}
+          {actions ? <div className="mt-8 flex flex-wrap justify-center gap-4">{actions}</div> : null}
+        </div>
+        {children}
+      </div>
+    </GradientBand>
+  );
+}
+
+/**
+ * A full-bleed band with the Xhibiter gradient behind it — `strong` is the
+ * hero gradient, `soft` the paler one its sections use. The image is
+ * decorative and sits behind the content on its own stacking layer.
+ */
+export function GradientBand({
+  children,
+  tone = "strong",
+  as: Tag = "section",
+  className = "",
+  id,
+}: {
+  children: React.ReactNode;
+  tone?: "strong" | "soft";
+  as?: React.ElementType;
+  className?: string;
+  id?: string;
+}) {
+  return (
+    <Tag id={id} className={`relative isolate ${className}`}>
+      <Image
+        src={tone === "strong" ? "/img/xhibiter/gradient.jpg" : "/img/xhibiter/gradient_light.jpg"}
+        alt=""
+        width={1920}
+        height={900}
+        priority={tone === "strong"}
+        className="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover object-top"
+      />
+      {children}
+    </Tag>
+  );
+}
 
 export function ExternalLinkDisclaimer({
   children,

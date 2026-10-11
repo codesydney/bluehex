@@ -251,7 +251,7 @@ export function ProfileForm({
                   className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
                     index === step
                       ? "bg-ink text-t-invert"
-                      : "text-t-muted hover:bg-surface hover:text-t-bright"
+                      : "text-t-muted hover:bg-xh-jacarta-50 hover:text-t-bright"
                   }`}
                 >
                   <span aria-hidden="true" className="mr-1.5 text-xs opacity-60">
@@ -636,7 +636,7 @@ export function ProfileForm({
               pressed and is never announced is a message a screen-reader user
               does not have. */}
           {result?.ok ? (
-            <p role="alert" className="max-w-xl rounded-tight bg-surface p-4 text-sm">
+            <p role="alert" className="max-w-xl rounded-tight border border-stroke bg-surface p-4 text-sm">
               <strong className="font-medium">Saved.</strong>{" "}
               <span className="text-t-muted">
                 {existing
@@ -647,7 +647,7 @@ export function ProfileForm({
           ) : null}
 
           {result && !result.ok ? (
-            <p role="alert" className="max-w-xl rounded-tight bg-surface p-4 text-sm text-t-muted">
+            <p role="alert" className="max-w-xl rounded-tight border border-stroke bg-surface p-4 text-sm text-t-muted">
               {result.message}
             </p>
           ) : null}
@@ -693,7 +693,7 @@ function Progress({ draft, catalogue }: { draft: ProfileDraft; catalogue: Catalo
   const holdings = new Set(claimedCredentials(draft).map((credential) => credential.catalogueId));
 
   return (
-    <div className="rounded-card bg-surface p-5">
+    <div className="rounded-card border border-stroke bg-surface p-5">
       <p className="text-sm">
         <strong className="font-medium">
           {held} of {total}
@@ -761,7 +761,7 @@ function BluehexDecides({
     : "Not submitted yet — Bluehex sees this when you submit";
 
   return (
-    <div className="rounded-card bg-surface p-6">
+    <div className="rounded-card border border-stroke bg-surface p-6">
       <h3 className="text-sm font-medium">What Bluehex decides, and this form does not</h3>
 
       <dl className="mt-4 flex flex-col gap-4">

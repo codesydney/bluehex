@@ -1,48 +1,50 @@
 @import "tailwindcss";
 
 /* ------------------------------------------------------------------
- * Design tokens ported from the Code.Sydney site.
+ * Design tokens. Originally ported from the Code.Sydney site; the values are
+ * now the Xhibiter "Home 2" palette (violet accent, jacarta navy text, Cal Sans
+ * and DM Sans), swapped in at token level so every component follows.
  *
  * That stylesheet sets the root font-size to 10px and expresses every
  * dimension in rem against that. We keep the browser default 16px root here
  * and carry the values across in px, so a `1.6rem` radius over there reads as
  * `16px` here.
  *
- * `ink` is the high-contrast fill — near-black here — and `t-invert` is the
+ * `ink` is the high-contrast fill — the violet accent here — and `t-invert` is the
  * text that sits on top of it. Every component reads these roles rather than
  * literal colours, so re-theming is a token-level swap. Single scheme by
  * design: the page stays light regardless of OS preference.
  * ------------------------------------------------------------------ */
 @theme {
   /* surfaces */
-  --color-page: #faf7f6;
+  --color-page: #ffffff;
   --color-surface: #ffffff;
-  --color-surface-shade: #e0dddb;
-  --color-ink: #161616;
-  --color-ink-tint: #1c1c1c;
+  --color-surface-shade: #e7e8ec;
+  --color-ink: #8358ff;
+  --color-ink-tint: #7444ff;
 
   /* brand accents */
-  --color-accent: #9f8be7;
-  --color-lime: #ddf160;
+  --color-accent: #8358ff;
+  --color-lime: #b9a0ff;
 
   /* text ramp */
-  --color-t-bright: #161616;
-  --color-t-medium: #303030;
-  --color-t-muted: #585858;
-  --color-t-faint: #b2aead;
+  --color-t-bright: #131740;
+  --color-t-medium: #363a5d;
+  --color-t-muted: #5a5d79;
+  --color-t-faint: #a1a2b3;
   --color-t-invert: #ffffff;
-  --color-t-invert-muted: #acacac;
+  --color-t-invert-muted: #e7e8ec;
 
   /* Feedback. One colour, used only where something is wrong: a form error, and
      nothing else. Dark enough on `--color-page` and on `--color-surface` to
      clear 4.5:1 at the 12px these messages are set in — and never the only
      signal, since every message that uses it is text beside the field it is
      about. */
-  --color-danger: #a02724;
+  --color-danger: #b42318;
 
   /* strokes */
-  --color-stroke: #e0dddb;
-  --color-stroke-strong: #161616;
+  --color-stroke: #e7e8ec;
+  --color-stroke-strong: #8358ff;
 
   /* Radii. Named by role, not by a size letter: Tailwind already owns the
      single-letter suffixes for sides, so a `--radius-l` token produces a
@@ -51,13 +53,30 @@
      as a half-rounded box. Same trap as naming a colour `base` and losing
      `text-base`. Keep these names multi-letter and unlike any built-in. */
   --radius-tight: 10px;
-  --radius-card: 26px;
-  --radius-block: 38px;
-  --radius-huge: 80px;
+  --radius-card: 20px;
+  --radius-block: 24px;
+  --radius-huge: 40px;
 
   /* type */
-  --font-display: var(--font-funnel-display), ui-sans-serif, system-ui, sans-serif;
-  --font-sans: var(--font-funnel-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cal-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+
+  /* The raw Xhibiter scale, for the places that want a specific step rather
+     than a role — the home page and the gradient page titles. */
+  --color-xh-jacarta-50: #f4f4f6;
+  --color-xh-jacarta-100: #e7e8ec;
+  --color-xh-jacarta-200: #c4c5cf;
+  --color-xh-jacarta-300: #a1a2b3;
+  --color-xh-jacarta-400: #7d7f96;
+  --color-xh-jacarta-500: #5a5d79;
+  --color-xh-jacarta-600: #363a5d;
+  --color-xh-jacarta-700: #131740;
+  --color-xh-green: #10b981;
+
+  --shadow-xh-accent-volume:
+    5px 5px 10px rgba(108, 106, 213, 0.25), inset 2px 2px 6px #a78df0, inset -5px -5px 10px #6336e4;
+  --shadow-xh-white-volume:
+    5px 5px 10px rgba(108, 106, 212, 0.25), inset 2px 2px 6px #eef1f9, inset -5px -5px 10px #dfe3ef;
 }
 
 @layer base {
@@ -79,8 +98,8 @@
   h5,
   h6 {
     font-family: var(--font-display);
-    font-weight: 500;
-    letter-spacing: -0.02em;
+    font-weight: 400;
+    letter-spacing: -0.01em;
     line-height: 1.06;
     text-wrap: balance;
   }
@@ -88,8 +107,8 @@
   /* Tracking is tight at display sizes and normal at body sizes, so it is set
      per-heading rather than globally. */
   ::selection {
-    background-color: var(--color-lime);
-    color: var(--color-ink);
+    background-color: var(--color-ink);
+    color: var(--color-t-invert);
   }
 
   :focus-visible {
@@ -117,19 +136,19 @@
   /* Display headline scale — fluid between the mobile and 1600px extremes so
      the giant section titles never need per-breakpoint overrides. */
   .display-1 {
-    font-size: clamp(3.25rem, 11vw, 11.5rem);
-    line-height: 0.92;
-    letter-spacing: -0.04em;
+    font-size: clamp(2.75rem, 7vw, 5.25rem);
+    line-height: 1;
+    letter-spacing: -0.02em;
   }
 
   .display-2 {
-    font-size: clamp(2.5rem, 6.2vw, 5.5rem);
-    line-height: 1.02;
-    letter-spacing: -0.03em;
+    font-size: clamp(2.1rem, 4.4vw, 3.5rem);
+    line-height: 1.06;
+    letter-spacing: -0.015em;
   }
 
   .display-3 {
-    font-size: clamp(1.9rem, 3.4vw, 2.9rem);
+    font-size: clamp(1.5rem, 2.4vw, 2rem);
     line-height: 1.12;
     letter-spacing: -0.02em;
   }

@@ -6,6 +6,15 @@ import Link from "next/link";
 import { ArrowUpRight, Close } from "@/components/icons";
 import { navigation, site } from "@/lib/site";
 
+/* The three directory tabs, shown inline in the header on wide screens.
+   Contact already has the Say Hello button beside them, and Sign in stays in
+   the menu. */
+const primaryLinks = navigation.flatMap((item) =>
+  item.href && item.href !== "/contact" && item.href !== "/sign-in"
+    ? [{ label: item.label, href: item.href }]
+    : [],
+);
+
 /**
  * Page header plus the full-screen menu overlay.
  *
@@ -143,16 +152,34 @@ export function SiteHeader() {
             />
             {/* Screen readers keep the wordmark at every width — it is the only
                 accessible name this link has, and the logo is decorative. */}
-            <span className="sr-only text-lg font-medium sm:not-sr-only sm:inline">
+            <span className="sr-only font-display text-lg sm:not-sr-only sm:inline">
               {site.name}
               <span className="text-t-muted"> | {site.caption}</span>
             </span>
           </Link>
 
+          {/* Inline nav on wide screens, as Xhibiter's header has. The overlay
+              stays the way in once the header has scrolled away, and the only
+              way in below `xl`. */}
+          <nav aria-label="Primary" className="hidden xl:block">
+            <ul className="flex items-center gap-1">
+              {primaryLinks.map((item) => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className="px-4 py-2 font-display text-base text-t-bright transition-colors hover:text-ink"
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
           <div className="flex items-center gap-3">
             <Link
               href="/contact"
-              className="inline-flex h-11 items-center gap-2 rounded-full border border-stroke-strong px-5 text-sm font-medium transition-colors hover:bg-ink hover:text-t-invert"
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-ink px-6 text-sm font-semibold text-t-invert shadow-xh-accent-volume transition-colors hover:bg-ink-tint"
             >
               Say Hello
               <ArrowUpRight className="size-4" />
@@ -176,7 +203,7 @@ export function SiteHeader() {
             aria-expanded={open}
             aria-controls="site-menu"
             aria-label={open ? "Close menu" : "Open menu"}
-            className="pointer-events-auto grid size-11 place-items-center rounded-full bg-ink text-t-invert transition-colors hover:bg-ink-tint"
+            className="pointer-events-auto grid size-11 place-items-center rounded-full border border-stroke bg-surface text-t-bright shadow-sm transition-colors hover:border-transparent hover:bg-ink hover:text-t-invert"
           >
             {open ? (
               <Close className="size-5" />
@@ -212,7 +239,7 @@ export function SiteHeader() {
                     <Link
                       href={group.href}
                       onClick={close}
-                      className="display-3 font-display transition-colors hover:text-t-muted"
+                      className="display-3 font-display transition-colors hover:text-ink"
                     >
                       {group.label}
                     </Link>
@@ -225,7 +252,7 @@ export function SiteHeader() {
                             <Link
                               href={item.href}
                               onClick={close}
-                              className="text-base text-t-muted transition-colors hover:text-t-bright"
+                              className="text-base text-t-muted transition-colors hover:text-ink"
                             >
                               {item.label}
                             </Link>

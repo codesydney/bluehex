@@ -20,8 +20,8 @@ import { site } from "@/lib/site";
    transform rather than a runtime module, so importing the layout under Vitest
    throws without this. Only `variable` is read by the layout. */
 vi.mock("next/font/google", () => ({
-  Funnel_Display: () => ({ variable: "--font-funnel-display" }),
-  Funnel_Sans: () => ({ variable: "--font-funnel-sans" }),
+  Cal_Sans: () => ({ variable: "--font-cal-sans" }),
+  DM_Sans: () => ({ variable: "--font-dm-sans" }),
 }));
 
 const { metadata } = await import("./layout");
