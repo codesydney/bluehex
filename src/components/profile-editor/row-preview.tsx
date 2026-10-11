@@ -38,7 +38,7 @@ export function RowPreview({
   controlled: BluehexControlled;
 }) {
   return (
-    <div className="rounded-card bg-surface p-6">
+    <div className="rounded-card border border-stroke bg-surface p-6">
       <div className="flex flex-col gap-5">
         <div className="min-w-0">
           <p className={`font-medium break-words ${person.name === "" ? "text-t-faint italic" : ""}`}>

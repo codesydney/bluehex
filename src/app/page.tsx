@@ -1,6 +1,6 @@
 import { AgentDirectory } from "@/components/agent-directory";
 import { Collaborators } from "@/components/collaborators";
-import { Button, SectionLabel } from "@/components/ui";
+import { Button, Hero } from "@/components/ui";
 import { agents } from "@/lib/agents";
 import { site } from "@/lib/site";
 
@@ -16,31 +16,23 @@ import { site } from "@/lib/site";
 export default function HomePage() {
   return (
     <>
-      {/* ---------------------------------------------------------------- */}
-      {/* Hero                                                             */}
-      {/* ---------------------------------------------------------------- */}
-      <section className="container-x pt-36 pb-20 md:pt-48 md:pb-28">
-        <SectionLabel>Agent Exchange</SectionLabel>
-
-        <h1 className="display-1 mt-8 max-w-6xl">Agent Exchange.</h1>
-
-        <p className="mt-10 max-w-2xl text-lg text-t-muted md:text-xl">{site.tagline}</p>
-
-        <div className="mt-12 flex flex-wrap gap-4">
-          <Button href="#agents" size="lg">
-            Browse agents
-          </Button>
-          <Button href="/contact" variant="outline" size="lg">
-            List your agent
-          </Button>
-        </div>
-
+      <Hero
+        title="Agent Exchange."
+        lead={site.tagline}
+        actions={
+          <>
+            <Button href="#agents" size="lg">
+              Browse agents
+            </Button>
+            <Button href="/contact" variant="outline" size="lg">
+              List your agent
+            </Button>
+          </>
+        }
+      >
         <Collaborators />
-      </section>
+      </Hero>
 
-      {/* ---------------------------------------------------------------- */}
-      {/* Agent directory — search, filters, listings                      */}
-      {/* ---------------------------------------------------------------- */}
       <AgentDirectory agents={agents} />
     </>
   );

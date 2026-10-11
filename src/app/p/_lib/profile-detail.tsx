@@ -120,9 +120,9 @@ export function ProfileDetail({
   };
 
   return (
-    /* A white card, because `bg-page` is a warm off-white and body copy at
-       `text-t-muted` on it reads as grey on grey. */
-    <article className="mx-auto max-w-3xl rounded-card bg-surface p-8 md:p-12">
+    /* A bordered white card, so the profile reads as one panel over the
+       gradient behind the top of the page. */
+    <article className="mx-auto max-w-3xl rounded-card border border-stroke bg-surface p-8 md:p-12">
       <div className="flex flex-wrap items-center gap-3">
         {badged ? (
           <p className="inline-flex items-center gap-2 rounded-full bg-ink px-4 py-1.5 text-sm font-medium text-t-invert">

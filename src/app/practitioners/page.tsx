@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Collaborators } from "@/components/collaborators";
 import { PractitionerDirectory } from "@/components/practitioner-directory";
-import { Button, SectionLabel } from "@/components/ui";
+import { Button, Hero } from "@/components/ui";
 import { listCredentialCatalogue, listProfiles, listServiceOptions } from "@/lib/directory";
 
 /**
@@ -73,29 +73,23 @@ export default async function PractitionersPage() {
 
   return (
     <>
-      {/* ---------------------------------------------------------------- */}
-      {/* Hero                                                             */}
-      {/* ---------------------------------------------------------------- */}
-      <section className="container-x pt-36 pb-20 md:pt-48 md:pb-28">
-        <SectionLabel>Claude and Anthropic specialists</SectionLabel>
-
-        <h1 className="display-1 mt-8 max-w-6xl">Claude Specialists.</h1>
-
-        <p className="mt-10 max-w-2xl text-lg text-t-muted md:text-xl">
-          Claude practitioners from the Code.Sydney community. Find one, hire one.
-        </p>
-
-        <div className="mt-12 flex flex-wrap gap-4">
-          <Button href="#practitioners" size="lg">
-            Find a practitioner
-          </Button>
-          <Button href="/contact" variant="outline" size="lg">
-            Publish your profile
-          </Button>
-        </div>
-
+      <Hero
+        label="Claude and Anthropic specialists"
+        title="Claude Specialists."
+        lead="Claude practitioners from the Code.Sydney community. Find one, hire one."
+        actions={
+          <>
+            <Button href="#practitioners" size="lg">
+              Find a practitioner
+            </Button>
+            <Button href="/contact" variant="outline" size="lg">
+              Publish your profile
+            </Button>
+          </>
+        }
+      >
         <Collaborators />
-      </section>
+      </Hero>
 
       {/* ---------------------------------------------------------------- */}
       {/* Practitioner directory — search, filters, profiles               */}

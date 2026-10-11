@@ -1,18 +1,21 @@
 import type { Metadata } from "next";
-import { Funnel_Display, Funnel_Sans } from "next/font/google";
+import { Cal_Sans, DM_Sans } from "next/font/google";
+import Image from "next/image";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { site } from "@/lib/site";
 import "./globals.css";
 
-const funnelDisplay = Funnel_Display({
-  variable: "--font-funnel-display",
+/* Cal Sans for display, DM Sans for body — the Xhibiter pair. */
+const calSans = Cal_Sans({
+  variable: "--font-cal-sans",
+  weight: "400",
   subsets: ["latin"],
   display: "swap",
 });
 
-const funnelSans = Funnel_Sans({
-  variable: "--font-funnel-sans",
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
   display: "swap",
 });
@@ -49,11 +52,24 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${funnelDisplay.variable} ${funnelSans.variable} h-full antialiased`}
+      className={`${calSans.variable} ${dmSans.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <SiteHeader />
-        <main className="flex-1">{children}</main>
+        <main className="relative isolate flex-1">
+          {/* The Home 2 gradient behind the top of every page, faded out so it
+              never ends on a hard edge. Pages that open with their own gradient
+              band simply cover it. */}
+          <Image
+            src="/img/xhibiter/gradient.jpg"
+            alt=""
+            width={1920}
+            height={900}
+            priority
+            className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[56rem] w-full object-cover object-top [mask-image:linear-gradient(to_bottom,#000_55%,transparent)]"
+          />
+          {children}
+        </main>
         <SiteFooter />
       </body>
     </html>
