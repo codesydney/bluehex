@@ -59,6 +59,9 @@ export type Agent = {
   websiteUrl: string | null;
   githubUrl: string | null;
   demoUrl: string | null;
+  /** A path under `public/`, shown across the top of the card. Decorative —
+      the card's heading already names the agent. */
+  imageUrl: string | null;
 };
 
 /** `agent_categories_cap`'s eventual equivalent, if this ever becomes a
@@ -75,4 +78,22 @@ export function primaryLink(agent: Pick<Agent, "demoUrl" | "websiteUrl" | "githu
   return agent.demoUrl ?? agent.websiteUrl ?? agent.githubUrl ?? null;
 }
 
-export const agents: Agent[] = [];
+export const agents: Agent[] = [
+  {
+    id: "bluehex-1",
+    name: "Bluehex-1",
+    tagline: "Document insight agent",
+    description:
+      "Give it a folder of receipts, quotes and invoices and it flags mismatches, duplicates, missing approvals and deadlines, citing the source files for every finding. You approve the AI processing cost upfront, and your files remain yours.",
+    developerName: "Bluehex",
+    developerUrl: null,
+    location: "Sydney",
+    countryCode: "AU",
+    categories: ["Data and analytics", "Productivity"],
+    pricing: "Included in Code.Sydney hypercare",
+    websiteUrl: null,
+    githubUrl: null,
+    demoUrl: null,
+    imageUrl: "/img/agents/bluehex-1.jpg",
+  },
+];
