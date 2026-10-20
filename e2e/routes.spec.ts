@@ -72,17 +72,17 @@ test("an empty practitioner directory renders the invitation rather than nothing
 });
 
 /**
- * The Agent Exchange roster, which unlike the practitioner directory is never
- * anything but empty until an agent clears manual review — see `@/lib/agents`.
- * This is the state production actually ships #157 in, and it is the only
- * state this suite can assert, since there is no database to seed.
+ * The Agent Exchange roster is hardcoded in `@/lib/agents`, so unlike the
+ * practitioner directory this suite can assert a real listing. The invitation
+ * card stays beneath it whenever no filter is applied.
  */
-test("an empty agent directory renders the invitation rather than nothing", async ({ page }) => {
+test("the agent directory lists Bluehex-1 above the invitation", async ({ page }) => {
   await page.goto("/#agents");
 
-  await expect(page.getByText("The first agents are being reviewed now.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Bluehex-1" })).toBeVisible();
+  await expect(page.getByText("1 agent", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Enquire about Bluehex-1" })).toHaveAttribute("href", "/contact");
   await expect(page.getByText("Your agent here")).toBeVisible();
-  await expect(page.getByRole("link", { name: /^Visit/ })).toHaveCount(0);
 });
 
 /**

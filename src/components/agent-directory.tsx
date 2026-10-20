@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
 import { useId, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, Close, Search, Sparkle } from "@/components/icons";
+import { ArrowRight, ArrowUpRight, Close, Search, Sparkle } from "@/components/icons";
 import { GradientBand } from "@/components/ui";
 import { categories as categoryOptions, primaryLink, type Agent, type Category } from "@/lib/agents";
 import { countryName } from "@/lib/practitioners";
@@ -112,9 +114,8 @@ export function AgentDirectory({ agents }: { agents: Agent[] }) {
         </h2>
 
         <p className="mx-auto max-w-2xl text-center">
-          Every listing here was built by an indie developer and reviewed by Bluehex before it
-          went live — there is no self-service publishing yet, so what you see is the whole
-          roster.
+          Every listing here was reviewed by Bluehex before it went live — there is no
+          self-service publishing yet, so what you see is the whole roster.
         </p>
 
         {/* Search ----------------------------------------------------- */}
@@ -281,13 +282,27 @@ function AgentCard({ agent }: { agent: Agent }) {
 
   return (
     <article className="flex h-full flex-col rounded-card border border-stroke bg-white p-7 transition-shadow hover:shadow-lg">
+      {agent.imageUrl ? (
+        <Image
+          src={agent.imageUrl}
+          alt=""
+          width={1000}
+          height={1000}
+          sizes="(min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw"
+          className="mb-6 aspect-square w-full rounded-[0.625rem] object-cover"
+        />
+      ) : null}
+
       <div className="flex items-start gap-4">
-        <span
-          aria-hidden="true"
-          className="grid size-12 shrink-0 place-items-center rounded-[0.625rem] bg-ink font-display text-lg text-white"
-        >
-          {agent.name.charAt(0).toUpperCase()}
-        </span>
+        {/* The initial stands in for a picture, so a card that has one drops it. */}
+        {agent.imageUrl ? null : (
+          <span
+            aria-hidden="true"
+            className="grid size-12 shrink-0 place-items-center rounded-[0.625rem] bg-ink font-display text-lg text-white"
+          >
+            {agent.name.charAt(0).toUpperCase()}
+          </span>
+        )}
         <div className="min-w-0">
           <h3 className="font-display text-lg leading-tight wrap-break-word text-t-bright">
             {agent.name}
@@ -323,9 +338,12 @@ function AgentCard({ agent }: { agent: Agent }) {
       <div className="mt-auto flex items-center justify-between gap-4 pt-6">
         <span className="text-sm">{agent.pricing ?? ""}</span>
 
-        {/* One call to action per card, an external link rather than a `Link` —
-            there is no `/agent/<id>` page yet, so the card sends a visitor
-            straight to the agent's own site. See `primaryLink`. */}
+        {/* One call to action per card. An external link rather than a `Link`
+            when the agent has published one — there is no `/agent/<id>` page
+            yet, so the card sends a visitor straight to the agent's own site.
+            See `primaryLink`. An agent with none, such as Bluehex-1, which is
+            offered to existing customers rather than sold from a site, sends
+            the visitor to Contact instead, so no card is a dead end. */}
         {link ? (
           <a
             href={link}
@@ -337,7 +355,16 @@ function AgentCard({ agent }: { agent: Agent }) {
             <span className="sr-only"> {agent.name}, opens in a new tab</span>
             <ArrowUpRight className="size-3.5" />
           </a>
-        ) : null}
+        ) : (
+          <Link
+            href="/contact"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ink px-5 py-2 text-sm font-semibold text-white shadow-xh-accent-volume transition-all hover:bg-ink-tint"
+          >
+            Enquire
+            <span className="sr-only"> about {agent.name}</span>
+            <ArrowRight className="size-3.5" />
+          </Link>
+        )}
       </div>
     </article>
   );
